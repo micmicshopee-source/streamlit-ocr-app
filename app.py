@@ -215,7 +215,8 @@ def process_ocr(image_obj, file_name, model_name, api_key_val):
     except Exception as e: return None, f"系統錯誤: {str(e)}"
 
 # --- 4. 介面渲染 ---
-DEFAULT_KEY = "AIzaSyBe4HixC1ImmO5NtJnhjrCKl62J0_ntUGQ"
+# 這裡不再硬編碼 Key，防止洩漏。預設為空，強迫使用 Secrets 或手動輸入。
+DEFAULT_KEY = "" 
 
 with st.sidebar:
     st.title("⚙️ 系統狀態")
@@ -227,7 +228,8 @@ with st.sidebar:
         api_key = st.secrets["GEMINI_API_KEY"]
     else:
         api_key = st.text_input("Gemini API Key", DEFAULT_KEY, type="password")
-        st.caption("建議在 Streamlit Secrets 設定 GEMINI_API_KEY")
+        if not api_key:
+            st.warning("請輸入 API Key 或設定 Secrets")
 
     model = st.selectbox("辨識模型", ["gemini-2.0-flash", "gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro"])
     
