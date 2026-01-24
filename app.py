@@ -233,11 +233,14 @@ with st.sidebar:
     
     st.divider()
     # 這裡會觸發 run_query，若沒表會自動建表
+    
+    st.info(f"當前模式: {st.session_state.get('db_mode', '未知')}")
+    
     db_count_df = run_query("SELECT count(*) as count FROM invoices WHERE user_id = ?", (user,))
     if not db_count_df.empty:
         st.success(f"📊 已存數據: {db_count_df['count'][0]} 筆")
     
-    if st.button("🗑️ 清空暫存資料庫"):
+    if st.button("🗑️ 清空暫存資料庫 (僅 SQLite)"):
         try:
             os.remove("invoices.db")
             st.success("已清除！")
