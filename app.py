@@ -392,6 +392,9 @@ if "authenticated" not in st.session_state: st.session_state.authenticated = Fal
 if "user_email" not in st.session_state: st.session_state.user_email = None
 # 刪除確認狀態（修復 Bug #2）
 if "show_delete_confirm" not in st.session_state: st.session_state.show_delete_confirm = False
+# 公司資訊（用於 PDF 導出）
+if "company_name" not in st.session_state: st.session_state.company_name = ""
+if "company_ubn" not in st.session_state: st.session_state.company_ubn = ""
 
 # --- 1.4. 密碼哈希函數 ---
 def hash_password(password: str) -> str:
@@ -1854,6 +1857,25 @@ with st.container():
                         safe_cell(pdf, 0, 5, f'Generated: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}', ln=1, align='R')
                     pdf.ln(5)
                     
+                    # 核心邏輯：增加公司資訊
+                    if font_loaded:
+                        pdf.set_font(font_name, '', 10)
+                        company_name = st.session_state.get('company_name', '')
+                        company_ubn = st.session_state.get('company_ubn', '')
+                        if company_name:
+                            safe_cell(pdf, 200, 10, txt=f"報支公司：{company_name}", ln=1)
+                        if company_ubn:
+                            safe_cell(pdf, 200, 10, txt=f"公司統編：{company_ubn}", ln=1)
+                    else:
+                        pdf.set_font('Arial', '', 10)
+                        company_name = st.session_state.get('company_name', '')
+                        company_ubn = st.session_state.get('company_ubn', '')
+                        if company_name:
+                            safe_cell(pdf, 200, 10, txt=f"Company: {company_name}", ln=1)
+                        if company_ubn:
+                            safe_cell(pdf, 200, 10, txt=f"UBN: {company_ubn}", ln=1)
+                    pdf.ln(5)
+                    
                     # 統計摘要
                     if font_loaded:
                         pdf.set_font(font_name, 'B', 12)
@@ -1877,15 +1899,16 @@ with st.container():
                         safe_cell(pdf, 90, 6, f"{len(export_df_for_stats)} 筆", 1, ln=1)
                     pdf.ln(5)
                     
-                    # 詳細數據表格
+                    # 詳細數據表格 - 修改表格 Header
                     export_df = df.copy()
-                    col_widths = [20, 30, 35, 50, 30, 25]
+                    # 調整列寬以適應新的列：日期、發票號碼、賣方統編、未稅金額、稅額、總計、備註
+                    col_widths = [25, 30, 30, 30, 25, 25, 25]
                     if font_loaded:
                         pdf.set_font(font_name, 'B', 10)
-                        headers = ['狀態', '日期', '發票號碼', '賣方名稱', '總計', '類型']
+                        headers = ["日期", "發票號碼", "賣方統編", "未稅金額", "稅額", "總計", "備註"]
                     else:
                         pdf.set_font('Arial', 'B', 10)
-                        headers = ['Status', 'Date', 'Invoice No', 'Seller', 'Total', 'Type']
+                        headers = ["Date", "Invoice No", "Seller UBN", "Net Amount", "Tax", "Total", "Note"]
                     
                     for i, header in enumerate(headers):
                         safe_cell(pdf, col_widths[i], 7, header, 1, align='C')
@@ -1901,23 +1924,39 @@ with st.container():
                             return default
                         return str(val)
                     
+                    # 每一行數據自動計算
                     for _, row in export_df.iterrows():
-                        status = pdf_safe_value(row.get('狀態', ''), '❌ 缺失')[:10]
+                        # 獲取總計
+                        total_val = pd.to_numeric(row.get('總計', 0), errors='coerce')
+                        if pd.isna(total_val) or total_val == 0:
+                            total_val = 0
+                            tax = 0
+                            net_amount = 0
+                        else:
+                            # 計算稅額：round(total - (total / 1.05))
+                            tax = round(total_val - (total_val / 1.05))
+                            # 計算未稅金額：total - tax
+                            net_amount = total_val - tax
+                        
+                        # 獲取其他字段
                         date_str = pdf_safe_value(row.get('日期', ''), 'No')[:10]
                         invoice_no = pdf_safe_value(row.get('發票號碼', ''), 'No')[:15]
-                        seller = pdf_safe_value(row.get('賣方名稱', ''), 'No')[:20]
-                        total_val = pd.to_numeric(row.get('總計', 0), errors='coerce')
-                        if pd.isna(total_val):
-                            total_val = 0
-                        total = f"${total_val:,.0f}"
-                        category = pdf_safe_value(row.get('類型', ''), 'No')[:10]
+                        seller_ubn = pdf_safe_value(row.get('賣方統編', ''), 'No')[:15]
+                        note = pdf_safe_value(row.get('備註', '') or row.get('會計科目', '') or row.get('類型', ''), '')[:15]
                         
-                        safe_cell(pdf, col_widths[0], 6, status, 1)
-                        safe_cell(pdf, col_widths[1], 6, date_str, 1)
-                        safe_cell(pdf, col_widths[2], 6, invoice_no, 1)
-                        safe_cell(pdf, col_widths[3], 6, seller, 1)
-                        safe_cell(pdf, col_widths[4], 6, total, 1, align='R')
-                        safe_cell(pdf, col_widths[5], 6, category, 1, ln=1)
+                        # 格式化金額
+                        net_amount_str = f"${net_amount:,.0f}"
+                        tax_str = f"${tax:,.0f}"
+                        total_str = f"${total_val:,.0f}"
+                        
+                        # 寫入 PDF
+                        safe_cell(pdf, col_widths[0], 6, date_str, 1)
+                        safe_cell(pdf, col_widths[1], 6, invoice_no, 1)
+                        safe_cell(pdf, col_widths[2], 6, seller_ubn, 1)
+                        safe_cell(pdf, col_widths[3], 6, net_amount_str, 1, align='R')
+                        safe_cell(pdf, col_widths[4], 6, tax_str, 1, align='R')
+                        safe_cell(pdf, col_widths[5], 6, total_str, 1, align='R')
+                        safe_cell(pdf, col_widths[6], 6, note, 1, ln=1)
                         
                         if pdf.get_y() > 270:
                             pdf.add_page()
