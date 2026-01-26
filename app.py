@@ -1645,17 +1645,19 @@ with st.container():
                         height=chart_height,
                         background='#2F2F2F'
                     ).configure_legend(
-                        labelFontSize=9,
-                        titleFontSize=10,
+                        labelFontSize=14,
+                        titleFontSize=14,
                         labelColor='#E0E0E0',
                         titleColor='#FFFFFF'
                     ).configure_axis(
-                        labelFontSize=9,
-                        titleFontSize=10,
+                        labelFontSize=14,
+                        titleFontSize=0,
                         labelColor='#E0E0E0',
                         titleColor='#FFFFFF',
                         gridColor='#3F3F3F',
                         domainColor='#5F5F5F'
+                    ).configure_text(
+                        fontSize=14
                     )
                     st.altair_chart(chart, use_container_width=True, theme='streamlit')
                 else:
@@ -1695,22 +1697,27 @@ with st.container():
                     # 使用参考图片的颜色（绿色线条）
                     line_chart = alt.Chart(df_line_grouped).mark_line(
                         point=True, 
-                        strokeWidth=2.5,
+                        strokeWidth=3,
                         color='#34A853'  # 绿色，参考图片
                     ).encode(
-                        x=alt.X('日期:T', title='日期', axis=alt.Axis(format='%Y/%m/%d')),
-                        y=alt.Y('總計:Q', title='金額 ($)', axis=alt.Axis(format='$,.0f')),
-                        tooltip=[alt.Tooltip('日期:T', format='%Y/%m/%d'), alt.Tooltip('總計:Q', format='$,.0f')]
+                        x=alt.X('日期:T', title='', axis=alt.Axis(format='%Y/%m/%d')),
+                        y=alt.Y('總計:Q', title='', axis=alt.Axis(format='$,.0f')),
+                        tooltip=[alt.Tooltip('日期:T', format='%Y/%m/%d', title='日期'), alt.Tooltip('總計:Q', format='$,.0f', title='金額')]
                     ).properties(
                         height=chart_height,
                         background='#2F2F2F'
                     ).configure_axis(
-                        labelFontSize=9,
-                        titleFontSize=10,
+                        labelFontSize=14,
+                        titleFontSize=0,
                         labelColor='#E0E0E0',
                         titleColor='#FFFFFF',
                         gridColor='#3F3F3F',
                         domainColor='#5F5F5F'
+                    ).configure_text(
+                        fontSize=14
+                    ).configure_legend(
+                        labelFontSize=14,
+                        titleFontSize=14
                     )
                     st.altair_chart(line_chart, use_container_width=True, theme='streamlit')
                 else:
@@ -1733,19 +1740,24 @@ with st.container():
                         cornerRadiusTopLeft=2,
                         cornerRadiusTopRight=2
                     ).encode(
-                        x=alt.X('類型:N', title='類型', sort='-y', axis=alt.Axis(labelAngle=-45)),
-                        y=alt.Y('數量:Q', title='數量'),
-                        tooltip=['類型', '數量']
+                        x=alt.X('類型:N', title='', sort='-y', axis=alt.Axis(labelAngle=-45)),
+                        y=alt.Y('數量:Q', title=''),
+                        tooltip=[alt.Tooltip('類型:N', title='類型'), alt.Tooltip('數量:Q', title='數量')]
                     ).properties(
                         height=chart_height,
                         background='#2F2F2F'
                     ).configure_axis(
-                        labelFontSize=9,
-                        titleFontSize=10,
+                        labelFontSize=14,
+                        titleFontSize=0,
                         labelColor='#E0E0E0',
                         titleColor='#FFFFFF',
                         gridColor='#3F3F3F',
                         domainColor='#5F5F5F'
+                    ).configure_text(
+                        fontSize=14
+                    ).configure_legend(
+                        labelFontSize=14,
+                        titleFontSize=14
                     )
                     st.altair_chart(bar_chart, use_container_width=True, theme='streamlit')
                 else:
