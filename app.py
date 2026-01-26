@@ -2163,85 +2163,73 @@ with st.container():
         if '_original_index' in df.columns:
             df = df.drop(columns=['_original_index'])
         if st.session_state.get("show_delete_confirm", False):
-            delete_ids = st.session_state.get("delete_ids", [])
+            delete_records = st.session_state.get("delete_records", [])
             delete_count = st.session_state.get("delete_count", 0)
             
             with st.dialog("⚠️ 確認刪除"):
                 st.warning(f"確定要刪除選中的 {delete_count} 條數據嗎？")
                 st.error("⚠️ 此操作不可恢復！")
                 
-                # 顯示要刪除的記錄預覽（顯示發票號碼和日期，而不是ID）
-                if delete_ids:
-                    # 從數據庫中查詢要刪除的記錄信息
-                    try:
-                        path = get_db_path()
-                        is_uri = path.startswith("file:") and "mode=memory" in path
-                        conn = sqlite3.connect(path, timeout=30, uri=is_uri, check_same_thread=False)
-                        cursor = conn.cursor()
-                        
-                        placeholders = ','.join(['?'] * len(delete_ids))
-                        query = f"SELECT invoice_number, date FROM invoices WHERE user_email=? AND id IN ({placeholders})"
-                        params = [st.session_state.get('user_email', 'default_user')] + delete_ids
-                        
-                        cursor.execute(query, params)
-                        preview_records = cursor.fetchall()
-                        conn.close()
-                        
-                        if preview_records:
-                            with st.expander("查看要刪除的記錄", expanded=False):
-                                preview_data = [{"發票號碼": rec[0], "日期": rec[1]} for rec in preview_records]
-                                preview_df = pd.DataFrame(preview_data)
-                                st.dataframe(preview_df, use_container_width=True, hide_index=True)
-                    except Exception as e:
-                        # 如果查詢失敗，不顯示預覽
-                        pass
+                # 顯示要刪除的記錄預覽（顯示發票號碼和日期）
+                if delete_records:
+                    with st.expander("查看要刪除的記錄", expanded=False):
+                        preview_df = pd.DataFrame(delete_records)
+                        st.dataframe(preview_df, use_container_width=True, hide_index=True)
                 
                 col1, col2 = st.columns(2)
                 with col1:
                     if st.button("✅ 確認刪除", type="primary", use_container_width=True):
-                        # 執行刪除：直接使用ID刪除（最可靠的方式）
+                        # 執行刪除：使用發票號碼+日期+用戶郵箱組合刪除（最可靠的方式）
                         user_email = st.session_state.get('user_email', 'default_user')
                         deleted_count = 0
                         errors = []
                         
                         if st.session_state.use_memory_mode:
-                            # 內存模式：從列表中刪除（使用ID）
+                            # 內存模式：從列表中刪除（使用發票號碼+日期）
                             original_count = len(st.session_state.local_invoices)
                             st.session_state.local_invoices = [
                                 inv for inv in st.session_state.local_invoices 
-                                if inv.get('id') not in delete_ids or inv.get('user_email', inv.get('user_id', 'default_user')) != user_email
+                                if not any(
+                                    str(inv.get('invoice_number', '')).strip() == rec['invoice_number'] and
+                                    str(inv.get('date', '')).strip() == rec['date'] and
+                                    inv.get('user_email', inv.get('user_id', 'default_user')) == user_email
+                                    for rec in delete_records
+                                )
                             ]
                             deleted_count = original_count - len(st.session_state.local_invoices)
                         else:
-                            # 數據庫模式：直接使用ID刪除（最可靠）
+                            # 數據庫模式：使用發票號碼+日期+用戶郵箱組合刪除（最可靠）
                             try:
                                 path = get_db_path()
                                 is_uri = path.startswith("file:") and "mode=memory" in path
                                 conn = sqlite3.connect(path, timeout=30, uri=is_uri, check_same_thread=False)
                                 cursor = conn.cursor()
                                 
-                                # 構建IN查詢：DELETE FROM invoices WHERE user_email=? AND id IN (?, ?, ...)
-                                placeholders = ','.join(['?'] * len(delete_ids))
-                                query = f"DELETE FROM invoices WHERE user_email=? AND id IN ({placeholders})"
-                                params = [user_email] + delete_ids
+                                # 逐條刪除（使用發票號碼+日期+用戶郵箱）
+                                for rec in delete_records:
+                                    try:
+                                        cursor.execute(
+                                            "DELETE FROM invoices WHERE user_email=? AND invoice_number=? AND date=?",
+                                            (user_email, rec['invoice_number'], rec['date'])
+                                        )
+                                        if cursor.rowcount > 0:
+                                            deleted_count += cursor.rowcount
+                                    except Exception as e:
+                                        errors.append(f"刪除失敗（發票號碼: {rec['invoice_number']}, 日期: {rec['date']}）: {str(e)}")
                                 
-                                cursor.execute(query, params)
-                                rows_deleted = cursor.rowcount
                                 conn.commit()
                                 conn.close()
                                 
-                                deleted_count = rows_deleted
-                                
-                                if deleted_count == 0:
-                                    errors.append("未找到要刪除的記錄，可能已被刪除或ID不匹配")
+                                if deleted_count == 0 and not errors:
+                                    errors.append("未找到要刪除的記錄，可能已被刪除或數據不匹配")
                                     
                             except Exception as e:
                                 errors.append(f"刪除失敗: {str(e)}")
                         
                         # 清理狀態
                         st.session_state.show_delete_confirm = False
-                        if "delete_ids" in st.session_state:
-                            del st.session_state.delete_ids
+                        if "delete_records" in st.session_state:
+                            del st.session_state.delete_records
                         if "delete_count" in st.session_state:
                             del st.session_state.delete_count
                         
@@ -2261,8 +2249,8 @@ with st.container():
                     if st.button("❌ 取消", use_container_width=True):
                         # 取消刪除，清理狀態
                         st.session_state.show_delete_confirm = False
-                        if "delete_ids" in st.session_state:
-                            del st.session_state.delete_ids
+                        if "delete_records" in st.session_state:
+                            del st.session_state.delete_records
                         if "delete_count" in st.session_state:
                             del st.session_state.delete_count
                         st.rerun()
@@ -2330,41 +2318,48 @@ with st.container():
         
         df["選取"] = ed_df["選取"]
         
-        # 刪除功能：直接使用數據庫ID進行刪除（最可靠的方式）
-        # 從編輯後的數據中獲取選中的行和ID
+        # 刪除功能：使用發票號碼+日期+用戶郵箱組合刪除（最可靠的方式，不依賴ID列）
         if st.button("🗑️ 刪除選中數據", help="刪除已選中的數據（請先勾選要刪除的記錄）"):
             selected_rows = ed_df[ed_df["選取"]==True]
             if len(selected_rows) > 0:
-                # 收集要刪除的記錄ID
-                ids_to_delete = []
+                # 收集要刪除的記錄信息（使用發票號碼+日期）
+                records_to_delete = []
                 user_email = st.session_state.get('user_email', 'default_user')
                 
                 for idx, row in selected_rows.iterrows():
-                    # 從ed_df中獲取id（如果存在）
-                    record_id = row.get('id')
-                    if record_id is not None and not pd.isna(record_id):
+                    invoice_number = str(row.get('發票號碼', '')).strip()
+                    date = str(row.get('日期', '')).strip()
+                    
+                    # 清理數據：移除可能的格式字符和"No"值
+                    invoice_number = invoice_number.replace('No', '').replace('N/A', '').strip()
+                    date = date.replace('No', '').replace('N/A', '').strip()
+                    
+                    # 如果日期是日期類型，轉換為字符串
+                    if hasattr(date, 'strftime'):
                         try:
-                            record_id = int(record_id)
-                            ids_to_delete.append(record_id)
-                        except (ValueError, TypeError):
+                            date = date.strftime("%Y/%m/%d")
+                        except:
                             pass
-                    # 如果ed_df中沒有id，嘗試從df_with_id中獲取
-                    elif df_with_id is not None and idx in df_with_id.index and 'id' in df_with_id.columns:
-                        record_id = df_with_id.loc[idx, 'id']
-                        if record_id is not None and not pd.isna(record_id):
-                            try:
-                                ids_to_delete.append(int(record_id))
-                            except (ValueError, TypeError):
-                                pass
+                    
+                    if invoice_number and date and invoice_number != '' and date != '':
+                        records_to_delete.append({
+                            'invoice_number': invoice_number,
+                            'date': date
+                        })
                 
-                if ids_to_delete:
+                if records_to_delete:
                     # 顯示刪除確認對話框
                     st.session_state.show_delete_confirm = True
-                    st.session_state.delete_ids = ids_to_delete
-                    st.session_state.delete_count = len(ids_to_delete)
+                    st.session_state.delete_records = records_to_delete
+                    st.session_state.delete_count = len(records_to_delete)
                     st.rerun()
                 else:
-                    st.warning("⚠️ 無法確定要刪除的記錄（缺少ID信息）。請確保數據已正確加載。")
+                    st.warning("⚠️ 無法確定要刪除的記錄（缺少發票號碼或日期信息）。請確保數據已正確加載。")
+                    # 調試信息
+                    with st.expander("🔍 調試信息", expanded=False):
+                        st.write("選中的行數:", len(selected_rows))
+                        st.write("選中的行數據:")
+                        st.dataframe(selected_rows[['發票號碼', '日期']] if '發票號碼' in selected_rows.columns and '日期' in selected_rows.columns else selected_rows)
             else:
                 st.info("💡 請先勾選要刪除的數據（使用左側的選取框）")
         
