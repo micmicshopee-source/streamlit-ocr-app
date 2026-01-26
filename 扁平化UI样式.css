@@ -1,0 +1,185 @@
+/* 扁平化设计样式 - 简洁现代 */
+
+:root {
+    --primary: #4285F4;
+    --surface: #1E1E1E;
+    --surface-variant: #2D2D2D;
+    --on-surface: #FFFFFF;
+    --on-surface-variant: #C4C4C4;
+    --outline: #3D3D3D;
+}
+
+/* 基础样式 - 扁平化 */
+.stApp {
+    background-color: var(--surface) !important;
+    color: var(--on-surface) !important;
+}
+
+[data-testid="stSidebar"] {
+    background-color: var(--surface-variant) !important;
+    border-right: 1px solid var(--outline) !important;
+}
+
+.main .block-container {
+    background-color: var(--surface) !important;
+    padding: 1.5rem !important;
+}
+
+/* 标题 - 扁平化 */
+h1, h2, h3, h4, h5, h6 {
+    color: var(--on-surface) !important;
+    font-weight: 600 !important;
+    margin: 0.5rem 0 !important;
+}
+
+/* 按钮 - 扁平化 */
+.stButton > button[kind="primary"] {
+    background-color: var(--primary) !important;
+    color: #FFFFFF !important;
+    border: none !important;
+    border-radius: 4px !important;
+    padding: 8px 16px !important;
+    font-weight: 500 !important;
+}
+
+.stButton > button[kind="primary"]:hover {
+    background-color: #1967D2 !important;
+}
+
+.stButton > button:not([kind="primary"]) {
+    background-color: var(--surface-variant) !important;
+    color: var(--on-surface) !important;
+    border: 1px solid var(--outline) !important;
+    border-radius: 4px !important;
+    padding: 8px 16px !important;
+}
+
+.stButton > button:not([kind="primary"]):hover {
+    background-color: #3D3D3D !important;
+}
+
+/* 输入框 - 扁平化 */
+.stTextInput > div > div > input {
+    background-color: var(--surface-variant) !important;
+    color: var(--on-surface) !important;
+    border: 1px solid var(--outline) !important;
+    border-radius: 4px !important;
+    padding: 8px 12px !important;
+}
+
+.stTextInput > div > div > input:focus {
+    border-color: var(--primary) !important;
+    outline: none !important;
+}
+
+/* 选择框 - 扁平化 */
+.stSelectbox > div > div {
+    background-color: var(--surface-variant) !important;
+    color: var(--on-surface) !important;
+    border: 1px solid var(--outline) !important;
+    border-radius: 4px !important;
+}
+
+/* 表格 - 扁平化 */
+.stDataFrame {
+    background-color: var(--surface-variant) !important;
+    border: 1px solid var(--outline) !important;
+    border-radius: 4px !important;
+}
+
+.stDataFrame thead th {
+    background-color: var(--surface-variant) !important;
+    color: var(--on-surface) !important;
+    border-bottom: 1px solid var(--outline) !important;
+    padding: 12px !important;
+}
+
+.stDataFrame td {
+    color: var(--on-surface-variant) !important;
+    padding: 12px !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
+}
+
+/* 指标卡片 - 扁平化 */
+[data-testid="stMetricContainer"] {
+    background-color: var(--surface-variant) !important;
+    border: 1px solid var(--outline) !important;
+    border-radius: 4px !important;
+    padding: 1rem !important;
+}
+
+[data-testid="stMetricValue"] {
+    color: var(--on-surface) !important;
+    font-weight: 600 !important;
+}
+
+[data-testid="stMetricLabel"] {
+    color: var(--on-surface-variant) !important;
+}
+
+/* 信息框 - 扁平化 */
+.stSuccess {
+    background-color: rgba(52, 168, 83, 0.1) !important;
+    border-left: 3px solid #34A853 !important;
+    border-radius: 4px !important;
+    padding: 12px !important;
+}
+
+.stWarning {
+    background-color: rgba(251, 188, 4, 0.1) !important;
+    border-left: 3px solid #FBBC04 !important;
+    border-radius: 4px !important;
+    padding: 12px !important;
+}
+
+.stError {
+    background-color: rgba(234, 67, 53, 0.1) !important;
+    border-left: 3px solid #EA4335 !important;
+    border-radius: 4px !important;
+    padding: 12px !important;
+}
+
+.stInfo {
+    background-color: rgba(66, 133, 244, 0.1) !important;
+    border-left: 3px solid var(--primary) !important;
+    border-radius: 4px !important;
+    padding: 12px !important;
+}
+
+/* 单选按钮 - 扁平化 */
+.stRadio > div {
+    background-color: var(--surface-variant) !important;
+    border: 1px solid var(--outline) !important;
+    border-radius: 4px !important;
+    padding: 4px !important;
+}
+
+.stRadio > div > label {
+    color: var(--on-surface-variant) !important;
+    padding: 8px 16px !important;
+    border-radius: 2px !important;
+}
+
+.stRadio > div > label[data-baseweb="radio"] {
+    background-color: var(--primary) !important;
+    color: #FFFFFF !important;
+}
+
+/* 滚动条 - 扁平化 */
+::-webkit-scrollbar {
+    width: 8px !important;
+    height: 8px !important;
+}
+
+::-webkit-scrollbar-track {
+    background: var(--surface-variant) !important;
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--outline) !important;
+    border-radius: 4px !important;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #4D4D4D !important;
+}

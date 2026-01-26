@@ -28,12 +28,24 @@ MANIFEST
 
 # Streamlit
 .streamlit/
+.streamlit/secrets.toml
 
 # Database
 *.db
 *.db-journal
 *.sqlite
 *.sqlite3
+invoices_v2.db
+invoices.db
+
+# Image storage
+invoice_images/
+
+# Test files
+*.test
+*_test.py
+test_*.py
+debug_*.py
 
 # Environment variables
 .env

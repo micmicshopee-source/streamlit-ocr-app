@@ -1,9 +1,26 @@
+# Streamlit 應用框架
 streamlit>=1.28.0
+
+# Google Gemini API
 google-generativeai>=0.3.0
+
+# 圖像處理
 Pillow>=10.0.0
-python-dotenv>=1.0.0
+
+# HTTP 請求
 requests>=2.31.0
+
+# 數據處理
 pandas>=2.0.0
+
+# Excel 文件支持（數據導入）
 openpyxl>=3.1.0
+
+# PDF 導出功能
 fpdf2>=2.7.0
-supabase>=2.3.0
+
+# 圖表生成
+altair>=5.0.0
+
+# 注意：sqlite3 是 Python 內置標準庫，無需在 requirements.txt 中列出
+# 所有 Python 環境（包括雲端部署）都自帶 sqlite3 支持
