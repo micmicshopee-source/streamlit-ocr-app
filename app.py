@@ -388,8 +388,12 @@ if "image_storage_dir" not in st.session_state:
     os.makedirs(st.session_state.image_storage_dir, exist_ok=True)
 if "last_edited_df_hash" not in st.session_state: st.session_state.last_edited_df_hash = None
 # 登錄狀態管理（多用戶版本）
-if "authenticated" not in st.session_state: st.session_state.authenticated = False
-if "user_email" not in st.session_state: st.session_state.user_email = None
+# 注意：Streamlit的session_state在頁面刷新時應該保持（同一瀏覽器會話）
+# 如果刷新後登出，可能是因為瀏覽器會話結束或應用重啟
+if "authenticated" not in st.session_state: 
+    st.session_state.authenticated = False
+if "user_email" not in st.session_state: 
+    st.session_state.user_email = None
 # 刪除確認狀態（修復 Bug #2）
 if "show_delete_confirm" not in st.session_state: st.session_state.show_delete_confirm = False
 # 公司資訊（用於 PDF 導出）
@@ -2166,12 +2170,31 @@ with st.container():
                 st.warning(f"確定要刪除選中的 {delete_count} 條數據嗎？")
                 st.error("⚠️ 此操作不可恢復！")
                 
-                # 顯示要刪除的記錄預覽（使用ID）
+                # 顯示要刪除的記錄預覽（顯示發票號碼和日期，而不是ID）
                 if delete_ids:
-                    with st.expander("查看要刪除的記錄ID", expanded=False):
-                        preview_data = [{"記錄ID": id_val} for id_val in delete_ids]
-                        preview_df = pd.DataFrame(preview_data)
-                        st.dataframe(preview_df, use_container_width=True, hide_index=True)
+                    # 從數據庫中查詢要刪除的記錄信息
+                    try:
+                        path = get_db_path()
+                        is_uri = path.startswith("file:") and "mode=memory" in path
+                        conn = sqlite3.connect(path, timeout=30, uri=is_uri, check_same_thread=False)
+                        cursor = conn.cursor()
+                        
+                        placeholders = ','.join(['?'] * len(delete_ids))
+                        query = f"SELECT invoice_number, date FROM invoices WHERE user_email=? AND id IN ({placeholders})"
+                        params = [st.session_state.get('user_email', 'default_user')] + delete_ids
+                        
+                        cursor.execute(query, params)
+                        preview_records = cursor.fetchall()
+                        conn.close()
+                        
+                        if preview_records:
+                            with st.expander("查看要刪除的記錄", expanded=False):
+                                preview_data = [{"發票號碼": rec[0], "日期": rec[1]} for rec in preview_records]
+                                preview_df = pd.DataFrame(preview_data)
+                                st.dataframe(preview_df, use_container_width=True, hide_index=True)
+                    except Exception as e:
+                        # 如果查詢失敗，不顯示預覽
+                        pass
                 
                 col1, col2 = st.columns(2)
                 with col1:
@@ -2260,8 +2283,11 @@ with st.container():
         df_for_editor = df.copy()
         
         # 確保id列在df_for_editor中（用於刪除功能），但不在column_config中配置（隱藏顯示）
+        # 注意：如果列不在column_config中，Streamlit會自動隱藏它
+        # 但為了確保ID列可用於刪除功能，我們需要確保它在df_for_editor中
         if "id" in df_for_editor.columns:
             # id列保留但不配置，這樣它會隱藏顯示但仍然可用於刪除功能
+            # 不添加id到column_config，這樣它會被隱藏
             pass
         
         if "日期" in df_for_editor.columns:
