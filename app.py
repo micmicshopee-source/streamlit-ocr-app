@@ -1740,7 +1740,7 @@ with st.container():
                         cornerRadiusTopLeft=2,
                         cornerRadiusTopRight=2
                     ).encode(
-                        x=alt.X('類型:N', title='', sort='-y', axis=alt.Axis(labelAngle=-45)),
+                        x=alt.X('類型:N', title='', sort='-y', axis=alt.Axis(labelAngle=0)),
                         y=alt.Y('數量:Q', title=''),
                         tooltip=[alt.Tooltip('類型:N', title='類型'), alt.Tooltip('數量:Q', title='數量')]
                     ).properties(
@@ -2013,10 +2013,18 @@ with st.container():
     # 修復 Bug #3: 在篩選前保存原始索引映射，以便刪除功能正常工作
     # 將df_with_id保存到session_state，確保刪除功能可以訪問
     if 'df_with_id' in locals() and df_with_id is not None:
+        # 創建索引到ID的映射，保存到session_state
+        if 'id' in df_with_id.columns:
+            # 創建一個映射：df的索引 -> id
+            index_to_id_map = {}
+            for idx in df_with_id.index:
+                if idx in df.index:
+                    index_to_id_map[idx] = df_with_id.loc[idx, 'id']
+            st.session_state.index_to_id_map = index_to_id_map
         st.session_state.df_with_id = df_with_id.copy()
     
     if not df.empty and df_with_id is not None:
-        # 保存原始索引到df中（在篩選前）
+        # 保存原始索引到df中（在篩選前），用於刪除功能
         df['_original_index'] = df.index
     
     # 手動在記憶體中篩選（避免 SQL 過於複雜出錯）
@@ -2104,7 +2112,8 @@ with st.container():
                 df = df.drop(columns=[col])
         
         # 確保ID列、user_id列、檔案名稱列和總計列已移除（如果還存在）
-        columns_to_hide = ['id', 'user_id', 'user_email', '檔案名稱', '總計', '_original_index']
+        # 注意：_original_index 需要保留到刪除功能使用後再移除
+        columns_to_hide = ['id', 'user_id', 'user_email', '檔案名稱', '總計']
         for col in columns_to_hide:
             if col in df.columns:
                 # 在移除前，確保df_with_id有這些列（用於刪除功能）
@@ -2133,36 +2142,37 @@ with st.container():
             if len(selected_indices) > 0:
                 # 獲取要刪除的記錄ID
                 ids = []
-                # 確保df_with_id在作用域內
-                if 'df_with_id' not in locals():
-                    # 如果df_with_id不在作用域，嘗試從session_state獲取或重新創建
-                    if 'df_with_id' in st.session_state:
-                        df_with_id = st.session_state.df_with_id
-                    else:
-                        st.warning("⚠️ 無法確定要刪除的記錄ID，請刷新頁面後重試")
-                        st.stop()
                 
-                if df_with_id is not None and 'id' in df_with_id.columns:
-                    # 修復 Bug #3: 使用原始索引映射獲取ID
-                    if '_original_index' in df.columns:
-                        # 使用原始索引獲取ID
-                        try:
-                            original_indices = df.loc[selected_indices, '_original_index'].tolist()
-                            ids = df_with_id.loc[original_indices, "id"].tolist()
-                        except Exception as e:
-                            # 如果索引映射失敗，嘗試直接使用當前索引
-                            try:
-                                ids = df_with_id.loc[selected_indices, "id"].tolist()
-                            except:
-                                st.warning(f"⚠️ 無法確定要刪除的記錄ID: {str(e)}")
-                                st.stop()
-                    else:
-                        # 如果沒有原始索引，直接使用當前索引（未篩選的情況）
-                        try:
-                            ids = df_with_id.loc[selected_indices, "id"].tolist()
-                        except Exception as e:
-                            st.warning(f"⚠️ 無法確定要刪除的記錄ID: {str(e)}")
-                            st.stop()
+                # 方法1: 使用 _original_index 映射（如果存在）
+                if '_original_index' in df.columns:
+                    try:
+                        # 獲取選中行的原始索引
+                        original_indices = df.loc[selected_indices, '_original_index'].tolist()
+                        # 從 session_state 獲取 df_with_id
+                        if 'df_with_id' in st.session_state and st.session_state.df_with_id is not None:
+                            df_with_id = st.session_state.df_with_id
+                            if 'id' in df_with_id.columns:
+                                # 使用原始索引獲取ID
+                                ids = [df_with_id.loc[idx, 'id'] for idx in original_indices if idx in df_with_id.index]
+                    except Exception as e:
+                        st.warning(f"⚠️ 索引映射失敗: {str(e)}")
+                
+                # 方法2: 使用 index_to_id_map（如果方法1失敗）
+                if not ids and 'index_to_id_map' in st.session_state:
+                    try:
+                        ids = [st.session_state.index_to_id_map[idx] for idx in selected_indices if idx in st.session_state.index_to_id_map]
+                    except Exception as e:
+                        st.warning(f"⚠️ 映射查找失敗: {str(e)}")
+                
+                # 方法3: 直接從 session_state.df_with_id 獲取（最後嘗試）
+                if not ids and 'df_with_id' in st.session_state and st.session_state.df_with_id is not None:
+                    try:
+                        df_with_id = st.session_state.df_with_id
+                        if 'id' in df_with_id.columns:
+                            # 嘗試直接使用當前索引
+                            ids = [df_with_id.loc[idx, 'id'] for idx in selected_indices if idx in df_with_id.index]
+                    except Exception as e:
+                        st.warning(f"⚠️ 直接索引查找失敗: {str(e)}")
                 
                 if ids and len(ids) > 0:
                     # 修復 Bug #2: 添加刪除確認對話框
@@ -2171,9 +2181,14 @@ with st.container():
                     st.session_state.delete_count = len(ids)
                     st.rerun()
                 else:
-                    st.warning("⚠️ 無法確定要刪除的記錄ID，請刷新頁面後重試")
+                    st.warning("⚠️ 無法確定要刪除的記錄ID。請刷新頁面後重試。")
+                    st.info("💡 提示：如果問題持續，請檢查數據是否已正確加載。")
             else:
                 st.info("💡 請先勾選要刪除的數據（使用左側的選取框）")
+        
+        # 在刪除功能使用後，移除 _original_index 列（如果存在）
+        if '_original_index' in df.columns:
+            df = df.drop(columns=['_original_index'])
         
         # 顯示刪除確認對話框
         if st.session_state.get("show_delete_confirm", False):
