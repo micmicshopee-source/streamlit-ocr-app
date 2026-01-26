@@ -682,6 +682,7 @@ def init_db():
                         user_email TEXT NOT NULL,
                         file_name TEXT, date TEXT, invoice_number TEXT, seller_name TEXT, seller_ubn TEXT,
                         subtotal REAL, tax REAL, total REAL, category TEXT, subject TEXT, status TEXT,
+                        note TEXT,
                         image_path TEXT, image_data BLOB,
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
         
@@ -698,6 +699,12 @@ def init_db():
         # 添加 user_email 欄位（如果不存在）
         try:
             cursor.execute("ALTER TABLE invoices ADD COLUMN user_email TEXT")
+        except:
+            pass
+        
+        # 添加 note 欄位（備註）（如果不存在）
+        try:
+            cursor.execute("ALTER TABLE invoices ADD COLUMN note TEXT")
         except:
             pass
         
@@ -945,7 +952,7 @@ def save_edited_data(ed_df, original_df, user_email=None):
     # 將列名映射回數據庫字段名
     reverse_mapping = {"檔案名稱":"file_name","日期":"date","發票號碼":"invoice_number",
                       "賣方名稱":"seller_name","賣方統編":"seller_ubn","銷售額":"subtotal",
-                      "稅額":"tax","總計":"total","類型":"category","會計科目":"subject","狀態":"status"}
+                      "稅額":"tax","總計":"total","類型":"category","會計科目":"subject","狀態":"status","備註":"note"}
     
     for idx, row in ed_df.iterrows():
         if 'id' not in row or pd.isna(row['id']):
@@ -1226,7 +1233,7 @@ with st.container():
     df_stats = df_raw.copy()
     if not df_stats.empty:
         # 先重命名列以便統計報表使用
-        mapping = {"file_name":"檔案名稱","date":"日期","invoice_number":"發票號碼","seller_name":"賣方名稱","seller_ubn":"賣方統編","subtotal":"銷售額","tax":"稅額","total":"總計","category":"類型","subject":"會計科目","status":"狀態","created_at":"建立時間"}
+        mapping = {"file_name":"檔案名稱","date":"日期","invoice_number":"發票號碼","seller_name":"賣方名稱","seller_ubn":"賣方統編","subtotal":"銷售額","tax":"稅額","total":"總計","category":"類型","subject":"會計科目","status":"狀態","note":"備註","created_at":"建立時間"}
         df_stats = df_stats.rename(columns=mapping)
         
         if "總計" in df_stats.columns:
@@ -1381,6 +1388,7 @@ if st.session_state.get("start_ocr", False) and "upload_files" in st.session_sta
                         'category': safe_value(data.get("type"), "其他"),
                         'subject': safe_value(data.get("category_suggest"), "雜項"),
                         'status': "❌ 缺失" if not check_data_complete(data) else safe_value(data.get("status"), "✅ 正常"),
+                        'note': safe_value(data.get("note") or data.get("備註"), ""),
                         'image_path': image_path,
                         'created_at': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     }
@@ -1401,7 +1409,7 @@ if st.session_state.get("start_ocr", False) and "upload_files" in st.session_sta
                     
                     # 多用戶版本：使用 user_email
                     user_email = st.session_state.get('user_email', 'default_user')
-                    q = "INSERT INTO invoices (user_email, file_name, date, invoice_number, seller_name, seller_ubn, subtotal, tax, total, category, subject, status, image_path, image_data) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+                    q = "INSERT INTO invoices (user_email, file_name, date, invoice_number, seller_name, seller_ubn, subtotal, tax, total, category, subject, status, note, image_path, image_data) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
                     insert_params = (
                         user_email, 
                         safe_value(data.get("file_name"), "未命名"),
@@ -1415,6 +1423,7 @@ if st.session_state.get("start_ocr", False) and "upload_files" in st.session_sta
                         safe_value(data.get("type"), "其他"),
                         safe_value(data.get("category_suggest"), "雜項"),
                         "❌ 缺失" if not check_data_complete(data) else safe_value(data.get("status"), "✅ 正常"),
+                        safe_value(data.get("note") or data.get("備註"), ""),
                         image_path,
                         image_data
                     )
@@ -1440,6 +1449,7 @@ if st.session_state.get("start_ocr", False) and "upload_files" in st.session_sta
                             'total': clean_n(data.get("total", 0)),
                             'category': safe_value(data.get("type"), "其他"),
                             'subject': safe_value(data.get("category_suggest"), "雜項"),
+                            'note': safe_value(data.get("note") or data.get("備註"), ""),
                             'status': "❌ 缺失" if not check_data_complete(data) else safe_value(data.get("status"), "✅ 正常"),
                             'image_path': image_path,
                             'created_at': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -1501,7 +1511,8 @@ if st.session_state.get("start_import", False) and "import_file" in st.session_s
                 "稅額": ["稅額", "tax", "Tax"],
                 "總計": ["總計", "total", "Total", "金額"],
                 "類型": ["類型", "category", "Category"],
-                "會計科目": ["會計科目", "subject", "Subject", "科目"]
+                "會計科目": ["會計科目", "subject", "Subject", "科目"],
+                "備註": ["備註", "note", "Note", "备注", "備注"]
             }
             
             # 標準化列名
@@ -1563,6 +1574,7 @@ if st.session_state.get("start_import", False) and "import_file" in st.session_s
                                     'category': safe_str(row.get("類型"), "其他"),
                                     'subject': safe_str(row.get("會計科目"), "雜項"),
                                     'status': "✅ 正常",
+                                    'note': safe_str(row.get("備註"), ""),
                                     'image_path': None,
                                     'created_at': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                                 }
@@ -1571,7 +1583,7 @@ if st.session_state.get("start_import", False) and "import_file" in st.session_s
                             else:
                                 init_db()
                                 # 多用戶版本：使用 user_email
-                                q = "INSERT INTO invoices (user_email, file_name, date, invoice_number, seller_name, seller_ubn, subtotal, tax, total, category, subject, status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)"
+                                q = "INSERT INTO invoices (user_email, file_name, date, invoice_number, seller_name, seller_ubn, subtotal, tax, total, category, subject, status, note) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)"
                                 params = (
                                     user_email,
                                     safe_str(row.get("檔案名稱"), "導入數據"),
@@ -1584,7 +1596,8 @@ if st.session_state.get("start_import", False) and "import_file" in st.session_s
                                     safe_float(row.get("總計", 0)),
                                     safe_str(row.get("類型"), "其他"),
                                     safe_str(row.get("會計科目"), "雜項"),
-                                    "✅ 正常"
+                                    "✅ 正常",
+                                    safe_str(row.get("備註"), "")
                                 )
                                 if run_query(q, params, is_select=False):
                                     imported_count += 1
@@ -1619,7 +1632,7 @@ with st.container():
     else:
         df_chart = df_raw.copy()
         if not df_chart.empty:
-            mapping = {"file_name":"檔案名稱","date":"日期","invoice_number":"發票號碼","seller_name":"賣方名稱","seller_ubn":"賣方統編","subtotal":"銷售額","tax":"稅額","total":"總計","category":"類型","subject":"會計科目","status":"狀態","created_at":"建立時間"}
+            mapping = {"file_name":"檔案名稱","date":"日期","invoice_number":"發票號碼","seller_name":"賣方名稱","seller_ubn":"賣方統編","subtotal":"銷售額","tax":"稅額","total":"總計","category":"類型","subject":"會計科目","status":"狀態","note":"備註","created_at":"建立時間"}
             df_chart = df_chart.rename(columns=mapping)
     
     if not df_chart.empty:
@@ -1802,7 +1815,7 @@ with st.container():
         df_with_id = df.copy() if 'id' in df.columns else None
         # 如果使用df_raw，需要重命名列
         if not df.empty:
-            mapping = {"file_name":"檔案名稱","date":"日期","invoice_number":"發票號碼","seller_name":"賣方名稱","seller_ubn":"賣方統編","subtotal":"銷售額","tax":"稅額","total":"總計","category":"類型","subject":"會計科目","status":"狀態","created_at":"建立時間"}
+            mapping = {"file_name":"檔案名稱","date":"日期","invoice_number":"發票號碼","seller_name":"賣方名稱","seller_ubn":"賣方統編","subtotal":"銷售額","tax":"稅額","total":"總計","category":"類型","subject":"會計科目","status":"狀態","note":"備註","created_at":"建立時間"}
             df = df.rename(columns=mapping)
             # 同時重命名df_with_id的列（如果存在）
             if df_with_id is not None and not df_with_id.empty:
@@ -2136,53 +2149,36 @@ with st.container():
             cols.insert(select_idx + 1, "狀態")
             df = df[cols]
         
-        # 修復 Bug #2 和 #3: 添加刪除確認對話框，並修復篩選後刪除失效問題
+        # 刪除功能：使用關鍵字段直接查找並刪除（不依賴索引映射）
         if st.button("🗑️ 刪除選中數據", help="刪除已選中的數據（請先勾選要刪除的記錄）"):
-            selected_indices = df[df["選取"]==True].index.tolist()
-            if len(selected_indices) > 0:
-                # 獲取要刪除的記錄ID
-                ids = []
+            selected_rows = df[df["選取"]==True]
+            if len(selected_rows) > 0:
+                # 收集要刪除的記錄信息（使用關鍵字段：發票號碼+日期）
+                records_to_delete = []
+                user_email = st.session_state.get('user_email', 'default_user')
                 
-                # 方法1: 使用 _original_index 映射（如果存在）
-                if '_original_index' in df.columns:
-                    try:
-                        # 獲取選中行的原始索引
-                        original_indices = df.loc[selected_indices, '_original_index'].tolist()
-                        # 從 session_state 獲取 df_with_id
-                        if 'df_with_id' in st.session_state and st.session_state.df_with_id is not None:
-                            df_with_id = st.session_state.df_with_id
-                            if 'id' in df_with_id.columns:
-                                # 使用原始索引獲取ID
-                                ids = [df_with_id.loc[idx, 'id'] for idx in original_indices if idx in df_with_id.index]
-                    except Exception as e:
-                        st.warning(f"⚠️ 索引映射失敗: {str(e)}")
+                for idx, row in selected_rows.iterrows():
+                    invoice_number = str(row.get('發票號碼', '')).strip()
+                    date = str(row.get('日期', '')).strip()
+                    
+                    # 清理數據：移除可能的格式字符
+                    invoice_number = invoice_number.replace('No', '').strip()
+                    date = date.replace('No', '').strip()
+                    
+                    if invoice_number and date:
+                        records_to_delete.append({
+                            'invoice_number': invoice_number,
+                            'date': date
+                        })
                 
-                # 方法2: 使用 index_to_id_map（如果方法1失敗）
-                if not ids and 'index_to_id_map' in st.session_state:
-                    try:
-                        ids = [st.session_state.index_to_id_map[idx] for idx in selected_indices if idx in st.session_state.index_to_id_map]
-                    except Exception as e:
-                        st.warning(f"⚠️ 映射查找失敗: {str(e)}")
-                
-                # 方法3: 直接從 session_state.df_with_id 獲取（最後嘗試）
-                if not ids and 'df_with_id' in st.session_state and st.session_state.df_with_id is not None:
-                    try:
-                        df_with_id = st.session_state.df_with_id
-                        if 'id' in df_with_id.columns:
-                            # 嘗試直接使用當前索引
-                            ids = [df_with_id.loc[idx, 'id'] for idx in selected_indices if idx in df_with_id.index]
-                    except Exception as e:
-                        st.warning(f"⚠️ 直接索引查找失敗: {str(e)}")
-                
-                if ids and len(ids) > 0:
-                    # 修復 Bug #2: 添加刪除確認對話框
+                if records_to_delete:
+                    # 顯示刪除確認對話框
                     st.session_state.show_delete_confirm = True
-                    st.session_state.delete_ids = ids
-                    st.session_state.delete_count = len(ids)
+                    st.session_state.delete_records = records_to_delete
+                    st.session_state.delete_count = len(records_to_delete)
                     st.rerun()
                 else:
-                    st.warning("⚠️ 無法確定要刪除的記錄ID。請刷新頁面後重試。")
-                    st.info("💡 提示：如果問題持續，請檢查數據是否已正確加載。")
+                    st.warning("⚠️ 無法確定要刪除的記錄（缺少發票號碼或日期信息）")
             else:
                 st.info("💡 請先勾選要刪除的數據（使用左側的選取框）")
         
@@ -2192,36 +2188,80 @@ with st.container():
         
         # 顯示刪除確認對話框
         if st.session_state.get("show_delete_confirm", False):
-            ids_to_delete = st.session_state.get("delete_ids", [])
+            delete_records = st.session_state.get("delete_records", [])
             delete_count = st.session_state.get("delete_count", 0)
             
             with st.dialog("⚠️ 確認刪除"):
                 st.warning(f"確定要刪除選中的 {delete_count} 條數據嗎？")
                 st.error("⚠️ 此操作不可恢復！")
                 
+                # 顯示要刪除的記錄預覽
+                if delete_records:
+                    with st.expander("查看要刪除的記錄", expanded=False):
+                        preview_df = pd.DataFrame(delete_records)
+                        st.dataframe(preview_df, use_container_width=True, hide_index=True)
+                
                 col1, col2 = st.columns(2)
                 with col1:
                     if st.button("✅ 確認刪除", type="primary", use_container_width=True):
                         # 執行刪除
+                        user_email = st.session_state.get('user_email', 'default_user')
+                        deleted_count = 0
+                        errors = []
+                        
                         if st.session_state.use_memory_mode:
                             # 內存模式：從列表中刪除（多用戶版本：只刪除當前用戶的數據）
-                            user_email = st.session_state.get('user_email', 'default_user')
+                            original_count = len(st.session_state.local_invoices)
                             st.session_state.local_invoices = [
                                 inv for inv in st.session_state.local_invoices 
-                                if not (inv.get('id') in ids_to_delete and inv.get('user_email', inv.get('user_id', 'default_user')) == user_email)
+                                if not any(
+                                    str(inv.get('invoice_number', '')).strip() == rec['invoice_number'] and
+                                    str(inv.get('date', '')).strip() == rec['date'] and
+                                    inv.get('user_email', inv.get('user_id', 'default_user')) == user_email
+                                    for rec in delete_records
+                                )
                             ]
+                            deleted_count = original_count - len(st.session_state.local_invoices)
                         else:
-                            # 數據庫模式
-                            for i in ids_to_delete:
-                                run_query("DELETE FROM invoices WHERE id=? AND user_email=?", (i, st.session_state.get('user_email', 'default_user')), is_select=False)
+                            # 數據庫模式：使用關鍵字段直接刪除
+                            for rec in delete_records:
+                                try:
+                                    # 使用發票號碼和日期查找並刪除
+                                    # 注意：run_query 會自動添加 user_email 條件，所以這裡不需要重複添加
+                                    query = "DELETE FROM invoices WHERE invoice_number=? AND date=?"
+                                    result = run_query(query, (rec['invoice_number'], rec['date']), is_select=False)
+                                    # run_query 對於 DELETE 返回 True/False，但我們需要檢查實際刪除的行數
+                                    # 直接執行查詢以獲取影響的行數
+                                    path = get_db_path()
+                                    is_uri = path.startswith("file:") and "mode=memory" in path
+                                    conn = sqlite3.connect(path, timeout=30, uri=is_uri, check_same_thread=False)
+                                    cursor = conn.cursor()
+                                    cursor.execute("DELETE FROM invoices WHERE user_email=? AND invoice_number=? AND date=?", 
+                                                 (user_email, rec['invoice_number'], rec['date']))
+                                    rows_deleted = cursor.rowcount
+                                    conn.commit()
+                                    conn.close()
+                                    if rows_deleted > 0:
+                                        deleted_count += rows_deleted
+                                except Exception as e:
+                                    errors.append(f"刪除失敗（發票號碼: {rec['invoice_number']}, 日期: {rec['date']}）: {str(e)}")
                         
                         # 清理狀態
                         st.session_state.show_delete_confirm = False
-                        if "delete_ids" in st.session_state:
-                            del st.session_state.delete_ids
+                        if "delete_records" in st.session_state:
+                            del st.session_state.delete_records
                         if "delete_count" in st.session_state:
                             del st.session_state.delete_count
-                        st.success(f"✅ 已刪除 {delete_count} 條數據")
+                        
+                        if deleted_count > 0:
+                            st.success(f"✅ 已刪除 {deleted_count} 條數據")
+                        else:
+                            st.warning("⚠️ 未找到要刪除的記錄，可能已被刪除或數據不匹配")
+                        
+                        if errors:
+                            for err in errors:
+                                st.error(err)
+                        
                         time.sleep(0.5)
                         st.rerun()
                 
@@ -2229,8 +2269,8 @@ with st.container():
                     if st.button("❌ 取消", use_container_width=True):
                         # 取消刪除，清理狀態
                         st.session_state.show_delete_confirm = False
-                        if "delete_ids" in st.session_state:
-                            del st.session_state.delete_ids
+                        if "delete_records" in st.session_state:
+                            del st.session_state.delete_records
                         if "delete_count" in st.session_state:
                             del st.session_state.delete_count
                         st.rerun()
@@ -2243,6 +2283,7 @@ with st.container():
             "選取": st.column_config.CheckboxColumn("選取", default=False),
             "銷售額": st.column_config.NumberColumn("銷售額", format="$%d"),
             "稅額": st.column_config.NumberColumn("稅額", format="$%d"),
+            "備註": st.column_config.TextColumn("備註", width="medium"),
             "建立時間": st.column_config.DatetimeColumn("建立時間", format="YYYY/MM/DD HH:mm")
         }
         
