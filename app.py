@@ -2162,6 +2162,25 @@ with st.container():
         # 在刪除功能使用後，移除 _original_index 列（如果存在）
         if '_original_index' in df.columns:
             df = df.drop(columns=['_original_index'])
+        
+        # 在表格上方添加刪除按鈕和提示（讓用戶更容易找到）
+        delete_header_col1, delete_header_col2, delete_header_col3, delete_header_col4 = st.columns([2, 1, 1, 1])
+        with delete_header_col1:
+            st.markdown("**📋 數據表格**")
+            st.caption("💡 提示：勾選左側「選取」框後，點擊下方刪除按鈕即可刪除選中的記錄")
+        with delete_header_col2:
+            # 預先顯示選中數量（從session_state獲取，如果有的話）
+            preview_selected = st.session_state.get("preview_selected_count", 0)
+            if preview_selected > 0:
+                st.metric("已選中", f"{preview_selected} 條")
+            else:
+                st.metric("已選中", "0 條")
+        with delete_header_col3:
+            # 全選/取消全選按鈕（在data_editor之前無法直接操作，這裡只是提示）
+            st.markdown("")
+            st.caption("批量操作")
+        with delete_header_col4:
+            st.markdown("")  # 空白行用於對齊
         if st.session_state.get("show_delete_confirm", False):
             delete_records = st.session_state.get("delete_records", [])
             delete_count = st.session_state.get("delete_count", 0)
@@ -2318,50 +2337,100 @@ with st.container():
         
         df["選取"] = ed_df["選取"]
         
+        # 檢查是否有選中的行
+        selected_count = ed_df["選取"].sum() if "選取" in ed_df.columns else 0
+        # 保存到session_state，用於表格上方顯示
+        st.session_state.preview_selected_count = int(selected_count)
+        
         # 刪除功能：使用發票號碼+日期+用戶郵箱組合刪除（最可靠的方式，不依賴ID列）
-        if st.button("🗑️ 刪除選中數據", help="刪除已選中的數據（請先勾選要刪除的記錄）"):
-            selected_rows = ed_df[ed_df["選取"]==True]
-            if len(selected_rows) > 0:
-                # 收集要刪除的記錄信息（使用發票號碼+日期）
-                records_to_delete = []
-                user_email = st.session_state.get('user_email', 'default_user')
-                
-                for idx, row in selected_rows.iterrows():
-                    invoice_number = str(row.get('發票號碼', '')).strip()
-                    date = str(row.get('日期', '')).strip()
-                    
-                    # 清理數據：移除可能的格式字符和"No"值
-                    invoice_number = invoice_number.replace('No', '').replace('N/A', '').strip()
-                    date = date.replace('No', '').replace('N/A', '').strip()
-                    
-                    # 如果日期是日期類型，轉換為字符串
-                    if hasattr(date, 'strftime'):
-                        try:
-                            date = date.strftime("%Y/%m/%d")
-                        except:
-                            pass
-                    
-                    if invoice_number and date and invoice_number != '' and date != '':
-                        records_to_delete.append({
-                            'invoice_number': invoice_number,
-                            'date': date
-                        })
-                
-                if records_to_delete:
-                    # 顯示刪除確認對話框
-                    st.session_state.show_delete_confirm = True
-                    st.session_state.delete_records = records_to_delete
-                    st.session_state.delete_count = len(records_to_delete)
-                    st.rerun()
-                else:
-                    st.warning("⚠️ 無法確定要刪除的記錄（缺少發票號碼或日期信息）。請確保數據已正確加載。")
-                    # 調試信息
-                    with st.expander("🔍 調試信息", expanded=False):
-                        st.write("選中的行數:", len(selected_rows))
-                        st.write("選中的行數據:")
-                        st.dataframe(selected_rows[['發票號碼', '日期']] if '發票號碼' in selected_rows.columns and '日期' in selected_rows.columns else selected_rows)
+        # 在表格上方和下方都添加刪除按鈕（提升用戶體驗）
+        st.markdown("---")
+        
+        # 表格上方的刪除按鈕（固定位置，用戶無需滾動）
+        delete_top_col1, delete_top_col2, delete_top_col3 = st.columns([1, 2, 1])
+        with delete_top_col2:
+            if selected_count > 0:
+                delete_button_top = st.button(
+                    f"🗑️ 刪除選中的 {selected_count} 條數據（上方）", 
+                    type="primary",
+                    use_container_width=True,
+                    help="刪除已選中的數據",
+                    key="delete_button_top"
+                )
             else:
-                st.info("💡 請先勾選要刪除的數據（使用左側的選取框）")
+                delete_button_top = False
+                st.button(
+                    "🗑️ 刪除選中數據", 
+                    disabled=True,
+                    use_container_width=True,
+                    help="請先勾選要刪除的記錄（使用左側的「選取」框）",
+                    key="delete_button_top_disabled"
+                )
+        
+        # 表格下方的刪除按鈕（備用）
+        delete_btn_col1, delete_btn_col2, delete_btn_col3 = st.columns([1, 2, 1])
+        with delete_btn_col2:
+            if selected_count > 0:
+                delete_button_bottom = st.button(
+                    f"🗑️ 刪除選中的 {selected_count} 條數據（下方）", 
+                    type="primary",
+                    use_container_width=True,
+                    help="刪除已選中的數據",
+                    key="delete_button_bottom"
+                )
+            else:
+                delete_button_bottom = False
+                st.button(
+                    "🗑️ 刪除選中數據", 
+                    disabled=True,
+                    use_container_width=True,
+                    help="請先勾選要刪除的記錄（使用左側的「選取」框）",
+                    key="delete_button_bottom_disabled"
+                )
+        
+        # 統一處理刪除邏輯（無論點擊上方還是下方按鈕）
+        delete_button = delete_button_top or delete_button_bottom
+        
+        if selected_count > 0 and delete_button:
+            selected_rows = ed_df[ed_df["選取"]==True]
+            # 收集要刪除的記錄信息（使用發票號碼+日期）
+            records_to_delete = []
+            user_email = st.session_state.get('user_email', 'default_user')
+            
+            for idx, row in selected_rows.iterrows():
+                invoice_number = str(row.get('發票號碼', '')).strip()
+                date = str(row.get('日期', '')).strip()
+                
+                # 清理數據：移除可能的格式字符和"No"值
+                invoice_number = invoice_number.replace('No', '').replace('N/A', '').strip()
+                date = date.replace('No', '').replace('N/A', '').strip()
+                
+                # 如果日期是日期類型，轉換為字符串
+                if hasattr(date, 'strftime'):
+                    try:
+                        date = date.strftime("%Y/%m/%d")
+                    except:
+                        pass
+                
+                if invoice_number and date and invoice_number != '' and date != '':
+                    records_to_delete.append({
+                        'invoice_number': invoice_number,
+                        'date': date
+                    })
+            
+            if records_to_delete:
+                # 顯示刪除確認對話框
+                st.session_state.show_delete_confirm = True
+                st.session_state.delete_records = records_to_delete
+                st.session_state.delete_count = len(records_to_delete)
+                st.rerun()
+            else:
+                st.warning("⚠️ 無法確定要刪除的記錄（缺少發票號碼或日期信息）。請確保數據已正確加載。")
+                # 調試信息
+                with st.expander("🔍 調試信息", expanded=False):
+                    st.write("選中的行數:", len(selected_rows))
+                    st.write("選中的行數據:")
+                    st.dataframe(selected_rows[['發票號碼', '日期']] if '發票號碼' in selected_rows.columns and '日期' in selected_rows.columns else selected_rows)
         
         # 檢測是否有變更並自動保存（比較關鍵字段）
         has_changes = False
