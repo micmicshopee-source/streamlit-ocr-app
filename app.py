@@ -1798,13 +1798,13 @@ with st.container():
     with filter_col1:
         search = st.text_input("🔍 關鍵字搜尋", placeholder="號碼/賣方/檔名...", label_visibility="hidden")
     with filter_col2:
-        t_filter = st.selectbox("🕒 時間範圍", ["全部", "今天", "本週", "本月"], label_visibility="hidden")
+        t_filter = st.selectbox("🕒 時間範圍（按發票日期）", ["全部", "今天", "本週", "本月"], label_visibility="visible", help="篩選條件基於發票日期，而非上傳時間")
     with filter_col3:
         st.write("")  # 空白行用於對齊
         if not df.empty:
             csv_data = df.to_csv(index=False).encode('utf-8-sig')
-            st.download_button("📥 CSV", csv_data, "invoice_report.csv", 
-                             mime="text/csv", use_container_width=True)
+            st.download_button("📥 導出CSV", csv_data, "invoice_report.csv", 
+                             mime="text/csv", use_container_width=True, help="導出當前數據為CSV文件")
     with filter_col4:
         st.write("")  # 空白行用於對齊
         if not df.empty:
@@ -1939,8 +1939,8 @@ with st.container():
                     return pdf_bytes
                 
                 pdf_data = generate_pdf()
-                st.download_button("📄 PDF", pdf_data, f"invoice_report_{datetime.now().strftime('%Y%m%d')}.pdf", 
-                                 mime="application/pdf", use_container_width=True)
+                st.download_button("📄 導出PDF", pdf_data, f"invoice_report_{datetime.now().strftime('%Y%m%d')}.pdf", 
+                                 mime="application/pdf", use_container_width=True, help="導出當前數據為PDF報告")
             else:
                 st.info("📄 PDF", help="需要安裝 fpdf2")
     
@@ -1960,6 +1960,10 @@ with st.container():
                 df = df.drop(columns=[col])
     
     # 修復 Bug #3: 在篩選前保存原始索引映射，以便刪除功能正常工作
+    # 將df_with_id保存到session_state，確保刪除功能可以訪問
+    if 'df_with_id' in locals() and df_with_id is not None:
+        st.session_state.df_with_id = df_with_id.copy()
+    
     if not df.empty and df_with_id is not None:
         # 保存原始索引到df中（在篩選前）
         df['_original_index'] = df.index
@@ -2055,6 +2059,8 @@ with st.container():
                 # 在移除前，確保df_with_id有這些列（用於刪除功能）
                 if 'df_with_id' not in locals() or df_with_id is None:
                     df_with_id = df.copy()
+                    # 同時保存到session_state
+                    st.session_state.df_with_id = df_with_id.copy()
                 df = df.drop(columns=[col])
         
         # 調整列順序：選取 -> 狀態 -> 其他列
@@ -2071,22 +2077,43 @@ with st.container():
             df = df[cols]
         
         # 修復 Bug #2 和 #3: 添加刪除確認對話框，並修復篩選後刪除失效問題
-        if st.button("🗑️ 刪除選中數據"):
-            selected_indices = df[df["選取"]==True].index
+        if st.button("🗑️ 刪除選中數據", help="刪除已選中的數據（請先勾選要刪除的記錄）"):
+            selected_indices = df[df["選取"]==True].index.tolist()
             if len(selected_indices) > 0:
                 # 獲取要刪除的記錄ID
                 ids = []
-                if 'df_with_id' in locals() and df_with_id is not None and 'id' in df_with_id.columns:
+                # 確保df_with_id在作用域內
+                if 'df_with_id' not in locals():
+                    # 如果df_with_id不在作用域，嘗試從session_state獲取或重新創建
+                    if 'df_with_id' in st.session_state:
+                        df_with_id = st.session_state.df_with_id
+                    else:
+                        st.warning("⚠️ 無法確定要刪除的記錄ID，請刷新頁面後重試")
+                        st.stop()
+                
+                if df_with_id is not None and 'id' in df_with_id.columns:
                     # 修復 Bug #3: 使用原始索引映射獲取ID
                     if '_original_index' in df.columns:
                         # 使用原始索引獲取ID
-                        original_indices = df.loc[selected_indices, '_original_index']
-                        ids = df_with_id.loc[original_indices, "id"].tolist()
+                        try:
+                            original_indices = df.loc[selected_indices, '_original_index'].tolist()
+                            ids = df_with_id.loc[original_indices, "id"].tolist()
+                        except Exception as e:
+                            # 如果索引映射失敗，嘗試直接使用當前索引
+                            try:
+                                ids = df_with_id.loc[selected_indices, "id"].tolist()
+                            except:
+                                st.warning(f"⚠️ 無法確定要刪除的記錄ID: {str(e)}")
+                                st.stop()
                     else:
                         # 如果沒有原始索引，直接使用當前索引（未篩選的情況）
-                        ids = df_with_id.loc[selected_indices, "id"].tolist()
+                        try:
+                            ids = df_with_id.loc[selected_indices, "id"].tolist()
+                        except Exception as e:
+                            st.warning(f"⚠️ 無法確定要刪除的記錄ID: {str(e)}")
+                            st.stop()
                 
-                if ids:
+                if ids and len(ids) > 0:
                     # 修復 Bug #2: 添加刪除確認對話框
                     st.session_state.show_delete_confirm = True
                     st.session_state.delete_ids = ids
@@ -2095,7 +2122,7 @@ with st.container():
                 else:
                     st.warning("⚠️ 無法確定要刪除的記錄ID，請刷新頁面後重試")
             else:
-                st.info("💡 請先選擇要刪除的數據")
+                st.info("💡 請先勾選要刪除的數據（使用左側的選取框）")
         
         # 顯示刪除確認對話框
         if st.session_state.get("show_delete_confirm", False):

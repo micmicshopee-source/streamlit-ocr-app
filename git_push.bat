@@ -25,7 +25,7 @@ if %errorlevel% neq 0 (
 
 echo.
 echo 步骤 2: 提交更改...
-git commit -m "Update: 增加多用戶隔離、登錄註冊功能與 PDF 導出優化"
+git commit -m "Fix: 修復刪除功能、篩選條件說明和導出按鈕標籤"
 if %errorlevel% neq 0 (
     echo 错误: git commit 失败
     pause

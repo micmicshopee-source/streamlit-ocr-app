@@ -24,7 +24,7 @@ if ($LASTEXITCODE -ne 0) {
 
 Write-Host ""
 Write-Host "步骤 2: 提交更改..." -ForegroundColor Green
-git commit -m "Update: 增加多用戶隔離、登錄註冊功能與 PDF 導出優化"
+git commit -m "Fix: 修復刪除功能、篩選條件說明和導出按鈕標籤"
 if ($LASTEXITCODE -ne 0) {
     Write-Host "错误: git commit 失败" -ForegroundColor Red
     Read-Host "按 Enter 键退出"
