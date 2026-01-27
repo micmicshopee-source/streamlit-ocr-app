@@ -2192,17 +2192,7 @@ with st.container():
         if '_original_index' in df.columns:
             df = df.drop(columns=['_original_index'])
         
-        # 在表格上方添加標題和選中數量顯示
-        delete_header_col1, delete_header_col2 = st.columns([3, 1])
-        with delete_header_col1:
-            st.markdown("**📋 數據表格**")
-        with delete_header_col2:
-            # 預先顯示選中數量（從session_state獲取，如果有的話）
-            preview_selected = st.session_state.get("preview_selected_count", 0)
-            if preview_selected > 0:
-                st.metric("已選中", f"{preview_selected} 條")
-            else:
-                st.metric("已選中", "0 條")
+        # 不再顯示標題和選中數量
         if st.session_state.get("show_delete_confirm", False):
             delete_records = st.session_state.get("delete_records", [])
             delete_count = st.session_state.get("delete_count", 0)
@@ -2438,23 +2428,23 @@ with st.container():
         
         # 在表格上方添加刪除按鈕（使用上一次的選中數量，表格編輯後會自動更新）
         preview_selected = st.session_state.get("preview_selected_count", 0)
-        delete_btn_col1, delete_btn_col2, delete_btn_col3 = st.columns([1, 2, 1])
+        delete_btn_col1, delete_btn_col2, delete_btn_col3 = st.columns([3, 1, 3])
         with delete_btn_col2:
             if preview_selected > 0:
                 delete_button_top = st.button(
-                    f"🗑️ 刪除選中的 {preview_selected} 條數據", 
+                    f"🗑️ 刪除 {preview_selected} 條", 
                     type="primary",
-                    use_container_width=True,
+                    use_container_width=False,
                     help="刪除已選中的數據",
                     key="delete_button_top"
                 )
             else:
                 delete_button_top = False
                 st.button(
-                    "🗑️ 刪除選中數據", 
+                    "🗑️ 刪除", 
                     disabled=True,
-                    use_container_width=True,
-                    help="請先勾選要刪除的記錄（使用左側的「選取」框）",
+                    use_container_width=False,
+                    help="請先勾選要刪除的記錄",
                     key="delete_button_top_disabled"
                 )
         
