@@ -1868,6 +1868,18 @@ with st.container():
             # 同時重命名df_with_id的列（如果存在）
             if df_with_id is not None and not df_with_id.empty:
                 df_with_id = df_with_id.rename(columns=mapping)
+
+    # 確保主資料表一定有「總計」欄位（由銷售額 + 稅額計算）
+    if not df.empty:
+        has_subtotal = "銷售額" in df.columns
+        has_tax = "稅額" in df.columns
+        has_total = "總計" in df.columns
+
+        # 若沒有總計，但有銷售額或稅額，則自動計算：總計 = 銷售額 + 稅額
+        if not has_total and (has_subtotal or has_tax):
+            subtotal_series = pd.to_numeric(df["銷售額"], errors="coerce").fillna(0) if has_subtotal else pd.Series(0, index=df.index)
+            tax_series = pd.to_numeric(df["稅額"], errors="coerce").fillna(0) if has_tax else pd.Series(0, index=df.index)
+            df["總計"] = (subtotal_series + tax_series).round(0)
     
     # 查詢條件、導出與刪除按鈕（並排顯示）
     if "preview_selected_count" not in st.session_state:
