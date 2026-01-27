@@ -13,6 +13,7 @@ import sqlite3
 from datetime import datetime, timedelta
 import hashlib
 import shutil
+from openpyxl.styles import Alignment, Font
 
 # PDF 生成庫 (使用 fpdf2)
 try:
@@ -1855,7 +1856,7 @@ with st.container():
                 df_with_id = df_with_id.rename(columns=mapping)
     
     # 查詢條件和導出按鈕（並排顯示）
-    filter_col1, filter_col2, filter_col3, filter_col4 = st.columns([2, 1, 1, 1])
+    filter_col1, filter_col2, filter_col3, filter_col4, filter_col5 = st.columns([2, 1, 1, 1, 1])
     with filter_col1:
         search = st.text_input("🔍 關鍵字搜尋", placeholder="號碼/賣方/檔名...", label_visibility="hidden")
     with filter_col2:
@@ -1867,6 +1868,80 @@ with st.container():
             st.download_button("📥 導出CSV", csv_data, "invoice_report.csv", 
                              mime="text/csv", use_container_width=True, help="導出當前數據為CSV文件")
     with filter_col4:
+        st.write("")  # 空白行用於對齊
+        if not df.empty:
+            def generate_excel():
+                # 使用統計結果（如有），否則使用當前表格數據
+                export_df = df_stats.copy() if 'df_stats' in locals() and not df_stats.empty else df.copy()
+                if export_df.empty:
+                    return b""
+
+                # 構建符合國稅局欄位結構的表格
+                # 優先使用現有「銷售額」「稅額」「總計」，若缺失則由總計推算
+                total_series = pd.to_numeric(export_df.get('總計', 0), errors='coerce').fillna(0)
+                subtotal_series = pd.to_numeric(export_df.get('銷售額', 0), errors='coerce').fillna(0)
+                tax_series = pd.to_numeric(export_df.get('稅額', 0), errors='coerce').fillna(0)
+
+                # 如果「銷售額」或「稅額」為 0，依據總計自動計算
+                need_recalc = ((subtotal_series == 0) | (tax_series == 0)) & (total_series > 0)
+                if need_recalc.any():
+                    calc_tax = (total_series - (total_series / 1.05)).round(0)
+                    calc_subtotal = (total_series - calc_tax).round(0)
+                    tax_series = tax_series.where(~need_recalc, calc_tax)
+                    subtotal_series = subtotal_series.where(~need_recalc, calc_subtotal)
+
+                export_df['銷售額(未稅)'] = subtotal_series
+                export_df['稅額'] = tax_series
+                export_df['總計'] = total_series
+
+                # 按常見報帳格式排列列順序
+                desired_order = [
+                    "日期", "發票號碼", "賣方名稱", "賣方統編",
+                    "銷售額(未稅)", "稅額", "總計",
+                    "會計科目", "類型", "備註"
+                ]
+                columns = [c for c in desired_order if c in export_df.columns]
+                export_df = export_df[columns].copy()
+
+                # 導出為 Excel
+                output = io.BytesIO()
+                with pd.ExcelWriter(output, engine="openpyxl") as writer:
+                    export_df.to_excel(writer, index=False, sheet_name="發票報表")
+                    ws = writer.sheets["發票報表"]
+
+                    # 標題樣式與列寬
+                    header_font = Font(bold=True)
+                    for col_cells in ws.iter_cols(min_row=1, max_row=1):
+                        for cell in col_cells:
+                            cell.font = header_font
+                            # 自動列寬（簡化處理）
+                            col_letter = cell.column_letter
+                            ws.column_dimensions[col_letter].width = max(12, len(str(cell.value)) + 4)
+
+                    # 金額欄位右對齊並加入千分位
+                    amount_headers = {"銷售額(未稅)", "稅額", "總計"}
+                    header_map = {cell.value: cell.column for cell in ws[1] if cell.value}
+                    for header in amount_headers:
+                        col_idx = header_map.get(header)
+                        if col_idx is None:
+                            continue
+                        for cell in ws.iter_rows(min_row=2, min_col=col_idx, max_col=col_idx):
+                            c = cell[0]
+                            c.number_format = '#,##0'
+                            c.alignment = Alignment(horizontal='right')
+
+                return output.getvalue()
+
+            excel_data = generate_excel()
+            st.download_button(
+                "📊 導出Excel",
+                excel_data,
+                f"invoice_report_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+                help="導出符合國稅局欄位結構的 Excel 報表"
+            )
+    with filter_col5:
         st.write("")  # 空白行用於對齊
         if not df.empty:
             if PDF_AVAILABLE:
@@ -1957,16 +2032,16 @@ with st.container():
                         safe_cell(pdf, 90, 6, f"{len(export_df_for_stats)} 筆", 1, ln=1)
                     pdf.ln(5)
                     
-                    # 詳細數據表格 - 修改表格 Header
+                    # 詳細數據表格 - 修改表格 Header（包含銷售額(未稅)、稅額、總計）
                     export_df = df.copy()
-                    # 調整列寬以適應新的列：日期、發票號碼、賣方統編、未稅金額、稅額、總計、備註
+                    # 調整列寬以適應新的列：日期、發票號碼、賣方統編、銷售額(未稅)、稅額、總計、備註
                     col_widths = [25, 30, 30, 30, 25, 25, 25]
                     if font_loaded:
                         pdf.set_font(font_name, 'B', 10)
-                        headers = ["日期", "發票號碼", "賣方統編", "未稅金額", "稅額", "總計", "備註"]
+                        headers = ["日期", "發票號碼", "賣方統編", "銷售額(未稅)", "稅額", "總計", "備註"]
                     else:
                         pdf.set_font('Arial', 'B', 10)
-                        headers = ["Date", "Invoice No", "Seller UBN", "Net Amount", "Tax", "Total", "Note"]
+                        headers = ["Date", "Invoice No", "Seller UBN", "Net Amount (Excl. Tax)", "Tax", "Total", "Note"]
                     
                     for i, header in enumerate(headers):
                         safe_cell(pdf, col_widths[i], 7, header, 1, align='C')
@@ -1982,19 +2057,24 @@ with st.container():
                             return default
                         return str(val)
                     
-                    # 每一行數據自動計算
+                    # 每一行數據自動計算銷售額(未稅)、稅額、總計
                     for _, row in export_df.iterrows():
-                        # 獲取總計
-                        total_val = pd.to_numeric(row.get('總計', 0), errors='coerce')
-                        if pd.isna(total_val) or total_val == 0:
+                        # 優先使用現有欄位，否則由總計推算
+                        total_val = pd.to_numeric(row.get('總計', row.get('total', 0)), errors='coerce')
+                        subtotal_val = pd.to_numeric(row.get('銷售額', row.get('subtotal', 0)), errors='coerce')
+                        tax_val = pd.to_numeric(row.get('稅額', row.get('tax', 0)), errors='coerce')
+
+                        if pd.isna(total_val):
                             total_val = 0
-                            tax = 0
-                            net_amount = 0
-                        else:
-                            # 計算稅額：round(total - (total / 1.05))
-                            tax = round(total_val - (total_val / 1.05))
-                            # 計算未稅金額：total - tax
-                            net_amount = total_val - tax
+
+                        if (pd.isna(subtotal_val) or subtotal_val == 0) or (pd.isna(tax_val) or tax_val == 0):
+                            if total_val > 0:
+                                # 依據總計反推稅額與未稅金額（預設稅率 5%）
+                                tax_val = round(total_val - (total_val / 1.05))
+                                subtotal_val = total_val - tax_val
+                            else:
+                                subtotal_val = 0
+                                tax_val = 0
                         
                         # 獲取其他字段
                         date_str = pdf_safe_value(row.get('日期', ''), 'No')[:10]
@@ -2003,8 +2083,8 @@ with st.container():
                         note = pdf_safe_value(row.get('備註', '') or row.get('會計科目', '') or row.get('類型', ''), '')[:15]
                         
                         # 格式化金額
-                        net_amount_str = f"${net_amount:,.0f}"
-                        tax_str = f"${tax:,.0f}"
+                        net_amount_str = f"${subtotal_val:,.0f}"
+                        tax_str = f"${tax_val:,.0f}"
                         total_str = f"${total_val:,.0f}"
                         
                         # 寫入 PDF
@@ -2050,8 +2130,9 @@ with st.container():
             if df_with_id is not None and col in df_with_id.columns:
                 df_with_id = df_with_id.drop(columns=[col])
         
-        # 移除ID列、user_id列、檔案名稱列和總計列（不在表格中顯示，但保留在df_with_id中）
-        columns_to_hide = ['id', 'user_id', 'user_email', '檔案名稱', '總計']
+        # 移除ID列、user_id列與檔案名稱列（不在表格中顯示，但保留在df_with_id中）
+        # 「銷售額(未稅)」「稅額」「總計」保留在前端表格中顯示
+        columns_to_hide = ['id', 'user_id', 'user_email', '檔案名稱']
         for col in columns_to_hide:
             if col in df.columns:
                 df = df.drop(columns=[col])
