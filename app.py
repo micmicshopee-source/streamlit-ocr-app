@@ -1869,24 +1869,6 @@ with st.container():
             if df_with_id is not None and not df_with_id.empty:
                 df_with_id = df_with_id.rename(columns=mapping)
     
-    # 統計列表（數據報表總覽）
-    if not df.empty:
-        # 優先使用現有欄位計算統計
-        total_count = len(df)
-        subtotal_sum = pd.to_numeric(df.get("銷售額", 0), errors="coerce").fillna(0).sum()
-        tax_sum = pd.to_numeric(df.get("稅額", 0), errors="coerce").fillna(0).sum()
-        total_sum = pd.to_numeric(df.get("總計", 0), errors="coerce").fillna(0).sum()
-
-        summary_df = pd.DataFrame([
-            {"項目": "發票筆數", "數值": f"{int(total_count):,} 筆"},
-            {"項目": "銷售額(未稅)合計", "數值": f"${subtotal_sum:,.0f}"},
-            {"項目": "稅額合計", "數值": f"${tax_sum:,.0f}"},
-            {"項目": "總計合計", "數值": f"${total_sum:,.0f}"},
-        ])
-        st.dataframe(summary_df, use_container_width=True, hide_index=True)
-    else:
-        st.info("📊 目前無統計數據")
-
     # 查詢條件、導出與刪除按鈕（並排顯示）
     if "preview_selected_count" not in st.session_state:
         st.session_state.preview_selected_count = 0
@@ -1895,6 +1877,27 @@ with st.container():
     filter_col1, filter_col2, filter_col3, filter_col4, filter_col5 = st.columns([2, 1, 1, 1, 1])
     with filter_col1:
         search = st.text_input("🔍 關鍵字搜尋", placeholder="號碼/賣方/檔名...", label_visibility="hidden")
+        # 刪除按鈕：放在搜尋欄下方，貼近查詢操作
+        if not df.empty:
+            preview_selected = st.session_state.get("preview_selected_count", 0)
+            st.write("")  # 與輸入框拉開距離
+            if preview_selected > 0:
+                delete_button_top = st.button(
+                    f"🗑️ 刪除 {preview_selected} 條",
+                    type="primary",
+                    use_container_width=True,
+                    help="刪除已選中的數據",
+                    key="delete_button_top"
+                )
+            else:
+                st.button(
+                    "🗑️ 刪除",
+                    disabled=True,
+                    use_container_width=True,
+                    help="請先勾選要刪除的記錄",
+                    key="delete_button_top_disabled"
+                )
+                delete_button_top = False
     with filter_col2:
         t_filter = st.selectbox("🕒 時間範圍（按發票日期）", ["全部", "今天", "本週", "本月"], label_visibility="visible", help="篩選條件基於發票日期，而非上傳時間")
     with filter_col3:
@@ -1978,31 +1981,7 @@ with st.container():
                 help="導出符合國稅局欄位結構的 Excel 報表"
             )
     with filter_col5:
-        # 刪除按鈕與 PDF 導出一起放在右側，符合操作習慣
-        if not df.empty:
-            preview_selected = st.session_state.get("preview_selected_count", 0)
-            # 先顯示刪除按鈕，再顯示 PDF 導出
-            if preview_selected > 0:
-                delete_button_top = st.button(
-                    f"🗑️ 刪除 {preview_selected} 條",
-                    type="primary",
-                    use_container_width=True,
-                    help="刪除已選中的數據",
-                    key="delete_button_top"
-                )
-            else:
-                st.button(
-                    "🗑️ 刪除",
-                    disabled=True,
-                    use_container_width=True,
-                    help="請先勾選要刪除的記錄",
-                    key="delete_button_top_disabled"
-                )
-                delete_button_top = False
-
-            st.write("")  # 與刪除按鈕拉開一點距離
-
-            if PDF_AVAILABLE:
+        if not df.empty and PDF_AVAILABLE:
                 def generate_pdf():
                     pdf = FPDF()
                     pdf.set_auto_page_break(auto=True, margin=15)
@@ -2515,11 +2494,12 @@ with st.container():
         # 保存原始數據的副本用於比較（不包含ID列）
         original_df_copy = df.copy()
         
-        # 準備列配置（不包含ID列、user_id列、檔案名稱列和總計列）
+        # 準備列配置（不包含ID列、user_id列、檔案名稱列）
         column_config = { 
             "選取": st.column_config.CheckboxColumn("選取", default=False),
             "銷售額": st.column_config.NumberColumn("銷售額", format="$%d"),
             "稅額": st.column_config.NumberColumn("稅額", format="$%d"),
+            "總計": st.column_config.NumberColumn("總計", format="$%d"),
             "備註": st.column_config.TextColumn("備註", width="medium"),
             "建立時間": st.column_config.DatetimeColumn("建立時間", format="YYYY/MM/DD HH:mm")
         }
