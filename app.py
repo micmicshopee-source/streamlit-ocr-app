@@ -1841,21 +1841,57 @@ with st.container():
     # 使用原始查詢結果（如果df_stats已定義，使用它；否則使用df_raw並重命名）
     if 'df_stats' in locals() and not df_stats.empty:
         df = df_stats.copy()
-        # 保存帶ID的副本用於刪除功能
+        # 保存帶ID的副本用於刪除功能（僅後端使用，不在前端顯示）
         df_with_id = df.copy() if 'id' in df.columns else None
     else:
         df = df_raw.copy()
-        # 保存帶ID的副本用於刪除功能（在重命名前）
+        # 保存帶ID的副本用於刪除功能（在重命名前，僅後端使用）
         df_with_id = df.copy() if 'id' in df.columns else None
         # 如果使用df_raw，需要重命名列
         if not df.empty:
-            mapping = {"file_name":"檔案名稱","date":"日期","invoice_number":"發票號碼","seller_name":"賣方名稱","seller_ubn":"賣方統編","subtotal":"銷售額","tax":"稅額","total":"總計","category":"類型","subject":"會計科目","status":"狀態","note":"備註","created_at":"建立時間"}
+            mapping = {
+                "file_name":"檔案名稱",
+                "date":"日期",
+                "invoice_number":"發票號碼",
+                "seller_name":"賣方名稱",
+                "seller_ubn":"賣方統編",
+                "subtotal":"銷售額",
+                "tax":"稅額",
+                "total":"總計",
+                "category":"類型",
+                "subject":"會計科目",
+                "status":"狀態",
+                "note":"備註",
+                "created_at":"建立時間"
+            }
             df = df.rename(columns=mapping)
             # 同時重命名df_with_id的列（如果存在）
             if df_with_id is not None and not df_with_id.empty:
                 df_with_id = df_with_id.rename(columns=mapping)
     
-    # 查詢條件和導出按鈕（並排顯示）
+    # 統計列表（數據報表總覽）
+    if not df.empty:
+        # 優先使用現有欄位計算統計
+        total_count = len(df)
+        subtotal_sum = pd.to_numeric(df.get("銷售額", 0), errors="coerce").fillna(0).sum()
+        tax_sum = pd.to_numeric(df.get("稅額", 0), errors="coerce").fillna(0).sum()
+        total_sum = pd.to_numeric(df.get("總計", 0), errors="coerce").fillna(0).sum()
+
+        summary_df = pd.DataFrame([
+            {"項目": "發票筆數", "數值": f"{int(total_count):,} 筆"},
+            {"項目": "銷售額(未稅)合計", "數值": f"${subtotal_sum:,.0f}"},
+            {"項目": "稅額合計", "數值": f"${tax_sum:,.0f}"},
+            {"項目": "總計合計", "數值": f"${total_sum:,.0f}"},
+        ])
+        st.dataframe(summary_df, use_container_width=True, hide_index=True)
+    else:
+        st.info("📊 目前無統計數據")
+
+    # 查詢條件、導出與刪除按鈕（並排顯示）
+    if "preview_selected_count" not in st.session_state:
+        st.session_state.preview_selected_count = 0
+    delete_button_top = False  # 預設為未點擊
+
     filter_col1, filter_col2, filter_col3, filter_col4, filter_col5 = st.columns([2, 1, 1, 1, 1])
     with filter_col1:
         search = st.text_input("🔍 關鍵字搜尋", placeholder="號碼/賣方/檔名...", label_visibility="hidden")
@@ -1942,8 +1978,30 @@ with st.container():
                 help="導出符合國稅局欄位結構的 Excel 報表"
             )
     with filter_col5:
-        st.write("")  # 空白行用於對齊
+        # 刪除按鈕與 PDF 導出一起放在右側，符合操作習慣
         if not df.empty:
+            preview_selected = st.session_state.get("preview_selected_count", 0)
+            # 先顯示刪除按鈕，再顯示 PDF 導出
+            if preview_selected > 0:
+                delete_button_top = st.button(
+                    f"🗑️ 刪除 {preview_selected} 條",
+                    type="primary",
+                    use_container_width=True,
+                    help="刪除已選中的數據",
+                    key="delete_button_top"
+                )
+            else:
+                st.button(
+                    "🗑️ 刪除",
+                    disabled=True,
+                    use_container_width=True,
+                    help="請先勾選要刪除的記錄",
+                    key="delete_button_top_disabled"
+                )
+                delete_button_top = False
+
+            st.write("")  # 與刪除按鈕拉開一點距離
+
             if PDF_AVAILABLE:
                 def generate_pdf():
                     pdf = FPDF()
@@ -2506,30 +2564,6 @@ with st.container():
             except:
                 column_config["建立時間"] = st.column_config.TextColumn("建立時間", width="medium")
                 df_for_editor["建立時間"] = df["建立時間"]
-        
-        # 在表格上方添加刪除按鈕（使用上一次的選中數量，表格編輯後會自動更新）
-        preview_selected = st.session_state.get("preview_selected_count", 0)
-        delete_btn_col1, delete_btn_col2, delete_btn_col3 = st.columns([3, 1, 3])
-        with delete_btn_col2:
-            if preview_selected > 0:
-                delete_button_top = st.button(
-                    f"🗑️ 刪除 {preview_selected} 條", 
-                    type="primary",
-                    use_container_width=False,
-                    help="刪除已選中的數據",
-                    key="delete_button_top"
-                )
-            else:
-                delete_button_top = False
-                st.button(
-                    "🗑️ 刪除", 
-                    disabled=True,
-                    use_container_width=False,
-                    help="請先勾選要刪除的記錄",
-                    key="delete_button_top_disabled"
-                )
-        
-        st.markdown("---")
         
         ed_df = st.data_editor(df_for_editor, use_container_width=True, hide_index=True, height=500, 
                                column_config=column_config,
