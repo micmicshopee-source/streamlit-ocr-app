@@ -1981,7 +1981,8 @@ with st.container():
                 help="導出符合國稅局欄位結構的 Excel 報表"
             )
     with filter_col5:
-        if not df.empty and PDF_AVAILABLE:
+        if not df.empty:
+            if PDF_AVAILABLE:
                 def generate_pdf():
                     pdf = FPDF()
                     pdf.set_auto_page_break(auto=True, margin=15)
@@ -2153,8 +2154,14 @@ with st.container():
                     return pdf_bytes
                 
                 pdf_data = generate_pdf()
-                st.download_button("📄 導出PDF", pdf_data, f"invoice_report_{datetime.now().strftime('%Y%m%d')}.pdf", 
-                                 mime="application/pdf", use_container_width=True, help="導出當前數據為PDF報告")
+                st.download_button(
+                    "📄 導出PDF",
+                    pdf_data,
+                    f"invoice_report_{datetime.now().strftime('%Y%m%d')}.pdf",
+                    mime="application/pdf",
+                    use_container_width=True,
+                    help="導出當前數據為PDF報告"
+                )
             else:
                 st.info("📄 PDF", help="需要安裝 fpdf2")
     
