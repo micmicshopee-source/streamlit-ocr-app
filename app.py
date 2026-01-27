@@ -2214,15 +2214,36 @@ with st.container():
             delete_records = st.session_state.get("delete_records", [])
             delete_count = st.session_state.get("delete_count", 0)
             
-            with st.dialog("⚠️ 確認刪除"):
+            # 使用裝飾器方式定義刪除確認對話框
+            @st.dialog("⚠️ 確認刪除")
+            def delete_confirm_dialog():
                 st.warning(f"確定要刪除選中的 {delete_count} 條數據嗎？")
                 st.error("⚠️ 此操作不可恢復！")
                 
-                # 顯示要刪除的記錄預覽（顯示發票號碼和日期）
+                # 顯示要刪除的記錄預覽（顯示id、發票號碼和日期）
                 if delete_records:
                     with st.expander("查看要刪除的記錄", expanded=False):
-                        preview_df = pd.DataFrame(delete_records)
-                        st.dataframe(preview_df, use_container_width=True, hide_index=True)
+                        # 準備預覽數據，將id、發票號碼、日期格式化顯示
+                        preview_data = []
+                        for rec in delete_records:
+                            preview_row = {}
+                            if 'id' in rec and rec['id'] is not None:
+                                preview_row['ID'] = rec['id']
+                            if 'invoice_number' in rec and rec.get('invoice_number'):
+                                preview_row['發票號碼'] = rec['invoice_number']
+                            else:
+                                preview_row['發票號碼'] = '(空)'
+                            if 'date' in rec and rec.get('date'):
+                                preview_row['日期'] = rec['date']
+                            else:
+                                preview_row['日期'] = '(空)'
+                            preview_data.append(preview_row)
+                        
+                        if preview_data:
+                            preview_df = pd.DataFrame(preview_data)
+                            st.dataframe(preview_df, use_container_width=True, hide_index=True)
+                        else:
+                            st.info("無法顯示記錄詳情")
                 
                 col1, col2 = st.columns(2)
                 with col1:
@@ -2233,37 +2254,100 @@ with st.container():
                         errors = []
                         
                         if st.session_state.use_memory_mode:
-                            # 內存模式：從列表中刪除（使用發票號碼+日期）
+                            # 內存模式：從列表中刪除（優先使用id，否則使用發票號碼+日期）
                             original_count = len(st.session_state.local_invoices)
+                            
+                            def should_delete_invoice(inv):
+                                """判斷是否應該刪除此發票"""
+                                for rec in delete_records:
+                                    # 優先使用id匹配
+                                    if 'id' in rec and rec['id'] is not None:
+                                        if inv.get('id') == rec['id'] and inv.get('user_email', inv.get('user_id', 'default_user')) == user_email:
+                                            return True
+                                    # 如果沒有id，使用發票號碼+日期組合
+                                    elif 'invoice_number' in rec and 'date' in rec:
+                                        inv_num = str(inv.get('invoice_number', '')).strip()
+                                        inv_date = str(inv.get('date', '')).strip()
+                                        rec_num = str(rec.get('invoice_number', '')).strip()
+                                        rec_date = str(rec.get('date', '')).strip()
+                                        
+                                        if (inv_num == rec_num or (not inv_num and not rec_num)) and \
+                                           (inv_date == rec_date or (not inv_date and not rec_date)) and \
+                                           inv.get('user_email', inv.get('user_id', 'default_user')) == user_email:
+                                            return True
+                                    # 如果只有發票號碼（數據不完整）
+                                    elif 'invoice_number' in rec and rec.get('invoice_number'):
+                                        inv_num = str(inv.get('invoice_number', '')).strip()
+                                        rec_num = str(rec.get('invoice_number', '')).strip()
+                                        inv_date = str(inv.get('date', '')).strip()
+                                        
+                                        if inv_num == rec_num and (not inv_date or inv_date in ['', 'No', 'N/A']) and \
+                                           inv.get('user_email', inv.get('user_id', 'default_user')) == user_email:
+                                            return True
+                                    # 如果只有日期（數據不完整）
+                                    elif 'date' in rec and rec.get('date'):
+                                        inv_date = str(inv.get('date', '')).strip()
+                                        rec_date = str(rec.get('date', '')).strip()
+                                        inv_num = str(inv.get('invoice_number', '')).strip()
+                                        
+                                        if inv_date == rec_date and (not inv_num or inv_num in ['', 'No', 'N/A']) and \
+                                           inv.get('user_email', inv.get('user_id', 'default_user')) == user_email:
+                                            return True
+                                return False
+                            
                             st.session_state.local_invoices = [
                                 inv for inv in st.session_state.local_invoices 
-                                if not any(
-                                    str(inv.get('invoice_number', '')).strip() == rec['invoice_number'] and
-                                    str(inv.get('date', '')).strip() == rec['date'] and
-                                    inv.get('user_email', inv.get('user_id', 'default_user')) == user_email
-                                    for rec in delete_records
-                                )
+                                if not should_delete_invoice(inv)
                             ]
                             deleted_count = original_count - len(st.session_state.local_invoices)
                         else:
-                            # 數據庫模式：使用發票號碼+日期+用戶郵箱組合刪除（最可靠）
+                            # 數據庫模式：優先使用id刪除（支持數據不完整），否則使用發票號碼+日期+用戶郵箱組合
                             try:
                                 path = get_db_path()
                                 is_uri = path.startswith("file:") and "mode=memory" in path
                                 conn = sqlite3.connect(path, timeout=30, uri=is_uri, check_same_thread=False)
                                 cursor = conn.cursor()
                                 
-                                # 逐條刪除（使用發票號碼+日期+用戶郵箱）
+                                # 逐條刪除
                                 for rec in delete_records:
                                     try:
-                                        cursor.execute(
-                                            "DELETE FROM invoices WHERE user_email=? AND invoice_number=? AND date=?",
-                                            (user_email, rec['invoice_number'], rec['date'])
-                                        )
+                                        # 優先使用id刪除（最可靠，支持數據不完整）
+                                        if 'id' in rec and rec['id'] is not None:
+                                            cursor.execute(
+                                                "DELETE FROM invoices WHERE id=? AND user_email=?",
+                                                (rec['id'], user_email)
+                                            )
+                                        # 如果沒有id，使用發票號碼+日期+用戶郵箱組合
+                                        elif 'invoice_number' in rec and 'date' in rec and rec.get('invoice_number') and rec.get('date'):
+                                            cursor.execute(
+                                                "DELETE FROM invoices WHERE user_email=? AND invoice_number=? AND date=?",
+                                                (user_email, rec['invoice_number'], rec['date'])
+                                            )
+                                        # 如果只有發票號碼（數據不完整）
+                                        elif 'invoice_number' in rec and rec.get('invoice_number'):
+                                            cursor.execute(
+                                                "DELETE FROM invoices WHERE user_email=? AND invoice_number=? AND (date IS NULL OR date='' OR date='No')",
+                                                (user_email, rec['invoice_number'])
+                                            )
+                                        # 如果只有日期（數據不完整）
+                                        elif 'date' in rec and rec.get('date'):
+                                            cursor.execute(
+                                                "DELETE FROM invoices WHERE user_email=? AND date=? AND (invoice_number IS NULL OR invoice_number='' OR invoice_number='No')",
+                                                (user_email, rec['date'])
+                                            )
+                                        else:
+                                            errors.append("無法確定要刪除的記錄（缺少必要的標識信息）")
+                                            continue
+                                        
                                         if cursor.rowcount > 0:
                                             deleted_count += cursor.rowcount
+                                        else:
+                                            # 記錄未找到的記錄信息
+                                            rec_info = f"ID: {rec.get('id', 'N/A')}, 發票號碼: {rec.get('invoice_number', 'N/A')}, 日期: {rec.get('date', 'N/A')}"
+                                            errors.append(f"未找到記錄: {rec_info}")
                                     except Exception as e:
-                                        errors.append(f"刪除失敗（發票號碼: {rec['invoice_number']}, 日期: {rec['date']}）: {str(e)}")
+                                        rec_info = f"ID: {rec.get('id', 'N/A')}, 發票號碼: {rec.get('invoice_number', 'N/A')}, 日期: {rec.get('date', 'N/A')}"
+                                        errors.append(f"刪除失敗（{rec_info}）: {str(e)}")
                                 
                                 conn.commit()
                                 conn.close()
@@ -2302,6 +2386,9 @@ with st.container():
                         if "delete_count" in st.session_state:
                             del st.session_state.delete_count
                         st.rerun()
+            
+            # 調用對話框函數
+            delete_confirm_dialog()
         
         # 保存原始數據的副本用於比較（不包含ID列）
         original_df_copy = df.copy()
@@ -2430,25 +2517,92 @@ with st.container():
             user_email = st.session_state.get('user_email', 'default_user')
             
             for idx, row in selected_rows.iterrows():
-                invoice_number = str(row.get('發票號碼', '')).strip()
-                date = str(row.get('日期', '')).strip()
+                # 優先從df_with_id獲取原始數據（未經過fill_empty處理，避免"No"值）
+                record_id = None
+                invoice_number = None
+                date = None
                 
-                # 清理數據：移除可能的格式字符和"No"值
-                invoice_number = invoice_number.replace('No', '').replace('N/A', '').strip()
-                date = date.replace('No', '').replace('N/A', '').strip()
+                # 方法1: 優先從df_with_id獲取id（最可靠的方式，支持數據不完整的記錄）
+                if df_with_id is not None and idx in df_with_id.index:
+                    # 優先獲取id字段（如果存在）
+                    if 'id' in df_with_id.columns:
+                        record_id = df_with_id.loc[idx, 'id']
+                        if pd.isna(record_id):
+                            record_id = None
+                        else:
+                            record_id = int(record_id) if record_id else None
+                    
+                    # 同時獲取發票號碼和日期（用於備選刪除方式）
+                    if 'invoice_number' in df_with_id.columns:
+                        invoice_number = df_with_id.loc[idx, 'invoice_number']
+                    elif '發票號碼' in df_with_id.columns:
+                        invoice_number = df_with_id.loc[idx, '發票號碼']
+                    
+                    if 'date' in df_with_id.columns:
+                        date = df_with_id.loc[idx, 'date']
+                    elif '日期' in df_with_id.columns:
+                        date = df_with_id.loc[idx, '日期']
                 
-                # 如果日期是日期類型，轉換為字符串
-                if hasattr(date, 'strftime'):
-                    try:
-                        date = date.strftime("%Y/%m/%d")
-                    except:
-                        pass
+                # 方法2: 如果df_with_id中沒有，從df獲取（df已經重命名為中文列名）
+                if record_id is None and df_with_id is not None and idx in df_with_id.index:
+                    # 嘗試從df獲取id（如果df中有id列）
+                    if 'id' in df.columns and idx in df.index:
+                        record_id = df.loc[idx, 'id']
+                        if pd.isna(record_id):
+                            record_id = None
+                        else:
+                            record_id = int(record_id) if record_id else None
                 
-                if invoice_number and date and invoice_number != '' and date != '':
-                    records_to_delete.append({
-                        'invoice_number': invoice_number,
-                        'date': date
-                    })
+                if (not invoice_number or pd.isna(invoice_number) or str(invoice_number).strip() in ['', 'No', 'N/A', 'nan', 'None']):
+                    if idx in df.index and '發票號碼' in df.columns:
+                        invoice_number = df.loc[idx, '發票號碼']
+                
+                if (not date or pd.isna(date) or str(date).strip() in ['', 'No', 'N/A', 'nan', 'None']):
+                    if idx in df.index and '日期' in df.columns:
+                        date = df.loc[idx, '日期']
+                
+                # 方法3: 如果還是沒有，從ed_df獲取（最後備選）
+                if (not invoice_number or pd.isna(invoice_number) or str(invoice_number).strip() in ['', 'No', 'N/A', 'nan', 'None']):
+                    if '發票號碼' in row.index:
+                        invoice_number = row.get('發票號碼')
+                
+                if (not date or pd.isna(date) or str(date).strip() in ['', 'No', 'N/A', 'nan', 'None']):
+                    if '日期' in row.index:
+                        date = row.get('日期')
+                
+                # 轉換為字符串並清理
+                if invoice_number is not None and not pd.isna(invoice_number):
+                    invoice_number = str(invoice_number).strip()
+                    invoice_number = invoice_number.replace('No', '').replace('N/A', '').replace('nan', '').replace('None', '').strip()
+                else:
+                    invoice_number = ''
+                
+                if date is not None and not pd.isna(date):
+                    # 如果日期是日期類型，轉換為字符串
+                    if isinstance(date, pd.Timestamp) or hasattr(date, 'strftime'):
+                        try:
+                            date = date.strftime("%Y/%m/%d")
+                        except:
+                            date = str(date).strip()
+                    else:
+                        date = str(date).strip()
+                    date = date.replace('No', '').replace('N/A', '').replace('nan', '').replace('None', '').strip()
+                else:
+                    date = ''
+                
+                # 允許刪除數據不完整的記錄：優先使用id，如果沒有id則使用發票號碼+日期組合
+                # 如果都沒有，仍然嘗試添加（使用空值），讓刪除邏輯處理
+                delete_record = {}
+                if record_id is not None:
+                    delete_record['id'] = record_id
+                if invoice_number:
+                    delete_record['invoice_number'] = invoice_number
+                if date:
+                    delete_record['date'] = date
+                
+                # 只要有任何一個標識符（id、發票號碼+日期、或至少一個字段），就允許刪除
+                if delete_record:
+                    records_to_delete.append(delete_record)
             
             if records_to_delete:
                 # 顯示刪除確認對話框
@@ -2457,12 +2611,19 @@ with st.container():
                 st.session_state.delete_count = len(records_to_delete)
                 st.rerun()
             else:
-                st.warning("⚠️ 無法確定要刪除的記錄（缺少發票號碼或日期信息）。請確保數據已正確加載。")
+                st.warning("⚠️ 無法確定要刪除的記錄。請確保數據已正確加載。")
                 # 調試信息
                 with st.expander("🔍 調試信息", expanded=False):
-                    st.write("選中的行數:", len(selected_rows))
-                    st.write("選中的行數據:")
-                    st.dataframe(selected_rows[['發票號碼', '日期']] if '發票號碼' in selected_rows.columns and '日期' in selected_rows.columns else selected_rows)
+                    st.write("**選中的行數:**", len(selected_rows))
+                    st.write("**ed_df的列名:**", list(ed_df.columns))
+                    st.write("**df的列名:**", list(df.columns) if 'df' in locals() else 'df未定義')
+                    st.write("**df_with_id的列名:**", list(df_with_id.columns) if df_with_id is not None and not df_with_id.empty else 'df_with_id為None或空')
+                    st.write("**選中的行數據（前3行）:**")
+                    if not selected_rows.empty:
+                        # 只顯示前3行，避免過多數據
+                        display_cols = ['發票號碼', '日期'] if '發票號碼' in selected_rows.columns and '日期' in selected_rows.columns else list(selected_rows.columns)[:5]
+                        st.dataframe(selected_rows[display_cols].head(3))
+                    st.write("**提示:** 現在支持刪除數據不完整的記錄（即使發票號碼或日期為空）。如果仍然無法刪除，請檢查調試信息。")
         
         # 檢測是否有變更並自動保存（比較關鍵字段）
         has_changes = False
