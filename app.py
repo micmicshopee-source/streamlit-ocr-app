@@ -2306,8 +2306,8 @@ with st.container():
                     if idx in df_with_id.index:
                         df.loc[idx, 'id'] = df_with_id.loc[idx, 'id']
         
-        # 移除其他不需要顯示的列
-        columns_to_hide = ['user_id', 'user_email', '檔案名稱', '總計']
+        # 移除其他不需要顯示的列（保留「總計」供前端表格使用）
+        columns_to_hide = ['user_id', 'user_email', '檔案名稱']
         for col in columns_to_hide:
             if col in df.columns:
                 df = df.drop(columns=[col])
@@ -2564,9 +2564,17 @@ with st.container():
                 column_config["建立時間"] = st.column_config.TextColumn("建立時間", width="medium")
                 df_for_editor["建立時間"] = df["建立時間"]
         
-        ed_df = st.data_editor(df_for_editor, use_container_width=True, hide_index=True, height=500, 
-                               column_config=column_config,
-                               key="data_editor")
+        # 使用 column_order 隱藏 id 欄位，但在返回的資料中仍保留 id（供後端更新使用）
+        visible_columns = [c for c in df_for_editor.columns if c != "id"]
+        ed_df = st.data_editor(
+            df_for_editor,
+            use_container_width=True,
+            hide_index=True,
+            height=500,
+            column_config=column_config,
+            column_order=visible_columns,
+            key="data_editor"
+        )
         
         # 如果日期被轉換為日期類型，需要轉回字符串格式以便保存
         if "日期" in ed_df.columns and ed_df["日期"].dtype != object:
