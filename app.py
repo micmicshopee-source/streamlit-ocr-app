@@ -2192,11 +2192,10 @@ with st.container():
         if '_original_index' in df.columns:
             df = df.drop(columns=['_original_index'])
         
-        # 在表格上方添加刪除按鈕和提示（讓用戶更容易找到）
-        delete_header_col1, delete_header_col2, delete_header_col3, delete_header_col4 = st.columns([2, 1, 1, 1])
+        # 在表格上方添加標題和選中數量顯示
+        delete_header_col1, delete_header_col2 = st.columns([3, 1])
         with delete_header_col1:
             st.markdown("**📋 數據表格**")
-            st.caption("💡 提示：勾選左側「選取」框後，點擊下方刪除按鈕即可刪除選中的記錄")
         with delete_header_col2:
             # 預先顯示選中數量（從session_state獲取，如果有的話）
             preview_selected = st.session_state.get("preview_selected_count", 0)
@@ -2204,12 +2203,6 @@ with st.container():
                 st.metric("已選中", f"{preview_selected} 條")
             else:
                 st.metric("已選中", "0 條")
-        with delete_header_col3:
-            # 全選/取消全選按鈕（在data_editor之前無法直接操作，這裡只是提示）
-            st.markdown("")
-            st.caption("批量操作")
-        with delete_header_col4:
-            st.markdown("")  # 空白行用於對齊
         if st.session_state.get("show_delete_confirm", False):
             delete_records = st.session_state.get("delete_records", [])
             delete_count = st.session_state.get("delete_count", 0)
@@ -2443,6 +2436,30 @@ with st.container():
                 column_config["建立時間"] = st.column_config.TextColumn("建立時間", width="medium")
                 df_for_editor["建立時間"] = df["建立時間"]
         
+        # 在表格上方添加刪除按鈕（使用上一次的選中數量，表格編輯後會自動更新）
+        preview_selected = st.session_state.get("preview_selected_count", 0)
+        delete_btn_col1, delete_btn_col2, delete_btn_col3 = st.columns([1, 2, 1])
+        with delete_btn_col2:
+            if preview_selected > 0:
+                delete_button_top = st.button(
+                    f"🗑️ 刪除選中的 {preview_selected} 條數據", 
+                    type="primary",
+                    use_container_width=True,
+                    help="刪除已選中的數據",
+                    key="delete_button_top"
+                )
+            else:
+                delete_button_top = False
+                st.button(
+                    "🗑️ 刪除選中數據", 
+                    disabled=True,
+                    use_container_width=True,
+                    help="請先勾選要刪除的記錄（使用左側的「選取」框）",
+                    key="delete_button_top_disabled"
+                )
+        
+        st.markdown("---")
+        
         ed_df = st.data_editor(df_for_editor, use_container_width=True, hide_index=True, height=500, 
                                column_config=column_config,
                                key="data_editor")
@@ -2455,60 +2472,15 @@ with st.container():
         
         # 檢查是否有選中的行
         selected_count = ed_df["選取"].sum() if "選取" in ed_df.columns else 0
-        # 保存到session_state，用於表格上方顯示
-        st.session_state.preview_selected_count = int(selected_count)
+        # 保存到session_state，用於下次顯示（如果數量改變，會觸發rerun更新按鈕）
+        if st.session_state.get("preview_selected_count", 0) != selected_count:
+            st.session_state.preview_selected_count = int(selected_count)
+            # 如果選中數量改變且沒有點擊刪除按鈕，自動更新按鈕顯示
+            if not delete_button_top:
+                st.rerun()
         
-        # 刪除功能：使用發票號碼+日期+用戶郵箱組合刪除（最可靠的方式，不依賴ID列）
-        # 固定位置的刪除按鈕（使用CSS sticky，滾動時始終可見）
-        st.markdown('<div class="delete-button-fixed">', unsafe_allow_html=True)
-        
-        # 固定位置的刪除按鈕容器
-        delete_fixed_col1, delete_fixed_col2, delete_fixed_col3 = st.columns([1, 2, 1])
-        with delete_fixed_col2:
-            if selected_count > 0:
-                delete_button_fixed = st.button(
-                    f"🗑️ 刪除選中的 {selected_count} 條數據", 
-                    type="primary",
-                    use_container_width=True,
-                    help="刪除已選中的數據（此按鈕固定在頂部，滾動時始終可見）",
-                    key="delete_button_fixed"
-                )
-            else:
-                delete_button_fixed = False
-                st.button(
-                    "🗑️ 刪除選中數據", 
-                    disabled=True,
-                    use_container_width=True,
-                    help="請先勾選要刪除的記錄（使用左側的「選取」框）",
-                    key="delete_button_fixed_disabled"
-                )
-        
-        st.markdown('</div>', unsafe_allow_html=True)
-        
-        # 表格下方的刪除按鈕（備用，方便用戶在查看表格後直接刪除）
-        st.markdown("---")
-        delete_btn_col1, delete_btn_col2, delete_btn_col3 = st.columns([1, 2, 1])
-        with delete_btn_col2:
-            if selected_count > 0:
-                delete_button_bottom = st.button(
-                    f"🗑️ 刪除選中的 {selected_count} 條數據", 
-                    type="primary",
-                    use_container_width=True,
-                    help="刪除已選中的數據",
-                    key="delete_button_bottom"
-                )
-            else:
-                delete_button_bottom = False
-                st.button(
-                    "🗑️ 刪除選中數據", 
-                    disabled=True,
-                    use_container_width=True,
-                    help="請先勾選要刪除的記錄（使用左側的「選取」框）",
-                    key="delete_button_bottom_disabled"
-                )
-        
-        # 統一處理刪除邏輯（無論點擊固定位置還是下方按鈕）
-        delete_button = delete_button_fixed or delete_button_bottom
+        # 統一處理刪除邏輯（使用當前的選中數量）
+        delete_button = delete_button_top
         
         if selected_count > 0 and delete_button:
             selected_rows = ed_df[ed_df["選取"]==True]
