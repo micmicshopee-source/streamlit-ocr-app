@@ -375,6 +375,35 @@ st.markdown("""
     hr {
         border-color: #3F3F3F !important;
     }
+    
+    /* 固定位置刪除按鈕容器 */
+    .delete-button-fixed {
+        position: sticky !important;
+        top: 0 !important;
+        z-index: 100 !important;
+        background-color: #1F1F1F !important;
+        padding: 12px 0 !important;
+        margin-bottom: 10px !important;
+        border-bottom: 2px solid #5F5F5F !important;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.3) !important;
+    }
+    
+    /* 確保固定按鈕容器內的按鈕樣式正常 */
+    .delete-button-fixed .stButton {
+        margin: 0 auto !important;
+    }
+    
+    /* 固定按鈕容器的背景遮罩效果 */
+    .delete-button-fixed::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: linear-gradient(to bottom, rgba(31,31,31,0.95), rgba(31,31,31,0.98));
+        z-index: -1;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -2343,36 +2372,39 @@ with st.container():
         st.session_state.preview_selected_count = int(selected_count)
         
         # 刪除功能：使用發票號碼+日期+用戶郵箱組合刪除（最可靠的方式，不依賴ID列）
-        # 在表格上方和下方都添加刪除按鈕（提升用戶體驗）
-        st.markdown("---")
+        # 固定位置的刪除按鈕（使用CSS sticky，滾動時始終可見）
+        st.markdown('<div class="delete-button-fixed">', unsafe_allow_html=True)
         
-        # 表格上方的刪除按鈕（固定位置，用戶無需滾動）
-        delete_top_col1, delete_top_col2, delete_top_col3 = st.columns([1, 2, 1])
-        with delete_top_col2:
+        # 固定位置的刪除按鈕容器
+        delete_fixed_col1, delete_fixed_col2, delete_fixed_col3 = st.columns([1, 2, 1])
+        with delete_fixed_col2:
             if selected_count > 0:
-                delete_button_top = st.button(
-                    f"🗑️ 刪除選中的 {selected_count} 條數據（上方）", 
+                delete_button_fixed = st.button(
+                    f"🗑️ 刪除選中的 {selected_count} 條數據", 
                     type="primary",
                     use_container_width=True,
-                    help="刪除已選中的數據",
-                    key="delete_button_top"
+                    help="刪除已選中的數據（此按鈕固定在頂部，滾動時始終可見）",
+                    key="delete_button_fixed"
                 )
             else:
-                delete_button_top = False
+                delete_button_fixed = False
                 st.button(
                     "🗑️ 刪除選中數據", 
                     disabled=True,
                     use_container_width=True,
                     help="請先勾選要刪除的記錄（使用左側的「選取」框）",
-                    key="delete_button_top_disabled"
+                    key="delete_button_fixed_disabled"
                 )
         
-        # 表格下方的刪除按鈕（備用）
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+        # 表格下方的刪除按鈕（備用，方便用戶在查看表格後直接刪除）
+        st.markdown("---")
         delete_btn_col1, delete_btn_col2, delete_btn_col3 = st.columns([1, 2, 1])
         with delete_btn_col2:
             if selected_count > 0:
                 delete_button_bottom = st.button(
-                    f"🗑️ 刪除選中的 {selected_count} 條數據（下方）", 
+                    f"🗑️ 刪除選中的 {selected_count} 條數據", 
                     type="primary",
                     use_container_width=True,
                     help="刪除已選中的數據",
@@ -2388,8 +2420,8 @@ with st.container():
                     key="delete_button_bottom_disabled"
                 )
         
-        # 統一處理刪除邏輯（無論點擊上方還是下方按鈕）
-        delete_button = delete_button_top or delete_button_bottom
+        # 統一處理刪除邏輯（無論點擊固定位置還是下方按鈕）
+        delete_button = delete_button_fixed or delete_button_bottom
         
         if selected_count > 0 and delete_button:
             selected_rows = ed_df[ed_df["選取"]==True]
