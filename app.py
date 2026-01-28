@@ -2506,7 +2506,9 @@ with st.container():
                 df = df[df[date_col].astype(str).apply(date_in_range)]
     
     # 數據表格顯示（df已經重命名過，直接使用）
-    if not df.empty:
+    if df.empty:
+        st.info("📊 目前沒有數據，請上傳發票圖片或導入CSV數據")
+    else:
         # 處理空值：用"No"替換
         def fill_empty(val):
             if pd.isna(val) or val == '' or val == 'N/A' or str(val).strip() == '':
@@ -3106,16 +3108,12 @@ with st.container():
         """, unsafe_allow_html=True)
         
         # 檢查並清理 DataFrame 的列名（確保沒有重複或無效列名）
-        if df_for_editor.empty:
-            # 如果 DataFrame 為空，創建一個空的 DataFrame 用於顯示
-            ed_df = st.data_editor(
-                pd.DataFrame(),
-                use_container_width=True,
-                hide_index=True,
-                height=500,
-                key="data_editor"
-            )
-        else:
+        try:
+            if df_for_editor.empty:
+                # 如果 DataFrame 為空，顯示提示信息
+                st.info("📊 目前沒有數據可顯示")
+                ed_df = pd.DataFrame()
+            else:
             # 檢查並修復重複的列名
             if df_for_editor.columns.duplicated().any():
                 # 如果有重複的列名，重命名它們
@@ -3181,25 +3179,51 @@ with st.container():
                 if cleaned_key in df_for_editor.columns and is_valid_column_name(cleaned_key):
                     valid_column_config[cleaned_key] = v
             
-            # 如果沒有有效的列，使用默認行為（不傳 column_order）
-            ed_df = st.data_editor(
-                df_for_editor,
-                use_container_width=True,
-                hide_index=True,
-                height=500,
-                column_config=valid_column_config if valid_column_config else None,
-                column_order=visible_columns if visible_columns else None,
-                key="data_editor"
-            )
+                # 如果沒有有效的列，使用默認行為（不傳 column_order）
+                try:
+                    ed_df = st.data_editor(
+                        df_for_editor,
+                        use_container_width=True,
+                        hide_index=True,
+                        height=500,
+                        column_config=valid_column_config if valid_column_config else None,
+                        column_order=visible_columns if visible_columns else None,
+                        key="data_editor"
+                    )
+                except Exception as e:
+                    # 如果 st.data_editor 出錯，嘗試使用簡化版本
+                    st.error(f"表格顯示錯誤: {str(e)}")
+                    st.warning("嘗試使用簡化表格顯示...")
+                    # 顯示調試信息
+                    with st.expander("🔍 調試信息", expanded=False):
+                        st.write(f"DataFrame 形狀: {df_for_editor.shape}")
+                        st.write(f"列名: {list(df_for_editor.columns)}")
+                        st.write(f"是否有重複列名: {df_for_editor.columns.duplicated().any()}")
+                        st.write(f"有效列配置: {list(valid_column_config.keys())}")
+                        st.write(f"可見列: {visible_columns}")
+                    # 使用 st.dataframe 作為備選（注意：st.dataframe 返回 None，所以使用原始 df_for_editor）
+                    st.dataframe(df_for_editor, use_container_width=True, height=500)
+                    ed_df = df_for_editor.copy()
+        except Exception as e:
+            st.error(f"數據處理錯誤: {str(e)}")
+            import traceback
+            with st.expander("🔍 詳細錯誤信息", expanded=False):
+                st.code(traceback.format_exc())
+            ed_df = pd.DataFrame()
         
         # 如果日期被轉換為日期類型，需要轉回字符串格式以便保存
-        if "日期" in ed_df.columns and ed_df["日期"].dtype != object:
-            ed_df["日期"] = ed_df["日期"].dt.strftime("%Y/%m/%d").fillna(df["日期"])
+        if not ed_df.empty and "日期" in ed_df.columns and ed_df["日期"].dtype != object:
+            ed_df["日期"] = ed_df["日期"].dt.strftime("%Y/%m/%d").fillna(df["日期"] if not df.empty else "")
         
-        df["選取"] = ed_df["選取"]
+        # 處理選取列（如果存在）
+        if not ed_df.empty and "選取" in ed_df.columns:
+            if "選取" in df.columns:
+                df["選取"] = ed_df["選取"]
+        elif "選取" not in df.columns:
+            df["選取"] = False
         
         # 檢查是否有選中的行
-        selected_count = ed_df["選取"].sum() if "選取" in ed_df.columns else 0
+        selected_count = ed_df["選取"].sum() if not ed_df.empty and "選取" in ed_df.columns else 0
         # 保存到session_state，用於下次顯示（如果數量改變，會觸發rerun更新按鈕）
         if st.session_state.get("preview_selected_count", 0) != selected_count:
             st.session_state.preview_selected_count = int(selected_count)
