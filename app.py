@@ -1239,6 +1239,62 @@ with st.sidebar:
         st.success(f"📊 已存數據: {db_count_df['count'][0]} 筆")
     
     # 生產環境：移除數據庫清理功能，避免誤操作
+    
+    st.markdown("---")
+    
+    # 時間篩選快捷選項（垂直排列）
+    st.markdown("### 🕒 時間篩選")
+    
+    # 初始化日期區間狀態
+    if "date_range_start" not in st.session_state:
+        st.session_state.date_range_start = None
+    if "date_range_end" not in st.session_state:
+        st.session_state.date_range_end = None
+    
+    today = datetime.now().date()
+    
+    # 快捷選項按鈕（垂直排列）
+    if st.button("📅 今天", use_container_width=True, key="sidebar_quick_today"):
+        st.session_state.date_range_start = today
+        st.session_state.date_range_end = today
+        st.rerun()
+    
+    if st.button("📅 昨天", use_container_width=True, key="sidebar_quick_yesterday"):
+        yesterday = today - timedelta(days=1)
+        st.session_state.date_range_start = yesterday
+        st.session_state.date_range_end = yesterday
+        st.rerun()
+    
+    if st.button("📅 過去一週", use_container_width=True, key="sidebar_quick_week"):
+        week_start = today - timedelta(days=7)
+        st.session_state.date_range_start = week_start
+        st.session_state.date_range_end = today
+        st.rerun()
+    
+    if st.button("📅 本月", use_container_width=True, key="sidebar_quick_month"):
+        month_start = today.replace(day=1)
+        st.session_state.date_range_start = month_start
+        st.session_state.date_range_end = today
+        st.rerun()
+    
+    if st.button("📅 近三個月", use_container_width=True, key="sidebar_quick_3months"):
+        # 計算三個月前的第一天
+        three_months_ago = today - timedelta(days=90)
+        month_start = three_months_ago.replace(day=1)
+        st.session_state.date_range_start = month_start
+        st.session_state.date_range_end = today
+        st.rerun()
+    
+    # 顯示當前選擇的日期範圍
+    if st.session_state.date_range_start and st.session_state.date_range_end:
+        date_start_str = st.session_state.date_range_start.strftime("%Y/%m/%d")
+        date_end_str = st.session_state.date_range_end.strftime("%Y/%m/%d")
+        if date_start_str == date_end_str:
+            st.caption(f"📌 已選：{date_start_str}")
+        else:
+            st.caption(f"📌 已選：{date_start_str} ~ {date_end_str}")
+    else:
+        st.caption("📌 未選擇日期範圍")
 
 # 已登錄，顯示主應用
 # 標題和上傳按鈕（並排顯示）
@@ -1911,30 +1967,24 @@ with st.container():
                 )
                 delete_button_top = False
     with filter_col2:
-        # 初始化日期區間狀態
-        if "date_range_start" not in st.session_state:
-            st.session_state.date_range_start = None
-        if "date_range_end" not in st.session_state:
-            st.session_state.date_range_end = None
-        
         # 準備日期區間值（避免傳入 None 元組）
-        date_start_val = st.session_state.date_range_start
-        date_end_val = st.session_state.date_range_end
+        date_start_val = st.session_state.get("date_range_start")
+        date_end_val = st.session_state.get("date_range_end")
         
-        # 日期區間選擇器
+        # 日期區間選擇器（自定義日期區間）
         if date_start_val is not None and date_end_val is not None:
             # 兩個日期都有值，傳入元組
             date_range = st.date_input(
                 "🕒 時間範圍（按發票日期）",
                 value=(date_start_val, date_end_val),
-                help="選擇開始日期和結束日期，或點擊快捷按鈕",
+                help="選擇開始日期和結束日期，或在側邊欄使用快捷按鈕",
                 label_visibility="visible"
             )
         else:
             # 至少有一個是 None，不傳 value 參數（讓用戶自由選擇）
             date_range = st.date_input(
                 "🕒 時間範圍（按發票日期）",
-                help="選擇開始日期和結束日期，或點擊快捷按鈕",
+                help="選擇開始日期和結束日期，或在側邊欄使用快捷按鈕",
                 label_visibility="visible"
             )
         
@@ -1960,46 +2010,6 @@ with st.container():
             date_end = None
             st.session_state.date_range_start = None
             st.session_state.date_range_end = None
-        
-        # 快捷選項按鈕（橫向排列）
-        quick_btn_col1, quick_btn_col2, quick_btn_col3, quick_btn_col4, quick_btn_col5 = st.columns(5)
-        today = datetime.now().date()
-        
-        with quick_btn_col1:
-            if st.button("今天", use_container_width=True, key="quick_today"):
-                st.session_state.date_range_start = today
-                st.session_state.date_range_end = today
-                st.rerun()
-        
-        with quick_btn_col2:
-            if st.button("昨天", use_container_width=True, key="quick_yesterday"):
-                yesterday = today - timedelta(days=1)
-                st.session_state.date_range_start = yesterday
-                st.session_state.date_range_end = yesterday
-                st.rerun()
-        
-        with quick_btn_col3:
-            if st.button("過去一週", use_container_width=True, key="quick_week"):
-                week_start = today - timedelta(days=7)
-                st.session_state.date_range_start = week_start
-                st.session_state.date_range_end = today
-                st.rerun()
-        
-        with quick_btn_col4:
-            if st.button("本月", use_container_width=True, key="quick_month"):
-                month_start = today.replace(day=1)
-                st.session_state.date_range_start = month_start
-                st.session_state.date_range_end = today
-                st.rerun()
-        
-        with quick_btn_col5:
-            if st.button("近三個月", use_container_width=True, key="quick_3months"):
-                # 計算三個月前的第一天
-                three_months_ago = today - timedelta(days=90)
-                month_start = three_months_ago.replace(day=1)
-                st.session_state.date_range_start = month_start
-                st.session_state.date_range_end = today
-                st.rerun()
     with filter_col3:
         st.write("")  # 空白行用於對齊
         if not df.empty:
