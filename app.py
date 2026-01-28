@@ -2100,12 +2100,16 @@ with st.container():
         date_start_val = st.session_state.get("date_range_start")
         date_end_val = st.session_state.get("date_range_end")
         
+        # 設置日期選擇器的最小日期為2009年1月1日
+        min_date = datetime(2009, 1, 1).date()
+        
         # 日期區間選擇器（自定義日期區間，默認顯示全部）
         if date_start_val is not None and date_end_val is not None:
             # 兩個日期都有值，傳入元組
             date_range = st.date_input(
                 "🕒 時間範圍（按發票日期）",
                 value=(date_start_val, date_end_val),
+                min_value=min_date,
                 help="選擇開始日期和結束日期。不選擇日期時默認顯示全部數據。",
                 label_visibility="visible"
             )
@@ -2113,6 +2117,7 @@ with st.container():
             # 至少有一個是 None，不傳 value 參數（默認顯示全部）
             date_range = st.date_input(
                 "🕒 時間範圍（按發票日期）",
+                min_value=min_date,
                 help="選擇開始日期和結束日期。不選擇日期時默認顯示全部數據。",
                 label_visibility="visible"
             )
