@@ -1547,15 +1547,45 @@ if st.session_state.get("start_ocr", False) and "upload_files" in st.session_sta
                             return False
                     return True
                 
-                # 檢查重複發票
+                # 檢查重複發票（即使發票號碼為"No"也要檢查，因為可能是同一張發票重複上傳）
                 invoice_no = safe_value(data.get("invoice_no"), "No")
                 invoice_date = safe_value(data.get("date"), datetime.now().strftime("%Y/%m/%d"))
                 # 多用戶版本：使用 user_email
                 user_email = st.session_state.get('user_email', 'default_user')
-                is_duplicate, dup_id = check_duplicate_invoice(invoice_no, invoice_date, user_email)
+                
+                # 檢查重複：如果發票號碼不是"No"，使用發票號碼+日期檢查；如果是"No"，使用日期+賣方名稱檢查
+                is_duplicate = False
+                dup_id = None
+                
+                if invoice_no and invoice_no != "No" and invoice_no != "N/A":
+                    # 正常情況：使用發票號碼+日期檢查
+                    is_duplicate, dup_id = check_duplicate_invoice(invoice_no, invoice_date, user_email)
+                else:
+                    # 發票號碼為"No"的情況：使用日期+賣方名稱+檔案名稱檢查（避免同一檔案重複上傳）
+                    seller_name = safe_value(data.get("seller_name"), "")
+                    file_name = f.name
+                    
+                    if st.session_state.use_memory_mode:
+                        # 內存模式檢查
+                        for inv in st.session_state.local_invoices:
+                            inv_user = inv.get('user_email', inv.get('user_id', 'default_user'))
+                            if (inv_user == user_email and 
+                                inv.get('date') == invoice_date and
+                                inv.get('seller_name') == seller_name and
+                                inv.get('file_name') == file_name):
+                                is_duplicate = True
+                                dup_id = inv.get('id')
+                                break
+                    else:
+                        # 數據庫模式檢查
+                        query = "SELECT id FROM invoices WHERE user_email = ? AND date = ? AND seller_name = ? AND file_name = ?"
+                        result = run_query(query, (user_email, invoice_date, seller_name, file_name), is_select=True)
+                        if not result.empty:
+                            is_duplicate = True
+                            dup_id = result.iloc[0]['id']
                 
                 if is_duplicate:
-                    st.warning(f"⚠️ {f.name}: 疑似重複發票（發票號碼: {invoice_no}, 日期: {invoice_date}，記錄ID: {dup_id}）")
+                    st.warning(f"⚠️ {f.name}: 疑似重複發票（發票號碼: {invoice_no}, 日期: {invoice_date}，記錄ID: {dup_id}），已跳過")
                     fail_count += 1
                     continue
                 
@@ -2139,17 +2169,41 @@ with st.container():
                     tax_series = tax_series.where(~need_recalc, calc_tax)
                     subtotal_series = subtotal_series.where(~need_recalc, calc_subtotal)
 
-                export_df['銷售額(未稅)'] = subtotal_series
-                export_df['稅額'] = tax_series
-                export_df['總計'] = total_series
+                # 如果已有"銷售額"列，重命名為"銷售額(未稅)"；否則創建新列
+                if '銷售額' in export_df.columns:
+                    export_df = export_df.rename(columns={'銷售額': '銷售額(未稅)'})
+                else:
+                    export_df['銷售額(未稅)'] = subtotal_series
+                
+                # 確保稅額和總計列存在
+                if '稅額' not in export_df.columns:
+                    export_df['稅額'] = tax_series
+                else:
+                    export_df['稅額'] = tax_series  # 更新稅額值
+                
+                if '總計' not in export_df.columns:
+                    export_df['總計'] = total_series
+                else:
+                    export_df['總計'] = total_series  # 更新總計值
 
-                # 按常見報帳格式排列列順序
+                # 按常見報帳格式排列列順序（確保沒有重複列）
                 desired_order = [
                     "日期", "發票號碼", "賣方名稱", "賣方統編",
                     "銷售額(未稅)", "稅額", "總計",
                     "會計科目", "類型", "備註"
                 ]
-                columns = [c for c in desired_order if c in export_df.columns]
+                # 只選擇存在的列，並去重（避免重複）
+                columns = []
+                seen = set()
+                for c in desired_order:
+                    if c in export_df.columns and c not in seen:
+                        columns.append(c)
+                        seen.add(c)
+                # 添加其他未在desired_order中的列（但排除重複的日期相關列）
+                for c in export_df.columns:
+                    if c not in seen and c not in ['日期_parsed', 'date', 'Date']:
+                        columns.append(c)
+                        seen.add(c)
                 export_df = export_df[columns].copy()
 
                 # 導出為 Excel
@@ -2538,7 +2592,7 @@ with st.container():
         # 處理狀態列：檢查是否有缺失數據，如果有則顯示"缺失"
         if "狀態" in df.columns:
             def check_status(row):
-                # 檢查關鍵字段是否為空或"No"
+                # 先檢查關鍵字段是否為空或"No"（優先級最高）
                 key_fields = ['日期', '發票號碼', '賣方名稱', '總計']
                 has_missing = False
                 for field in key_fields:
@@ -2548,20 +2602,26 @@ with st.container():
                             has_missing = True
                             break
                 
-                # 如果原本的狀態已經是錯誤狀態，保持原樣（但確保有紅色X）
+                # 如果有缺失，直接返回"缺失"（不考慮原始狀態）
+                if has_missing:
+                    return '❌ 缺失'
+                
+                # 如果沒有缺失，再檢查原始狀態
                 original_status = str(row.get('狀態', '')).strip()
+                
+                # 如果原本的狀態已經是錯誤狀態，保持原樣（但確保有紅色X）
                 if '缺漏' in original_status or '缺失' in original_status or '錯誤' in original_status:
                     # 如果已經有❌，保持原樣；如果沒有，添加❌
                     if '❌' not in original_status and '⚠️' not in original_status:
                         return f'❌ {original_status}'
                     return original_status
                 
-                # 如果有缺失，返回帶紅色X的"缺失"
-                if has_missing:
-                    return '❌ 缺失'
+                # 如果沒有缺失且原始狀態正常，返回"正常"
+                if original_status and ('正常' in original_status or '✅' in original_status):
+                    return '✅ 正常'
                 
-                # 否則返回原狀態或"正常"
-                return original_status if original_status else '✅ 正常'
+                # 如果原始狀態為空，返回"正常"
+                return '✅ 正常'
             
             df['狀態'] = df.apply(check_status, axis=1)
         
