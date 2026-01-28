@@ -2098,35 +2098,58 @@ with st.container():
         
         today = datetime.now().date()
         
-        # 在日期選擇器內部創建兩列布局：左側快捷選項，右側日期選擇器
-        date_quick_col, date_picker_col = st.columns([1, 2])
+        # 準備日期區間值（避免傳入 None 元組）
+        date_start_val = st.session_state.get("date_range_start")
+        date_end_val = st.session_state.get("date_range_end")
         
-        with date_quick_col:
-            # 快捷選項按鈕（垂直排列，參考圖片布局）
-            st.markdown("**快捷選項**")
+        # 日期區間選擇器（自定義日期區間）
+        if date_start_val is not None and date_end_val is not None:
+            # 兩個日期都有值，傳入元組
+            date_range = st.date_input(
+                "🕒 時間範圍（按發票日期）",
+                value=(date_start_val, date_end_val),
+                help="選擇開始日期和結束日期，或使用下方快捷按鈕",
+                label_visibility="visible"
+            )
+        else:
+            # 至少有一個是 None，不傳 value 參數（讓用戶自由選擇）
+            date_range = st.date_input(
+                "🕒 時間範圍（按發票日期）",
+                help="選擇開始日期和結束日期，或使用下方快捷按鈕",
+                label_visibility="visible"
+            )
+        
+        # 快捷選項按鈕（放在日期選擇器下方，作為日期選擇器的一部分）
+        quick_col1, quick_col2, quick_col3, quick_col4, quick_col5 = st.columns(5)
+        
+        with quick_col1:
             if st.button("今天", use_container_width=True, key="quick_today"):
                 st.session_state.date_range_start = today
                 st.session_state.date_range_end = today
                 st.rerun()
-            
+        
+        with quick_col2:
             if st.button("昨天", use_container_width=True, key="quick_yesterday"):
                 yesterday = today - timedelta(days=1)
                 st.session_state.date_range_start = yesterday
                 st.session_state.date_range_end = yesterday
                 st.rerun()
-            
+        
+        with quick_col3:
             if st.button("過去一週", use_container_width=True, key="quick_week"):
                 week_start = today - timedelta(days=7)
                 st.session_state.date_range_start = week_start
                 st.session_state.date_range_end = today
                 st.rerun()
-            
+        
+        with quick_col4:
             if st.button("本月", use_container_width=True, key="quick_month"):
                 month_start = today.replace(day=1)
                 st.session_state.date_range_start = month_start
                 st.session_state.date_range_end = today
                 st.rerun()
-            
+        
+        with quick_col5:
             if st.button("近三個月", use_container_width=True, key="quick_3months"):
                 # 計算三個月前的第一天
                 three_months_ago = today - timedelta(days=90)
@@ -2135,50 +2158,28 @@ with st.container():
                 st.session_state.date_range_end = today
                 st.rerun()
         
-        with date_picker_col:
-            # 準備日期區間值（避免傳入 None 元組）
-            date_start_val = st.session_state.get("date_range_start")
-            date_end_val = st.session_state.get("date_range_end")
-            
-            # 日期區間選擇器（自定義日期區間）
-            if date_start_val is not None and date_end_val is not None:
-                # 兩個日期都有值，傳入元組
-                date_range = st.date_input(
-                    "🕒 時間範圍（按發票日期）",
-                    value=(date_start_val, date_end_val),
-                    help="選擇開始日期和結束日期，或使用左側快捷按鈕",
-                    label_visibility="visible"
-                )
-            else:
-                # 至少有一個是 None，不傳 value 參數（讓用戶自由選擇）
-                date_range = st.date_input(
-                    "🕒 時間範圍（按發票日期）",
-                    help="選擇開始日期和結束日期，或使用左側快捷按鈕",
-                    label_visibility="visible"
-                )
-            
-            # 處理日期區間（date_input 可能返回單一日期或元組）
-            if isinstance(date_range, tuple) and len(date_range) == 2:
-                date_start, date_end = date_range
-                st.session_state.date_range_start = date_start
-                st.session_state.date_range_end = date_end
-            elif isinstance(date_range, tuple) and len(date_range) == 1:
-                # 只選了一個日期，設為開始和結束都是同一天
-                date_start = date_range[0]
-                date_end = date_range[0]
-                st.session_state.date_range_start = date_start
-                st.session_state.date_range_end = date_end
-            elif date_range is not None:
-                # 單一日期對象
-                date_start = date_range
-                date_end = date_range
-                st.session_state.date_range_start = date_start
-                st.session_state.date_range_end = date_end
-            else:
-                date_start = None
-                date_end = None
-                st.session_state.date_range_start = None
-                st.session_state.date_range_end = None
+        # 處理日期區間（date_input 可能返回單一日期或元組）
+        if isinstance(date_range, tuple) and len(date_range) == 2:
+            date_start, date_end = date_range
+            st.session_state.date_range_start = date_start
+            st.session_state.date_range_end = date_end
+        elif isinstance(date_range, tuple) and len(date_range) == 1:
+            # 只選了一個日期，設為開始和結束都是同一天
+            date_start = date_range[0]
+            date_end = date_range[0]
+            st.session_state.date_range_start = date_start
+            st.session_state.date_range_end = date_end
+        elif date_range is not None:
+            # 單一日期對象
+            date_start = date_range
+            date_end = date_range
+            st.session_state.date_range_start = date_start
+            st.session_state.date_range_end = date_end
+        else:
+            date_start = None
+            date_end = None
+            st.session_state.date_range_start = None
+            st.session_state.date_range_end = None
     with filter_col3:
         st.write("")  # 空白行用於對齊
         if not df.empty:
