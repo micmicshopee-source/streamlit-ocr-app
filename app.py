@@ -2100,20 +2100,20 @@ with st.container():
         date_start_val = st.session_state.get("date_range_start")
         date_end_val = st.session_state.get("date_range_end")
         
-        # 日期區間選擇器（自定義日期區間）
+        # 日期區間選擇器（自定義日期區間，默認顯示全部）
         if date_start_val is not None and date_end_val is not None:
             # 兩個日期都有值，傳入元組
             date_range = st.date_input(
                 "🕒 時間範圍（按發票日期）",
                 value=(date_start_val, date_end_val),
-                help="選擇開始日期和結束日期",
+                help="選擇開始日期和結束日期。不選擇日期時默認顯示全部數據。",
                 label_visibility="visible"
             )
         else:
-            # 至少有一個是 None，不傳 value 參數（讓用戶自由選擇）
+            # 至少有一個是 None，不傳 value 參數（默認顯示全部）
             date_range = st.date_input(
                 "🕒 時間範圍（按發票日期）",
-                help="選擇開始日期和結束日期",
+                help="選擇開始日期和結束日期。當前默認顯示全部數據。",
                 label_visibility="visible"
             )
         
@@ -2135,10 +2135,21 @@ with st.container():
             st.session_state.date_range_start = date_start
             st.session_state.date_range_end = date_end
         else:
+            # 用戶清空了日期選擇，恢復為默認顯示全部
             date_start = None
             date_end = None
             st.session_state.date_range_start = None
             st.session_state.date_range_end = None
+        
+        # 顯示當前狀態提示（使用處理後的日期值）
+        final_date_start = st.session_state.get("date_range_start")
+        final_date_end = st.session_state.get("date_range_end")
+        if final_date_start is None or final_date_end is None:
+            st.caption("📌 當前：顯示全部數據")
+        elif final_date_start == final_date_end:
+            st.caption(f"📌 當前：{final_date_start.strftime('%Y/%m/%d')}")
+        else:
+            st.caption(f"📌 當前：{final_date_start.strftime('%Y/%m/%d')} ~ {final_date_end.strftime('%Y/%m/%d')}")
     with filter_col3:
         st.write("")  # 空白行用於對齊
         if not df.empty:
