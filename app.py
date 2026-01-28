@@ -2095,54 +2095,43 @@ with st.container():
                 )
                 delete_button_top = False
     with filter_col2:
-        # 初始化日期區間狀態
-        if "date_range_start" not in st.session_state:
-            st.session_state.date_range_start = None
-        if "date_range_end" not in st.session_state:
-            st.session_state.date_range_end = None
+        # 使用簡單的 selectbox 時間篩選（全部、本日、本週）
+        today = datetime.now().date()
+        yesterday = today - timedelta(days=1)
+        week_start = today - timedelta(days=7)
         
-        # 準備日期區間值（避免傳入 None 元組）
-        date_start_val = st.session_state.get("date_range_start")
-        date_end_val = st.session_state.get("date_range_end")
+        # 初始化時間篩選選項
+        time_filter_options = ["全部", "本日", "本週"]
+        if "time_filter" not in st.session_state:
+            st.session_state.time_filter = "全部"
         
-        # 日期區間選擇器（自定義日期區間，默認顯示全部）
-        if date_start_val is not None and date_end_val is not None:
-            # 兩個日期都有值，傳入元組
-            date_range = st.date_input(
-                "🕒 時間範圍（按發票日期）",
-                value=(date_start_val, date_end_val),
-                help="選擇開始日期和結束日期。不選擇日期時默認顯示全部數據。",
-                label_visibility="visible"
-            )
-        else:
-            # 至少有一個是 None，不傳 value 參數（默認顯示全部）
-            date_range = st.date_input(
-                "🕒 時間範圍（按發票日期）",
-                help="選擇開始日期和結束日期。不選擇日期時默認顯示全部數據。",
-                label_visibility="visible"
-            )
+        # 獲取當前選擇的索引（避免索引錯誤）
+        current_filter = st.session_state.get("time_filter", "全部")
+        try:
+            current_index = time_filter_options.index(current_filter)
+        except ValueError:
+            current_index = 0  # 如果找不到，使用默認值"全部"
         
-        # 處理日期區間（date_input 可能返回單一日期或元組）
-        if isinstance(date_range, tuple) and len(date_range) == 2:
-            date_start, date_end = date_range
-            st.session_state.date_range_start = date_start
-            st.session_state.date_range_end = date_end
-        elif isinstance(date_range, tuple) and len(date_range) == 1:
-            # 只選了一個日期，設為開始和結束都是同一天
-            date_start = date_range[0]
-            date_end = date_range[0]
-            st.session_state.date_range_start = date_start
-            st.session_state.date_range_end = date_end
-        elif date_range is not None:
-            # 單一日期對象
-            date_start = date_range
-            date_end = date_range
-            st.session_state.date_range_start = date_start
-            st.session_state.date_range_end = date_end
-        else:
-            # 用戶清空了日期選擇，恢復為默認顯示全部
-            date_start = None
-            date_end = None
+        time_filter = st.selectbox(
+            "🕒 時間範圍（按發票日期）",
+            options=time_filter_options,
+            index=current_index,
+            help="選擇時間範圍進行篩選",
+            label_visibility="visible",
+            key="time_filter_selectbox"
+        )
+        
+        # 更新 session_state
+        st.session_state.time_filter = time_filter
+        
+        # 根據選擇設置日期範圍
+        if time_filter == "本日":
+            st.session_state.date_range_start = today
+            st.session_state.date_range_end = today
+        elif time_filter == "本週":
+            st.session_state.date_range_start = week_start
+            st.session_state.date_range_end = today
+        else:  # 全部
             st.session_state.date_range_start = None
             st.session_state.date_range_end = None
     with filter_col3:
@@ -2485,56 +2474,40 @@ with st.container():
                 # 過濾出狀態為「缺失」的發票（包含 ❌ 缺失、缺漏等）
                 df = df[df["狀態"].astype(str).str.contains("缺失|缺漏|❌", na=False, regex=True)]
         
-        # 4. 日期區間過濾（使用 session_state 中的日期範圍）
-        # 默認顯示全部：只有當 date_start 和 date_end 都不為 None 時才進行日期篩選
-        date_start = st.session_state.get("date_range_start")
-        date_end = st.session_state.get("date_range_end")
+        # 4. 日期區間過濾（使用簡單的時間篩選：全部、本日、本週）
+        time_filter = st.session_state.get("time_filter", "全部")
         
-        # 確保默認值為 None（顯示全部）- 如果沒有設置，強制設為 None
-        if "date_range_start" not in st.session_state:
-            st.session_state.date_range_start = None
-        if "date_range_end" not in st.session_state:
-            st.session_state.date_range_end = None
-        
-        # 只有當兩個日期都不為 None 時才進行日期篩選
-        if date_start is not None and date_end is not None and "日期" in df.columns:
+        if time_filter != "全部" and "日期" in df.columns:
             date_col = "日期"
+            date_start = st.session_state.get("date_range_start")
+            date_end = st.session_state.get("date_range_end")
             
-            try:
-                # 保存原始日期數據（避免修改原始數據）
-                df_date_backup = df[date_col].copy()
-                
-                # 將日期列轉換為日期格式（不修改原始數據，創建副本）
-                df[date_col] = pd.to_datetime(df[date_col], errors='coerce', format='%Y/%m/%d')
-                
-                # 只過濾無法解析的日期，但保留原始數據
-                valid_dates_mask = df[date_col].notna()
-                
-                # 使用日期區間篩選（包含開始和結束日期）
-                date_filter_mask = (df[date_col].dt.date >= date_start) & (df[date_col].dt.date <= date_end)
-                df = df[valid_dates_mask & date_filter_mask]
-                
-                # 恢復原始日期格式（如果需要）
-                if not df.empty:
-                    df[date_col] = df_date_backup.loc[df.index]
-            except Exception as e:
-                # 如果日期格式不正確，嘗試字符串匹配
+            if date_start is not None and date_end is not None:
                 try:
-                    date_start_str = date_start.strftime("%Y/%m/%d")
-                    date_end_str = date_end.strftime("%Y/%m/%d")
+                    # 將日期列轉換為日期格式進行比較
+                    df[date_col] = pd.to_datetime(df[date_col], errors='coerce', format='%Y/%m/%d')
                     
-                    # 轉換為字符串後進行範圍比較（較不精確，但作為備選方案）
-                    def date_in_range(date_str):
-                        try:
-                            date_val = datetime.strptime(str(date_str), "%Y/%m/%d").date()
-                            return date_start <= date_val <= date_end
-                        except:
-                            return False
-                    
-                    df = df[df[date_col].astype(str).apply(date_in_range)]
-                except:
-                    # 如果日期篩選失敗，不進行篩選（顯示全部）
-                    pass
+                    # 只過濾有效日期且在範圍內的數據
+                    valid_dates_mask = df[date_col].notna()
+                    date_filter_mask = (df[date_col].dt.date >= date_start) & (df[date_col].dt.date <= date_end)
+                    df = df[valid_dates_mask & date_filter_mask]
+                except Exception as e:
+                    # 如果日期格式轉換失敗，嘗試字符串匹配
+                    try:
+                        date_start_str = date_start.strftime("%Y/%m/%d")
+                        date_end_str = date_end.strftime("%Y/%m/%d")
+                        
+                        def date_in_range(date_str):
+                            try:
+                                date_val = datetime.strptime(str(date_str), "%Y/%m/%d").date()
+                                return date_start <= date_val <= date_end
+                            except:
+                                return False
+                        
+                        df = df[df[date_col].astype(str).apply(date_in_range)]
+                    except:
+                        # 如果日期篩選失敗，不進行篩選（顯示全部）
+                        pass
     
     # 數據表格顯示（df已經重命名過，直接使用）
     # 添加調試信息（如果數據為空但原始數據不為空）
@@ -2553,7 +2526,8 @@ with st.container():
                 if date_start and date_end:
                     st.write(f"- 日期範圍: {date_start} ~ {date_end}")
                 else:
-                    st.write(f"- 日期範圍: 顯示全部（未選擇日期）")
+                    st.write(f"- 日期範圍: 顯示全部（選擇「全部」）")
+                st.write(f"- 時間篩選: {st.session_state.get('time_filter', '全部')}")
                 
                 # 顯示原始數據的前幾行（用於調試）
                 st.write(f"**原始數據前3行（用於調試）:**")
@@ -2571,6 +2545,11 @@ with st.container():
                     # st.pills 創建的 session_state 不能直接修改，需要刪除後讓 widget 重新創建
                     if "status_filter_pills" in st.session_state:
                         del st.session_state.status_filter_pills
+                    # 重置時間篩選為"全部"
+                    if "time_filter" in st.session_state:
+                        st.session_state.time_filter = "全部"
+                    if "time_filter_selectbox" in st.session_state:
+                        del st.session_state.time_filter_selectbox
                     if "date_range_start" in st.session_state:
                         st.session_state.date_range_start = None
                     if "date_range_end" in st.session_state:
