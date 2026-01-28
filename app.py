@@ -3224,12 +3224,12 @@ with st.container():
         
         # 檢查是否有選中的行
         selected_count = ed_df["選取"].sum() if not ed_df.empty and "選取" in ed_df.columns else 0
-        # 保存到session_state，用於下次顯示（如果數量改變，會觸發rerun更新按鈕）
-        if st.session_state.get("preview_selected_count", 0) != selected_count:
+        # 保存到session_state，用於下次顯示（不自動觸發rerun，避免頻繁刷新）
+        current_selected = st.session_state.get("preview_selected_count", 0)
+        if current_selected != selected_count:
             st.session_state.preview_selected_count = int(selected_count)
-            # 如果選中數量改變且沒有點擊刪除按鈕，自動更新按鈕顯示
-            if not delete_button_top:
-                st.rerun()
+            # 只在用戶明確點擊刪除按鈕時才觸發rerun，不自動刷新
+            # 移除自動 rerun，避免數據報表快速消失
         
         # 統一處理刪除邏輯（使用當前的選中數量）
         delete_button = delete_button_top
@@ -3350,53 +3350,73 @@ with st.container():
                     st.write("**提示:** 現在支持刪除數據不完整的記錄（即使發票號碼或日期為空）。如果仍然無法刪除，請檢查調試信息。")
         
         # 檢測是否有變更並自動保存（比較關鍵字段）
-        has_changes = False
-        try:
-            # 比較關鍵字段是否有變化（不包含ID和選取列）
-            for col in ed_df.columns:
-                if col not in ['選取']:  # ID列已經被移除，不需要檢查
-                    if col in original_df_copy.columns:
-                        if not ed_df[col].equals(original_df_copy[col]):
+        # 使用 session_state 來追蹤是否已經檢查過變更，避免無限循環
+        if "data_editor_checked" not in st.session_state:
+            st.session_state.data_editor_checked = False
+        
+        # 只在第一次加載或明確需要檢查時才檢測變更
+        if not st.session_state.data_editor_checked:
+            has_changes = False
+            try:
+                # 比較關鍵字段是否有變化（不包含ID和選取列）
+                # 只比較實際的數據列，跳過計算列（如「總計變化」）
+                comparison_cols = [col for col in ed_df.columns 
+                                  if col not in ['選取', '總計變化', '圖片預覽'] 
+                                  and col in original_df_copy.columns]
+                
+                for col in comparison_cols:
+                    try:
+                        # 使用更寬鬆的比較，忽略數據類型差異
+                        ed_series = ed_df[col].astype(str).fillna('')
+                        orig_series = original_df_copy[col].astype(str).fillna('')
+                        if not ed_series.equals(orig_series):
                             has_changes = True
                             break
-                    else:
-                        has_changes = True
-                        break
-        except:
-            # 如果比較失敗，使用hash方法
-            try:
-                original_hash = hashlib.md5(str(original_df_copy.values.tobytes()).encode()).hexdigest()
-                edited_hash = hashlib.md5(str(ed_df.values.tobytes()).encode()).hexdigest()
-                has_changes = (original_hash != edited_hash)
+                    except:
+                        # 如果比較失敗，跳過這一列
+                        continue
             except:
+                # 如果比較失敗，不進行自動保存
                 has_changes = False
-        
-        if has_changes:
-            # 有變更，自動保存
-            # 多用戶版本：使用 user_email
-            user_email = st.session_state.get('user_email', 'default_user')
-            saved_count, errors = save_edited_data(ed_df, original_df_copy, user_email)
-            if saved_count > 0:
-                st.success(f"✅ 已自動保存 {saved_count} 筆數據變更")
-                # 修復 Bug #4: 改進錯誤顯示，使用 expander 顯示所有錯誤
-                if errors:
+            
+            # 標記為已檢查，避免重複檢查
+            st.session_state.data_editor_checked = True
+            
+            # 只在確實有變更時才保存（且不是第一次加載）
+            if has_changes and st.session_state.get("data_editor_initialized", False):
+                # 有變更，自動保存
+                # 多用戶版本：使用 user_email
+                user_email = st.session_state.get('user_email', 'default_user')
+                saved_count, errors = save_edited_data(ed_df, original_df_copy, user_email)
+                if saved_count > 0:
+                    st.success(f"✅ 已自動保存 {saved_count} 筆數據變更")
+                    # 修復 Bug #4: 改進錯誤顯示，使用 expander 顯示所有錯誤
+                    if errors:
+                        if len(errors) > 3:
+                            with st.expander(f"⚠️ 發現 {len(errors)} 個錯誤（點擊查看詳情）", expanded=False):
+                                for err in errors:
+                                    st.error(err)
+                        else:
+                            for err in errors:
+                                st.error(err)
+                    # 重置檢查標誌，允許下次檢查
+                    st.session_state.data_editor_checked = False
+                    time.sleep(0.5)
+                    st.rerun()
+                elif errors:
+                    # 如果全部失敗，顯示所有錯誤
                     if len(errors) > 3:
-                        with st.expander(f"⚠️ 發現 {len(errors)} 個錯誤（點擊查看詳情）", expanded=False):
+                        st.error(f"保存失敗: {errors[0]}")
+                        with st.expander(f"查看所有 {len(errors)} 個錯誤", expanded=False):
                             for err in errors:
                                 st.error(err)
                     else:
                         for err in errors:
-                            st.error(err)
-                time.sleep(0.5)
-                st.rerun()
-            elif errors:
-                # 如果全部失敗，顯示所有錯誤
-                if len(errors) > 3:
-                    st.error(f"保存失敗: {errors[0]}")
-                    with st.expander(f"查看所有 {len(errors)} 個錯誤", expanded=False):
-                        for err in errors:
-                            st.error(err)
-                else:
-                    for err in errors:
-                        st.error(f"保存失敗: {err}")
+                            st.error(f"保存失敗: {err}")
+                    # 重置檢查標誌
+                    st.session_state.data_editor_checked = False
+            else:
+                # 第一次加載，標記為已初始化
+                if not st.session_state.get("data_editor_initialized", False):
+                    st.session_state.data_editor_initialized = True
 
