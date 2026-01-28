@@ -3114,71 +3114,71 @@ with st.container():
                 st.info("📊 目前沒有數據可顯示")
                 ed_df = pd.DataFrame()
             else:
-            # 檢查並修復重複的列名
-            if df_for_editor.columns.duplicated().any():
-                # 如果有重複的列名，重命名它們
-                cols = pd.Series(df_for_editor.columns)
-                for dup in cols[cols.duplicated()].unique():
-                    cols[cols[cols == dup].index.values.tolist()] = [dup if i == 0 else f"{dup}_{i}" 
-                                                                     for i in range(sum(cols == dup))]
-                df_for_editor.columns = cols
-            
-            # 清理列名：移除 None、空字符串或無效字符
-            def clean_column_name(name):
-                """清理列名"""
-                if name is None:
-                    return "unnamed"
-                if not isinstance(name, str):
-                    name = str(name)
-                name = name.strip()
-                if name == "":
-                    return "unnamed"
-                # 移除可能導致問題的特殊字符
-                name = name.replace('\x00', '').replace('\n', ' ').replace('\r', ' ')
-                return name
-            
-            # 清理所有列名
-            df_for_editor.columns = [clean_column_name(col) for col in df_for_editor.columns]
-            
-            # 確保沒有重複（再次檢查）
-            if df_for_editor.columns.duplicated().any():
-                # 手動處理重複列名
-                cols = list(df_for_editor.columns)
-                seen = {}
-                new_cols = []
-                for col in cols:
-                    if col in seen:
-                        seen[col] += 1
-                        new_cols.append(f"{col}_{seen[col]}")
-                    else:
-                        seen[col] = 0
-                        new_cols.append(col)
-                df_for_editor.columns = new_cols
-            
-            # 使用 column_order 隱藏 id 欄位，但在返回的資料中仍保留 id（供後端更新使用）
-            visible_columns = [c for c in df_for_editor.columns if c != "id"]
-            
-            # 驗證列名：確保沒有 None、空字符串或無效字符
-            def is_valid_column_name(name):
-                """檢查列名是否有效"""
-                if name is None:
-                    return False
-                if not isinstance(name, str):
-                    return False
-                if name.strip() == "":
-                    return False
-                return True
-            
-            visible_columns = [c for c in visible_columns if is_valid_column_name(c)]
-            visible_columns = list(dict.fromkeys(visible_columns))  # 移除重複，保持順序
-            
-            # 確保 column_config 中的列也在 df_for_editor 中存在，且列名有效
-            valid_column_config = {}
-            for k, v in column_config.items():
-                cleaned_key = clean_column_name(k)
-                if cleaned_key in df_for_editor.columns and is_valid_column_name(cleaned_key):
-                    valid_column_config[cleaned_key] = v
-            
+                # 檢查並修復重複的列名
+                if df_for_editor.columns.duplicated().any():
+                    # 如果有重複的列名，重命名它們
+                    cols = pd.Series(df_for_editor.columns)
+                    for dup in cols[cols.duplicated()].unique():
+                        cols[cols[cols == dup].index.values.tolist()] = [dup if i == 0 else f"{dup}_{i}" 
+                                                                         for i in range(sum(cols == dup))]
+                    df_for_editor.columns = cols
+                
+                # 清理列名：移除 None、空字符串或無效字符
+                def clean_column_name(name):
+                    """清理列名"""
+                    if name is None:
+                        return "unnamed"
+                    if not isinstance(name, str):
+                        name = str(name)
+                    name = name.strip()
+                    if name == "":
+                        return "unnamed"
+                    # 移除可能導致問題的特殊字符
+                    name = name.replace('\x00', '').replace('\n', ' ').replace('\r', ' ')
+                    return name
+                
+                # 清理所有列名
+                df_for_editor.columns = [clean_column_name(col) for col in df_for_editor.columns]
+                
+                # 確保沒有重複（再次檢查）
+                if df_for_editor.columns.duplicated().any():
+                    # 手動處理重複列名
+                    cols = list(df_for_editor.columns)
+                    seen = {}
+                    new_cols = []
+                    for col in cols:
+                        if col in seen:
+                            seen[col] += 1
+                            new_cols.append(f"{col}_{seen[col]}")
+                        else:
+                            seen[col] = 0
+                            new_cols.append(col)
+                    df_for_editor.columns = new_cols
+                
+                # 使用 column_order 隱藏 id 欄位，但在返回的資料中仍保留 id（供後端更新使用）
+                visible_columns = [c for c in df_for_editor.columns if c != "id"]
+                
+                # 驗證列名：確保沒有 None、空字符串或無效字符
+                def is_valid_column_name(name):
+                    """檢查列名是否有效"""
+                    if name is None:
+                        return False
+                    if not isinstance(name, str):
+                        return False
+                    if name.strip() == "":
+                        return False
+                    return True
+                
+                visible_columns = [c for c in visible_columns if is_valid_column_name(c)]
+                visible_columns = list(dict.fromkeys(visible_columns))  # 移除重複，保持順序
+                
+                # 確保 column_config 中的列也在 df_for_editor 中存在，且列名有效
+                valid_column_config = {}
+                for k, v in column_config.items():
+                    cleaned_key = clean_column_name(k)
+                    if cleaned_key in df_for_editor.columns and is_valid_column_name(cleaned_key):
+                        valid_column_config[cleaned_key] = v
+                
                 # 如果沒有有效的列，使用默認行為（不傳 column_order）
                 try:
                     ed_df = st.data_editor(
