@@ -441,6 +441,26 @@ st.markdown("""
         box-shadow: 0 2px 8px rgba(0,0,0,0.3) !important;
     }
     
+    /* 問題行高亮樣式（發票號碼為 "No" 或狀態為 "缺失"） */
+    /* 使用 CSS 選擇器來高亮包含警示圖示的單元格所在的行 */
+    [data-testid="stDataEditor"] tbody tr td:contains("⚠️"),
+    [data-testid="stDataEditor"] tbody tr:has(td:contains("⚠️")) {
+        background-color: rgba(234, 67, 53, 0.15) !important;
+    }
+    
+    [data-testid="stDataEditor"] tbody tr:has(td:contains("❌ 缺失")),
+    [data-testid="stDataEditor"] tbody tr:has(td:contains("❌ 缺漏")) {
+        background-color: rgba(234, 67, 53, 0.15) !important;
+        border-left: 4px solid #EA4335 !important;
+    }
+    
+    /* 警示圖示樣式 */
+    .warning-icon {
+        color: #EA4335 !important;
+        font-weight: bold !important;
+        margin-right: 4px !important;
+    }
+    
     /* 確保固定按鈕容器內的按鈕樣式正常 */
     .delete-button-fixed .stButton {
         margin: 0 auto !important;
@@ -1297,7 +1317,7 @@ with st.sidebar:
     # 時間篩選快捷選項（垂直排列）
     st.markdown("### 🕒 時間篩選")
     
-    # 初始化日期區間狀態
+    # 初始化日期區間狀態（默認顯示全部，不進行日期篩選）
     if "date_range_start" not in st.session_state:
         st.session_state.date_range_start = None
     if "date_range_end" not in st.session_state:
@@ -1306,6 +1326,12 @@ with st.sidebar:
     today = datetime.now().date()
     
     # 快捷選項按鈕（垂直排列）
+    # 第一個按鈕：全部（清除日期篩選）
+    if st.button("📅 全部", use_container_width=True, key="sidebar_quick_all"):
+        st.session_state.date_range_start = None
+        st.session_state.date_range_end = None
+        st.rerun()
+    
     if st.button("📅 今天", use_container_width=True, key="sidebar_quick_today"):
         st.session_state.date_range_start = today
         st.session_state.date_range_end = today
@@ -1346,7 +1372,7 @@ with st.sidebar:
         else:
             st.caption(f"📌 已選：{date_start_str} ~ {date_end_str}")
     else:
-        st.caption("📌 未選擇日期範圍")
+        st.caption("📌 顯示全部（未選擇日期範圍）")
 
 # 已登錄，顯示主應用
 # 標題和上傳按鈕（並排顯示）
@@ -2128,22 +2154,24 @@ with st.container():
         date_start_val = st.session_state.get("date_range_start")
         date_end_val = st.session_state.get("date_range_end")
         
-        # 日期區間選擇器（自定義日期區間）
+        # 日期區間選擇器（自定義日期區間，默認顯示全部）
         if date_start_val is not None and date_end_val is not None:
             # 兩個日期都有值，傳入元組
             date_range = st.date_input(
                 "🕒 時間範圍（按發票日期）",
                 value=(date_start_val, date_end_val),
-                help="選擇開始日期和結束日期，或在側邊欄使用快捷按鈕",
+                help="選擇開始日期和結束日期，或在側邊欄使用快捷按鈕。默認顯示全部。",
                 label_visibility="visible"
             )
         else:
-            # 至少有一個是 None，不傳 value 參數（讓用戶自由選擇）
+            # 默認狀態：不傳 value 參數（顯示全部，不進行日期篩選）
             date_range = st.date_input(
                 "🕒 時間範圍（按發票日期）",
-                help="選擇開始日期和結束日期，或在側邊欄使用快捷按鈕",
+                help="選擇開始日期和結束日期，或在側邊欄使用快捷按鈕。當前：顯示全部。",
                 label_visibility="visible"
             )
+            # 顯示當前狀態提示
+            st.caption("📌 當前：顯示全部")
         
         # 處理日期區間（date_input 可能返回單一日期或元組）
         if isinstance(date_range, tuple) and len(date_range) == 2:
@@ -2163,6 +2191,7 @@ with st.container():
             st.session_state.date_range_start = date_start
             st.session_state.date_range_end = date_end
         else:
+            # 用戶清空了日期選擇，恢復為「全部」狀態
             date_start = None
             date_end = None
             st.session_state.date_range_start = None
@@ -2592,6 +2621,47 @@ with st.container():
             if col in df.columns:
                 df = df.drop(columns=[col])
         
+        # 自動計算「未稅金額」與「稅額 (5%)」
+        if "總計" in df.columns:
+            # 將總計轉換為數值
+            total_series = pd.to_numeric(df["總計"], errors="coerce").fillna(0)
+            
+            # 計算稅額 (5%)：如果已有稅額欄位且不為0，使用現有值；否則從總計反推
+            if "稅額" in df.columns:
+                existing_tax = pd.to_numeric(df["稅額"], errors="coerce").fillna(0)
+                # 如果稅額為0但總計不為0，則計算稅額
+                tax_series = existing_tax.where((existing_tax > 0) | (total_series == 0), 
+                                                (total_series - (total_series / 1.05)).round(0))
+            else:
+                # 沒有稅額欄位，從總計反推
+                tax_series = (total_series - (total_series / 1.05)).round(0)
+            
+            # 計算未稅金額 = 總計 - 稅額
+            subtotal_series = (total_series - tax_series).round(0)
+            
+            # 添加到 DataFrame（保持為數值，以便在 column_config 中使用 NumberColumn）
+            df["未稅金額"] = subtotal_series
+            df["稅額 (5%)"] = tax_series
+        
+        # 為問題行添加警示圖示（發票號碼為 "No" 或狀態為 "缺失"）
+        if "發票號碼" in df.columns:
+            def add_warning_icon(invoice_no, status):
+                """為問題行添加警示圖示"""
+                invoice_str = str(invoice_no).strip() if pd.notna(invoice_no) else ""
+                status_str = str(status).strip() if pd.notna(status) else ""
+                
+                is_problem = (invoice_str == "No" or invoice_str == "" or 
+                             "缺失" in status_str or "❌" in status_str or "缺漏" in status_str)
+                
+                if is_problem:
+                    return "⚠️ " + str(invoice_no) if invoice_str != "No" else "⚠️ No"
+                return str(invoice_no)
+            
+            df["發票號碼"] = df.apply(
+                lambda row: add_warning_icon(row.get("發票號碼", ""), row.get("狀態", "")), 
+                axis=1
+            )
+        
         # 調整列順序：選取 -> 狀態 -> 其他列（id列保留但不顯示）
         if "選取" not in df.columns: 
             df.insert(0, "選取", False)
@@ -2603,6 +2673,29 @@ with st.container():
             # 找到選取列的位置，在其後插入狀態
             select_idx = cols.index("選取") if "選取" in cols else 0
             cols.insert(select_idx + 1, "狀態")
+            df = df[cols]
+        
+        # 調整金額相關欄位的順序：銷售額 -> 未稅金額 -> 稅額 -> 稅額 (5%) -> 總計
+        if "未稅金額" in df.columns and "稅額 (5%)" in df.columns:
+            cols = df.columns.tolist()
+            # 移除這些欄位
+            for col in ["銷售額", "未稅金額", "稅額", "稅額 (5%)", "總計"]:
+                if col in cols:
+                    cols.remove(col)
+            
+            # 找到合適的位置插入（在「狀態」之後，其他欄位之前）
+            try:
+                status_idx = cols.index("狀態")
+                insert_pos = status_idx + 1
+            except:
+                insert_pos = 1
+            
+            # 按順序插入金額欄位
+            amount_cols = ["銷售額", "未稅金額", "稅額", "稅額 (5%)", "總計"]
+            for i, col in enumerate(amount_cols):
+                if col in df.columns:
+                    cols.insert(insert_pos + i, col)
+            
             df = df[cols]
         
         # 在刪除功能使用後，移除 _original_index 列（如果存在）
@@ -2798,6 +2891,8 @@ with st.container():
             "選取": st.column_config.CheckboxColumn("選取", default=False),
             "銷售額": st.column_config.NumberColumn("銷售額", format="$%d"),
             "稅額": st.column_config.NumberColumn("稅額", format="$%d"),
+            "未稅金額": st.column_config.NumberColumn("未稅金額", format="$%d"),
+            "稅額 (5%)": st.column_config.NumberColumn("稅額 (5%)", format="$%d"),
             "總計": st.column_config.NumberColumn("總計", format="$%d"),
             "備註": st.column_config.TextColumn("備註", width="medium"),
             "建立時間": st.column_config.DatetimeColumn("建立時間", format="YYYY/MM/DD HH:mm")
@@ -2843,6 +2938,48 @@ with st.container():
             except:
                 column_config["建立時間"] = st.column_config.TextColumn("建立時間", width="medium")
                 df_for_editor["建立時間"] = df["建立時間"]
+        
+        # 添加 JavaScript 來高亮問題行（在表格渲染後執行）
+        st.markdown("""
+        <script>
+        (function() {
+            function highlightWarningRows() {
+                const editor = document.querySelector('[data-testid="stDataEditor"]');
+                if (editor) {
+                    const rows = editor.querySelectorAll('tbody tr');
+                    rows.forEach(function(row) {
+                        const cells = row.querySelectorAll('td');
+                        let isWarning = false;
+                        cells.forEach(function(cell) {
+                            const text = cell.textContent || cell.innerText || '';
+                            if (text.includes('⚠️') || text.includes('❌ 缺失') || text.includes('❌ 缺漏')) {
+                                isWarning = true;
+                            }
+                        });
+                        if (isWarning) {
+                            row.style.backgroundColor = 'rgba(234, 67, 53, 0.15)';
+                            row.style.borderLeft = '4px solid #EA4335';
+                            row.addEventListener('mouseenter', function() {
+                                this.style.backgroundColor = 'rgba(234, 67, 53, 0.25)';
+                            });
+                            row.addEventListener('mouseleave', function() {
+                                this.style.backgroundColor = 'rgba(234, 67, 53, 0.15)';
+                            });
+                        }
+                    });
+                }
+            }
+            // 等待表格渲染完成後執行
+            setTimeout(highlightWarningRows, 500);
+            // 監聽表格更新
+            const observer = new MutationObserver(highlightWarningRows);
+            const targetNode = document.querySelector('[data-testid="stDataEditor"]');
+            if (targetNode) {
+                observer.observe(targetNode, { childList: true, subtree: true });
+            }
+        })();
+        </script>
+        """, unsafe_allow_html=True)
         
         # 使用 column_order 隱藏 id 欄位，但在返回的資料中仍保留 id（供後端更新使用）
         visible_columns = [c for c in df_for_editor.columns if c != "id"]
