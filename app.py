@@ -1911,7 +1911,82 @@ with st.container():
                 )
                 delete_button_top = False
     with filter_col2:
-        t_filter = st.selectbox("🕒 時間範圍（按發票日期）", ["全部", "今天", "本週", "本月"], label_visibility="visible", help="篩選條件基於發票日期，而非上傳時間")
+        # 初始化日期區間狀態
+        if "date_range_start" not in st.session_state:
+            st.session_state.date_range_start = None
+        if "date_range_end" not in st.session_state:
+            st.session_state.date_range_end = None
+        
+        # 日期區間選擇器
+        date_range = st.date_input(
+            "🕒 時間範圍（按發票日期）",
+            value=(st.session_state.date_range_start, st.session_state.date_range_end),
+            help="選擇開始日期和結束日期，或點擊快捷按鈕",
+            label_visibility="visible"
+        )
+        
+        # 處理日期區間（date_input 可能返回單一日期或元組）
+        if isinstance(date_range, tuple) and len(date_range) == 2:
+            date_start, date_end = date_range
+            st.session_state.date_range_start = date_start
+            st.session_state.date_range_end = date_end
+        elif isinstance(date_range, tuple) and len(date_range) == 1:
+            # 只選了一個日期，設為開始和結束都是同一天
+            date_start = date_range[0]
+            date_end = date_range[0]
+            st.session_state.date_range_start = date_start
+            st.session_state.date_range_end = date_end
+        elif date_range is not None:
+            # 單一日期對象
+            date_start = date_range
+            date_end = date_range
+            st.session_state.date_range_start = date_start
+            st.session_state.date_range_end = date_end
+        else:
+            date_start = None
+            date_end = None
+            st.session_state.date_range_start = None
+            st.session_state.date_range_end = None
+        
+        # 快捷選項按鈕（橫向排列）
+        quick_btn_col1, quick_btn_col2, quick_btn_col3, quick_btn_col4, quick_btn_col5 = st.columns(5)
+        today = datetime.now().date()
+        
+        with quick_btn_col1:
+            if st.button("今天", use_container_width=True, key="quick_today"):
+                st.session_state.date_range_start = today
+                st.session_state.date_range_end = today
+                st.rerun()
+        
+        with quick_btn_col2:
+            if st.button("昨天", use_container_width=True, key="quick_yesterday"):
+                yesterday = today - timedelta(days=1)
+                st.session_state.date_range_start = yesterday
+                st.session_state.date_range_end = yesterday
+                st.rerun()
+        
+        with quick_btn_col3:
+            if st.button("過去一週", use_container_width=True, key="quick_week"):
+                week_start = today - timedelta(days=7)
+                st.session_state.date_range_start = week_start
+                st.session_state.date_range_end = today
+                st.rerun()
+        
+        with quick_btn_col4:
+            if st.button("本月", use_container_width=True, key="quick_month"):
+                month_start = today.replace(day=1)
+                st.session_state.date_range_start = month_start
+                st.session_state.date_range_end = today
+                st.rerun()
+        
+        with quick_btn_col5:
+            if st.button("近三個月", use_container_width=True, key="quick_3months"):
+                # 計算三個月前的第一天
+                three_months_ago = today - timedelta(days=90)
+                month_start = three_months_ago.replace(day=1)
+                st.session_state.date_range_start = month_start
+                st.session_state.date_range_end = today
+                st.rerun()
     with filter_col3:
         st.write("")  # 空白行用於對齊
         if not df.empty:
@@ -2214,36 +2289,35 @@ with st.container():
     if not df.empty:
         if search:
             df = df[df.apply(lambda row: search.lower() in str(row).lower(), axis=1)]
-        if t_filter != "全部":
-            # 實現日期過濾功能（使用已重命名的列名）
-            if "日期" in df.columns:
-                date_col = "日期"
-                today = datetime.now().date()
+        
+        # 日期區間過濾（使用 session_state 中的日期範圍）
+        date_start = st.session_state.get("date_range_start")
+        date_end = st.session_state.get("date_range_end")
+        
+        if date_start is not None and date_end is not None and "日期" in df.columns:
+            date_col = "日期"
+            
+            try:
+                # 將日期列轉換為日期格式
+                df[date_col] = pd.to_datetime(df[date_col], errors='coerce', format='%Y/%m/%d')
+                df = df.dropna(subset=[date_col])  # 移除無法解析的日期
                 
-                try:
-                    # 將日期列轉換為日期格式
-                    df[date_col] = pd.to_datetime(df[date_col], errors='coerce', format='%Y/%m/%d')
-                    df = df.dropna(subset=[date_col])  # 移除無法解析的日期
-                    
-                    if t_filter == "今天":
-                        df = df[df[date_col].dt.date == today]
-                    elif t_filter == "本週":
-                        # 計算本週的開始日期（週一）
-                        days_since_monday = today.weekday()
-                        week_start = today - timedelta(days=days_since_monday)
-                        df = df[df[date_col].dt.date >= week_start]
-                    elif t_filter == "本月":
-                        # 本月
-                        month_start = today.replace(day=1)
-                        df = df[df[date_col].dt.date >= month_start]
-                except Exception as e:
-                    # 如果日期格式不正確，嘗試字符串匹配
-                    if t_filter == "今天":
-                        today_str = today.strftime("%Y/%m/%d")
-                        df = df[df[date_col].astype(str).str.contains(today_str, na=False)]
-                    elif t_filter == "本月":
-                        month_str = today.strftime("%Y/%m")
-                        df = df[df[date_col].astype(str).str.contains(month_str, na=False)]
+                # 使用日期區間篩選（包含開始和結束日期）
+                df = df[(df[date_col].dt.date >= date_start) & (df[date_col].dt.date <= date_end)]
+            except Exception as e:
+                # 如果日期格式不正確，嘗試字符串匹配
+                date_start_str = date_start.strftime("%Y/%m/%d")
+                date_end_str = date_end.strftime("%Y/%m/%d")
+                
+                # 轉換為字符串後進行範圍比較（較不精確，但作為備選方案）
+                def date_in_range(date_str):
+                    try:
+                        date_val = datetime.strptime(str(date_str), "%Y/%m/%d").date()
+                        return date_start <= date_val <= date_end
+                    except:
+                        return False
+                
+                df = df[df[date_col].astype(str).apply(date_in_range)]
     
     # 數據表格顯示（df已經重命名過，直接使用）
     if not df.empty:
