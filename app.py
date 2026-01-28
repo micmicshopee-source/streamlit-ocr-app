@@ -2076,9 +2076,16 @@ with st.container():
         st.session_state.preview_selected_count = 0
     delete_button_top = False  # 預設為未點擊
 
-    filter_col1, filter_col2, filter_col3, filter_col4, filter_col5 = st.columns([2, 1, 1, 1, 1])
+    # 篩選區與導出 / 刪除操作（同一行佈局）
+    filter_col1, filter_col2, filter_col3, filter_col4, filter_col5 = st.columns([2, 1.6, 1.6, 1, 1])
     with filter_col1:
-        search = st.text_input("🔍 關鍵字搜尋", placeholder="號碼/賣方/檔名...", label_visibility="hidden")
+        # 主搜尋框：發票號碼 / 賣方名稱 / 檔名
+        search = st.text_input(
+            "🔍 搜尋發票號碼或賣方名稱",
+            placeholder="輸入發票號碼、賣方名稱或檔名...",
+            label_visibility="visible",
+            key="main_search_input"
+        )
         # 刪除按鈕：放在搜尋欄下方，貼近查詢操作
         if not df.empty:
             preview_selected = st.session_state.get("preview_selected_count", 0)
@@ -2101,51 +2108,59 @@ with st.container():
                 )
                 delete_button_top = False
     with filter_col2:
-        # 使用簡單的 selectbox 時間篩選（全部、本日、本週）
+        # 時間範圍：使用簡單的選單維持「全部 / 本日 / 本週」邏輯
         today = datetime.now().date()
-        yesterday = today - timedelta(days=1)
         week_start = today - timedelta(days=7)
-        
-        # 初始化時間篩選選項
+
         time_filter_options = ["全部", "本日", "本週"]
         if "time_filter" not in st.session_state:
             st.session_state.time_filter = "全部"
-        
-        # 獲取當前選擇的索引（避免索引錯誤）
+
         current_filter = st.session_state.get("time_filter", "全部")
-        try:
-            current_index = time_filter_options.index(current_filter)
-        except ValueError:
-            current_index = 0  # 如果找不到，使用默認值"全部"
-        
+        if current_filter not in time_filter_options:
+            current_filter = "全部"
+
         time_filter = st.selectbox(
             "🕒 時間範圍（按發票日期）",
             options=time_filter_options,
-            index=current_index,
-            help="選擇時間範圍進行篩選",
+            index=time_filter_options.index(current_filter),
+            help="選擇時間範圍進行篩選；「全部」表示不限制日期",
             label_visibility="visible",
             key="time_filter_selectbox"
         )
-        
-        # 更新 session_state
         st.session_state.time_filter = time_filter
-        
-        # 根據選擇設置日期範圍
+
+        # 根據選擇設置日期範圍（供後續統一過濾使用）
         if time_filter == "本日":
             st.session_state.date_range_start = today
             st.session_state.date_range_end = today
         elif time_filter == "本週":
             st.session_state.date_range_start = week_start
             st.session_state.date_range_end = today
-        else:  # 全部
+        else:
+            # 全部：不限制日期
             st.session_state.date_range_start = None
             st.session_state.date_range_end = None
     with filter_col3:
-        st.write("")  # 空白行用於對齊
+        # 狀態篩選（pills：全部 / 正常 / 缺失）
+        status_filter = st.pills(
+            "狀態篩選",
+            options=["全部", "正常", "缺失"],
+            default="全部",
+            label_visibility="visible",
+            key="status_filter_pills"
+        )
+        st.write("")  # 與下方導出按鈕拉開距離
         if not df.empty:
             csv_data = df.to_csv(index=False).encode('utf-8-sig')
-            st.download_button("📥 導出CSV", csv_data, "invoice_report.csv", 
-                             mime="text/csv", use_container_width=True, help="導出當前數據為CSV文件")
+            st.download_button(
+                "📥 導出CSV",
+                csv_data,
+                "invoice_report.csv",
+                mime="text/csv",
+                use_container_width=True,
+                help="導出當前篩選後的數據為 CSV 檔"
+            )
     with filter_col4:
         st.write("")  # 空白行用於對齊
         if not df.empty:
@@ -2244,6 +2259,21 @@ with st.container():
                 use_container_width=True,
                 help="導出符合國稅局欄位結構的 Excel 報表"
             )
+            # 全局重置篩選條件按鈕（隨時可用）
+            if st.button("🔄 重置篩選條件", use_container_width=True, key="reset_filters_button"):
+                # 清除主搜尋
+                if "main_search_input" in st.session_state:
+                    del st.session_state.main_search_input
+                # 狀態篩選恢復為「全部」
+                if "status_filter_pills" in st.session_state:
+                    del st.session_state.status_filter_pills
+                # 時間範圍恢復為「全部」
+                st.session_state.time_filter = "全部"
+                if "time_filter_selectbox" in st.session_state:
+                    del st.session_state.time_filter_selectbox
+                st.session_state.date_range_start = None
+                st.session_state.date_range_end = None
+                st.rerun()
     with filter_col5:
         if not df.empty:
             if PDF_AVAILABLE:
@@ -2467,29 +2497,20 @@ with st.container():
     df_before_filter = len(df) if not df.empty else 0
     
     if not df.empty:
-        # 1. 通用關鍵字搜尋（保留原有功能）
+        # 1. 搜尋發票號碼 / 賣方名稱 / 檔名（主搜尋框）
         if search:
             df_before_search = len(df)
-            df = df[df.apply(lambda row: search.lower() in str(row).lower(), axis=1)]
+            search_term = search.strip().lower()
+            def match_row(row):
+                text = " ".join([
+                    str(row.get(col, "")) for col in ["發票號碼", "賣方名稱", "檔案名稱"]
+                ]).lower()
+                return search_term in text
+            df = df[df.apply(match_row, axis=1)]
             if len(df) == 0 and df_before_search > 0:
-                st.info(f"💡 關鍵字「{search}」沒有匹配到任何數據（已過濾 {df_before_search} 筆）")
+                st.info(f"💡 搜尋「{search}」沒有匹配到任何數據（已過濾 {df_before_search} 筆）")
         
-        # 2. 專門搜尋「賣方名稱」或「發票號碼」
-        invoice_search = st.session_state.get("invoice_search_input", "")
-        if invoice_search and invoice_search.strip():
-            search_term = invoice_search.strip().lower()
-            if "賣方名稱" in df.columns and "發票號碼" in df.columns:
-                # 同時搜尋賣方名稱和發票號碼
-                df = df[
-                    df["賣方名稱"].astype(str).str.lower().str.contains(search_term, na=False) |
-                    df["發票號碼"].astype(str).str.lower().str.contains(search_term, na=False)
-                ]
-            elif "賣方名稱" in df.columns:
-                df = df[df["賣方名稱"].astype(str).str.lower().str.contains(search_term, na=False)]
-            elif "發票號碼" in df.columns:
-                df = df[df["發票號碼"].astype(str).str.lower().str.contains(search_term, na=False)]
-        
-        # 3. 狀態標籤過濾（正常/缺失）
+        # 2. 狀態標籤過濾（正常 / 缺失）
         status_filter = st.session_state.get("status_filter_pills", "全部")
         if status_filter != "全部" and "狀態" in df.columns:
             if status_filter == "正常":
@@ -2499,7 +2520,7 @@ with st.container():
                 # 過濾出狀態為「缺失」的發票（包含 ❌ 缺失、缺漏等）
                 df = df[df["狀態"].astype(str).str.contains("缺失|缺漏|❌", na=False, regex=True)]
         
-        # 4. 日期區間過濾（使用簡單的時間篩選：全部、本日、本週）
+        # 3. 日期區間過濾（使用簡單的時間篩選：全部、本日、本週）
         time_filter = st.session_state.get("time_filter", "全部")
         
         if time_filter != "全部" and "日期" in df.columns:
