@@ -3399,10 +3399,4 @@ with st.container():
                 else:
                     for err in errors:
                         st.error(f"保存失敗: {err}")
-    else: 
-        # 如果df為空（篩選後或原始數據為空）
-        if not df_raw.empty:
-            st.warning("⚠️ 查無數據。")
-        else:
-            st.warning("⚠️ 目前無數據。請先嘗試上傳並辨識。")
 
