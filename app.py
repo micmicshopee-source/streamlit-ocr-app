@@ -2041,30 +2041,6 @@ with st.container():
             tax_series = pd.to_numeric(df["稅額"], errors="coerce").fillna(0) if has_tax else pd.Series(0, index=df.index)
             df["總計"] = (subtotal_series + tax_series).round(0)
     
-    # 列表過濾增強：在表格上方增加搜尋框和狀態標籤切換
-    if not df.empty:
-        # 搜尋框和狀態標籤（並排顯示）
-        filter_search_col1, filter_search_col2 = st.columns([2, 1])
-        
-        with filter_search_col1:
-            # 專門過濾「賣方名稱」或「發票號碼」的搜尋框
-            invoice_search = st.text_input(
-                "🔍 搜尋賣方名稱或發票號碼",
-                placeholder="輸入賣方名稱或發票號碼...",
-                label_visibility="visible",
-                key="invoice_search_input"
-            )
-        
-        with filter_search_col2:
-            # 狀態標籤切換（st.pills）
-            status_filter = st.pills(
-                "狀態篩選",
-                options=["全部", "正常", "缺失"],
-                default="全部",
-                label_visibility="visible",
-                key="status_filter_pills"
-            )
-    
     # 查詢條件、導出與刪除按鈕（並排顯示）
     if "preview_selected_count" not in st.session_state:
         st.session_state.preview_selected_count = 0
@@ -2399,14 +2375,9 @@ with st.container():
             else:
                 st.info("📄 PDF", help="需要安裝 fpdf2")
     
-    # 在移除image相關的列之前，先保存image_path用於圖片預覽
-    image_path_col = None
-    if not df.empty and 'image_path' in df.columns:
-        image_path_col = df['image_path'].copy()
-    
-    # 移除image相關的列（不在表格中直接顯示，但用於圖片預覽）
+    # 移除image相關的列
     if not df.empty:
-        columns_to_drop = ['image_data', 'imageData']  # 只移除大數據列，保留image_path用於預覽
+        columns_to_drop = ['image_data', 'imageData', 'image_path']  # 移除所有圖片相關列
         for col in columns_to_drop:
             if col in df.columns:
                 df = df.drop(columns=[col])
@@ -2519,8 +2490,6 @@ with st.container():
                 st.write(f"**篩選後數據行數:** {len(df)}")
                 st.write(f"**當前篩選條件:**")
                 st.write(f"- 關鍵字搜尋: {search if search else '無'}")
-                st.write(f"- 發票搜尋: {st.session_state.get('invoice_search_input', '無')}")
-                st.write(f"- 狀態篩選: {st.session_state.get('status_filter_pills', '全部')}")
                 date_start = st.session_state.get("date_range_start")
                 date_end = st.session_state.get("date_range_end")
                 if date_start and date_end:
@@ -2540,11 +2509,6 @@ with st.container():
                 # 添加清除篩選按鈕
                 if st.button("🔄 清除所有篩選條件", use_container_width=True):
                     # 清除所有篩選條件
-                    if "invoice_search_input" in st.session_state:
-                        del st.session_state.invoice_search_input
-                    # st.pills 創建的 session_state 不能直接修改，需要刪除後讓 widget 重新創建
-                    if "status_filter_pills" in st.session_state:
-                        del st.session_state.status_filter_pills
                     # 重置時間篩選為"全部"
                     if "time_filter" in st.session_state:
                         st.session_state.time_filter = "全部"
@@ -2601,68 +2565,11 @@ with st.container():
             
             df['狀態'] = df.apply(check_status, axis=1)
         
-        # 再次確保移除image相關的大數據列（防止遺漏），但保留image_path用於預覽
-        columns_to_drop = ['image_data', 'imageData']  # 只移除大數據列
+        # 再次確保移除image相關的列
+        columns_to_drop = ['image_data', 'imageData', 'image_path']
         for col in columns_to_drop:
             if col in df.columns:
                 df = df.drop(columns=[col])
-        
-        # 添加圖片預覽列（如果image_path存在）
-        if 'image_path' in df.columns:
-            # 創建圖片預覽列，將image_path轉換為可用的URL或路徑
-            def get_image_path(x):
-                """獲取有效的圖片路徑"""
-                if pd.isna(x) or not x:
-                    return None
-                path_str = str(x).strip()
-                if path_str and os.path.exists(path_str):
-                    return path_str
-                return None
-            
-            df['圖片預覽'] = df['image_path'].apply(get_image_path)
-            # 暫時保留image_path列，稍後在column_config中配置為ImageColumn
-        elif image_path_col is not None:
-            # 如果image_path被移除了，但我們有備份，則恢復它
-            try:
-                # 確保長度匹配
-                if len(image_path_col) == len(df):
-                    df['image_path'] = image_path_col.values
-                else:
-                    # 如果長度不匹配，嘗試通過索引對齊
-                    df['image_path'] = None
-                    for idx in df.index:
-                        if idx in image_path_col.index:
-                            df.loc[idx, 'image_path'] = image_path_col.loc[idx]
-                
-                def get_image_path(x):
-                    """獲取有效的圖片路徑"""
-                    if pd.isna(x) or not x:
-                        return None
-                    path_str = str(x).strip()
-                    if path_str and os.path.exists(path_str):
-                        return path_str
-                    return None
-                
-                df['圖片預覽'] = df['image_path'].apply(get_image_path)
-            except Exception as e:
-                # 如果恢復失敗，創建空列
-                df['圖片預覽'] = None
-        
-        # 將狀態列轉換為帶顏色的小圓點標籤
-        if "狀態" in df.columns:
-            def format_status_with_dot(status):
-                """將狀態轉換為帶顏色小圓點的格式"""
-                if pd.isna(status):
-                    return "⚪ 未知"
-                status_str = str(status).strip()
-                if "正常" in status_str or "✅" in status_str:
-                    return "🟢 正常"
-                elif "缺失" in status_str or "缺漏" in status_str or "❌" in status_str:
-                    return "🔴 缺失"
-                else:
-                    return f"⚪ {status_str}"
-            
-            df['狀態'] = df['狀態'].apply(format_status_with_dot)
         
         # 確保ID列保留在df中（用於刪除功能），但不在顯示中顯示
         # 從df_with_id中獲取id列（如果存在）
@@ -2704,41 +2611,6 @@ with st.container():
             df["未稅金額"] = subtotal_series
             df["稅額 (5%)"] = tax_series
             
-            # 計算「總計」與上一行的變化百分比（仿照廣告看板）
-            def calculate_change_percentage(current, previous):
-                """計算變化百分比"""
-                if pd.isna(current) or current == 0:
-                    return None
-                if pd.isna(previous) or previous == 0:
-                    return None
-                change = ((current - previous) / previous) * 100
-                return round(change, 1)
-            
-            # 計算變化百分比（與上一行對比）
-            change_percentages = []
-            for i in range(len(total_series)):
-                if i == 0:
-                    change_percentages.append(None)  # 第一行沒有上一行可比較
-                else:
-                    prev_total = total_series.iloc[i-1]
-                    curr_total = total_series.iloc[i]
-                    change_pct = calculate_change_percentage(curr_total, prev_total)
-                    change_percentages.append(change_pct)
-            
-            # 創建變化百分比列（格式化為帶顏色的字符串）
-            def format_change_pct(change_pct):
-                """格式化變化百分比，帶顏色標記"""
-                if change_pct is None or pd.isna(change_pct):
-                    return ""
-                if change_pct > 0:
-                    return f"🟢 +{change_pct}%"
-                elif change_pct < 0:
-                    return f"🔴 {change_pct}%"
-                else:
-                    return "⚪ 0%"
-            
-            df["總計變化"] = [format_change_pct(cp) for cp in change_percentages]
-        
         # 為問題行添加警示圖示（發票號碼為 "No" 或狀態為 "缺失"）
         if "發票號碼" in df.columns:
             def add_warning_icon(invoice_no, status):
@@ -2758,27 +2630,15 @@ with st.container():
                 axis=1
             )
         
-        # 調整列順序：選取 -> 圖片預覽 -> 狀態 -> 其他列（id列保留但不顯示）
+        # 調整列順序：選取 -> 狀態 -> 其他列（id列保留但不顯示）
         if "選取" not in df.columns: 
             df.insert(0, "選取", False)
         
-        # 將圖片預覽列移到選取列之後（如果存在）
-        if "圖片預覽" in df.columns:
-            cols = df.columns.tolist()
-            cols.remove("圖片預覽")
-            select_idx = cols.index("選取") if "選取" in cols else 0
-            cols.insert(select_idx + 1, "圖片預覽")
-            df = df[cols]
-        
-        # 將狀態列移到圖片預覽列之後（如果圖片預覽存在）或選取列之後
+        # 將狀態列移到選取列之後
         if "狀態" in df.columns:
             cols = df.columns.tolist()
             cols.remove("狀態")
-            # 找到圖片預覽或選取列的位置，在其後插入狀態
-            if "圖片預覽" in cols:
-                preview_idx = cols.index("圖片預覽")
-                cols.insert(preview_idx + 1, "狀態")
-            elif "選取" in cols:
+            if "選取" in cols:
                 select_idx = cols.index("選取")
                 cols.insert(select_idx + 1, "狀態")
             else:
@@ -2805,11 +2665,6 @@ with st.container():
             for i, col in enumerate(amount_cols):
                 if col in df.columns:
                     cols.insert(insert_pos + i, col)
-            
-            # 在「總計」之後插入「總計變化」列
-            if "總計" in cols and "總計變化" in df.columns:
-                total_idx = cols.index("總計")
-                cols.insert(total_idx + 1, "總計變化")
             
             df = df[cols]
         
@@ -3013,7 +2868,6 @@ with st.container():
             "未稅金額": st.column_config.NumberColumn("未稅金額", format="$%d"),
             "稅額 (5%)": st.column_config.NumberColumn("稅額 (5%)", format="$%d"),
             "總計": st.column_config.NumberColumn("總計", format="$%d"),
-            "總計變化": st.column_config.TextColumn("總計變化", width="small", help="與上一行對比變化百分比"),
             "備註": st.column_config.TextColumn("備註", width="medium"),
             "建立時間": st.column_config.DatetimeColumn("建立時間", format="YYYY/MM/DD HH:mm")
         }
@@ -3023,22 +2877,6 @@ with st.container():
         for col in text_columns:
             if col in df_for_editor.columns and col not in column_config:
                 column_config[col] = st.column_config.TextColumn(col, width="medium")
-        
-        # 添加圖片預覽列配置（如果存在）
-        if "圖片預覽" in df_for_editor.columns:
-            column_config["圖片預覽"] = st.column_config.ImageColumn(
-                "圖片預覽",
-                help="發票圖片預覽",
-                width="small"
-            )
-        
-        # 添加狀態列配置（帶顏色小圓點）
-        if "狀態" in df_for_editor.columns:
-            column_config["狀態"] = st.column_config.TextColumn(
-                "狀態",
-                help="🟢 正常 | 🔴 缺失",
-                width="small"
-            )
         
         # 確保id列在df_for_editor中（用於刪除功能），但不在column_config中配置（隱藏顯示）
         # 注意：如果列不在column_config中，Streamlit會自動隱藏它
@@ -3099,7 +2937,7 @@ with st.container():
                     // 定義金額類欄位（需要右對齊）
                     const amountColumns = ['銷售額', '稅額', '未稅金額', '稅額 (5%)', '總計'];
                     // 定義變化百分比欄位（需要居中對齊）
-                    const changeColumns = ['總計變化'];
+                    const changeColumns = [];
                     
                     rows.forEach(function(row) {
                         const cells = row.querySelectorAll('td');
@@ -3410,9 +3248,9 @@ with st.container():
             has_changes = False
             try:
                 # 比較關鍵字段是否有變化（不包含ID和選取列）
-                # 只比較實際的數據列，跳過計算列（如「總計變化」）
+                # 只比較實際的數據列，跳過計算列
                 comparison_cols = [col for col in ed_df.columns 
-                                  if col not in ['選取', '總計變化', '圖片預覽'] 
+                                  if col not in ['選取'] 
                                   and col in original_df_copy.columns]
                 
                 for col in comparison_cols:
