@@ -2070,6 +2070,30 @@ with st.container():
             tax_series = pd.to_numeric(df["稅額"], errors="coerce").fillna(0) if has_tax else pd.Series(0, index=df.index)
             df["總計"] = (subtotal_series + tax_series).round(0)
     
+    # 列表過濾增強：在表格上方增加搜尋框和狀態標籤切換
+    if not df.empty:
+        # 搜尋框和狀態標籤（並排顯示）
+        filter_search_col1, filter_search_col2 = st.columns([2, 1])
+        
+        with filter_search_col1:
+            # 專門過濾「賣方名稱」或「發票號碼」的搜尋框
+            invoice_search = st.text_input(
+                "🔍 搜尋賣方名稱或發票號碼",
+                placeholder="輸入賣方名稱或發票號碼...",
+                label_visibility="visible",
+                key="invoice_search_input"
+            )
+        
+        with filter_search_col2:
+            # 狀態標籤切換（st.pills）
+            status_filter = st.pills(
+                "狀態篩選",
+                options=["全部", "正常", "缺失"],
+                default="全部",
+                label_visibility="visible",
+                key="status_filter_pills"
+            )
+    
     # 查詢條件、導出與刪除按鈕（並排顯示）
     if "preview_selected_count" not in st.session_state:
         st.session_state.preview_selected_count = 0
@@ -2443,10 +2467,36 @@ with st.container():
     
     # 手動在記憶體中篩選（避免 SQL 過於複雜出錯）
     if not df.empty:
+        # 1. 通用關鍵字搜尋（保留原有功能）
         if search:
             df = df[df.apply(lambda row: search.lower() in str(row).lower(), axis=1)]
         
-        # 日期區間過濾（使用 session_state 中的日期範圍）
+        # 2. 專門搜尋「賣方名稱」或「發票號碼」
+        invoice_search = st.session_state.get("invoice_search_input", "")
+        if invoice_search and invoice_search.strip():
+            search_term = invoice_search.strip().lower()
+            if "賣方名稱" in df.columns and "發票號碼" in df.columns:
+                # 同時搜尋賣方名稱和發票號碼
+                df = df[
+                    df["賣方名稱"].astype(str).str.lower().str.contains(search_term, na=False) |
+                    df["發票號碼"].astype(str).str.lower().str.contains(search_term, na=False)
+                ]
+            elif "賣方名稱" in df.columns:
+                df = df[df["賣方名稱"].astype(str).str.lower().str.contains(search_term, na=False)]
+            elif "發票號碼" in df.columns:
+                df = df[df["發票號碼"].astype(str).str.lower().str.contains(search_term, na=False)]
+        
+        # 3. 狀態標籤過濾（正常/缺失）
+        status_filter = st.session_state.get("status_filter_pills", "全部")
+        if status_filter != "全部" and "狀態" in df.columns:
+            if status_filter == "正常":
+                # 過濾出狀態為「正常」的發票（包含 ✅ 正常）
+                df = df[df["狀態"].astype(str).str.contains("正常", na=False)]
+            elif status_filter == "缺失":
+                # 過濾出狀態為「缺失」的發票（包含 ❌ 缺失、缺漏等）
+                df = df[df["狀態"].astype(str).str.contains("缺失|缺漏|❌", na=False, regex=True)]
+        
+        # 4. 日期區間過濾（使用 session_state 中的日期範圍）
         date_start = st.session_state.get("date_range_start")
         date_end = st.session_state.get("date_range_end")
         
