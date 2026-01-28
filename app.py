@@ -275,6 +275,8 @@ st.markdown("""
         line-height: 1.5 !important;
     }
     
+    /* 列對齊由JavaScript動態設置，這裡只保留基礎樣式 */
+    
     /* 數據編輯器字體大小 - 優化 */
     [data-testid="stDataEditor"] {
         font-size: 15px !important;
@@ -2405,9 +2407,14 @@ with st.container():
             else:
                 st.info("📄 PDF", help="需要安裝 fpdf2")
     
-    # 移除image相關的列（不在表格中顯示）
+    # 在移除image相關的列之前，先保存image_path用於圖片預覽
+    image_path_col = None
+    if not df.empty and 'image_path' in df.columns:
+        image_path_col = df['image_path'].copy()
+    
+    # 移除image相關的列（不在表格中直接顯示，但用於圖片預覽）
     if not df.empty:
-        columns_to_drop = ['image_path', 'image_data', 'imagePath', 'imageData']
+        columns_to_drop = ['image_data', 'imageData']  # 只移除大數據列，保留image_path用於預覽
         for col in columns_to_drop:
             if col in df.columns:
                 df = df.drop(columns=[col])
@@ -2541,11 +2548,68 @@ with st.container():
             
             df['狀態'] = df.apply(check_status, axis=1)
         
-        # 再次確保移除image相關的列（防止遺漏）
-        columns_to_drop = ['image_path', 'image_data', 'imagePath', 'imageData']
+        # 再次確保移除image相關的大數據列（防止遺漏），但保留image_path用於預覽
+        columns_to_drop = ['image_data', 'imageData']  # 只移除大數據列
         for col in columns_to_drop:
             if col in df.columns:
                 df = df.drop(columns=[col])
+        
+        # 添加圖片預覽列（如果image_path存在）
+        if 'image_path' in df.columns:
+            # 創建圖片預覽列，將image_path轉換為可用的URL或路徑
+            def get_image_path(x):
+                """獲取有效的圖片路徑"""
+                if pd.isna(x) or not x:
+                    return None
+                path_str = str(x).strip()
+                if path_str and os.path.exists(path_str):
+                    return path_str
+                return None
+            
+            df['圖片預覽'] = df['image_path'].apply(get_image_path)
+            # 暫時保留image_path列，稍後在column_config中配置為ImageColumn
+        elif image_path_col is not None:
+            # 如果image_path被移除了，但我們有備份，則恢復它
+            try:
+                # 確保長度匹配
+                if len(image_path_col) == len(df):
+                    df['image_path'] = image_path_col.values
+                else:
+                    # 如果長度不匹配，嘗試通過索引對齊
+                    df['image_path'] = None
+                    for idx in df.index:
+                        if idx in image_path_col.index:
+                            df.loc[idx, 'image_path'] = image_path_col.loc[idx]
+                
+                def get_image_path(x):
+                    """獲取有效的圖片路徑"""
+                    if pd.isna(x) or not x:
+                        return None
+                    path_str = str(x).strip()
+                    if path_str and os.path.exists(path_str):
+                        return path_str
+                    return None
+                
+                df['圖片預覽'] = df['image_path'].apply(get_image_path)
+            except Exception as e:
+                # 如果恢復失敗，創建空列
+                df['圖片預覽'] = None
+        
+        # 將狀態列轉換為帶顏色的小圓點標籤
+        if "狀態" in df.columns:
+            def format_status_with_dot(status):
+                """將狀態轉換為帶顏色小圓點的格式"""
+                if pd.isna(status):
+                    return "⚪ 未知"
+                status_str = str(status).strip()
+                if "正常" in status_str or "✅" in status_str:
+                    return "🟢 正常"
+                elif "缺失" in status_str or "缺漏" in status_str or "❌" in status_str:
+                    return "🔴 缺失"
+                else:
+                    return f"⚪ {status_str}"
+            
+            df['狀態'] = df['狀態'].apply(format_status_with_dot)
         
         # 確保ID列保留在df中（用於刪除功能），但不在顯示中顯示
         # 從df_with_id中獲取id列（如果存在）
@@ -2586,6 +2650,41 @@ with st.container():
             # 添加到 DataFrame（保持為數值，以便在 column_config 中使用 NumberColumn）
             df["未稅金額"] = subtotal_series
             df["稅額 (5%)"] = tax_series
+            
+            # 計算「總計」與上一行的變化百分比（仿照廣告看板）
+            def calculate_change_percentage(current, previous):
+                """計算變化百分比"""
+                if pd.isna(current) or current == 0:
+                    return None
+                if pd.isna(previous) or previous == 0:
+                    return None
+                change = ((current - previous) / previous) * 100
+                return round(change, 1)
+            
+            # 計算變化百分比（與上一行對比）
+            change_percentages = []
+            for i in range(len(total_series)):
+                if i == 0:
+                    change_percentages.append(None)  # 第一行沒有上一行可比較
+                else:
+                    prev_total = total_series.iloc[i-1]
+                    curr_total = total_series.iloc[i]
+                    change_pct = calculate_change_percentage(curr_total, prev_total)
+                    change_percentages.append(change_pct)
+            
+            # 創建變化百分比列（格式化為帶顏色的字符串）
+            def format_change_pct(change_pct):
+                """格式化變化百分比，帶顏色標記"""
+                if change_pct is None or pd.isna(change_pct):
+                    return ""
+                if change_pct > 0:
+                    return f"🟢 +{change_pct}%"
+                elif change_pct < 0:
+                    return f"🔴 {change_pct}%"
+                else:
+                    return "⚪ 0%"
+            
+            df["總計變化"] = [format_change_pct(cp) for cp in change_percentages]
         
         # 為問題行添加警示圖示（發票號碼為 "No" 或狀態為 "缺失"）
         if "發票號碼" in df.columns:
@@ -2606,17 +2705,31 @@ with st.container():
                 axis=1
             )
         
-        # 調整列順序：選取 -> 狀態 -> 其他列（id列保留但不顯示）
+        # 調整列順序：選取 -> 圖片預覽 -> 狀態 -> 其他列（id列保留但不顯示）
         if "選取" not in df.columns: 
             df.insert(0, "選取", False)
         
-        # 將狀態列移到選取列之後
+        # 將圖片預覽列移到選取列之後（如果存在）
+        if "圖片預覽" in df.columns:
+            cols = df.columns.tolist()
+            cols.remove("圖片預覽")
+            select_idx = cols.index("選取") if "選取" in cols else 0
+            cols.insert(select_idx + 1, "圖片預覽")
+            df = df[cols]
+        
+        # 將狀態列移到圖片預覽列之後（如果圖片預覽存在）或選取列之後
         if "狀態" in df.columns:
             cols = df.columns.tolist()
             cols.remove("狀態")
-            # 找到選取列的位置，在其後插入狀態
-            select_idx = cols.index("選取") if "選取" in cols else 0
-            cols.insert(select_idx + 1, "狀態")
+            # 找到圖片預覽或選取列的位置，在其後插入狀態
+            if "圖片預覽" in cols:
+                preview_idx = cols.index("圖片預覽")
+                cols.insert(preview_idx + 1, "狀態")
+            elif "選取" in cols:
+                select_idx = cols.index("選取")
+                cols.insert(select_idx + 1, "狀態")
+            else:
+                cols.insert(0, "狀態")
             df = df[cols]
         
         # 調整金額相關欄位的順序：銷售額 -> 未稅金額 -> 稅額 -> 稅額 (5%) -> 總計
@@ -2634,11 +2747,16 @@ with st.container():
             except:
                 insert_pos = 1
             
-            # 按順序插入金額欄位
+            # 按順序插入金額欄位（包含總計變化）
             amount_cols = ["銷售額", "未稅金額", "稅額", "稅額 (5%)", "總計"]
             for i, col in enumerate(amount_cols):
                 if col in df.columns:
                     cols.insert(insert_pos + i, col)
+            
+            # 在「總計」之後插入「總計變化」列
+            if "總計" in cols and "總計變化" in df.columns:
+                total_idx = cols.index("總計")
+                cols.insert(total_idx + 1, "總計變化")
             
             df = df[cols]
         
@@ -2830,7 +2948,11 @@ with st.container():
         # 保存原始數據的副本用於比較（不包含ID列）
         original_df_copy = df.copy()
         
+        # 處理日期列：嘗試轉換為日期類型（先創建 df_for_editor）
+        df_for_editor = df.copy()
+        
         # 準備列配置（不包含ID列、user_id列、檔案名稱列）
+        # 金額類數字右對齊，文字類左對齊
         column_config = { 
             "選取": st.column_config.CheckboxColumn("選取", default=False),
             "銷售額": st.column_config.NumberColumn("銷售額", format="$%d"),
@@ -2838,12 +2960,32 @@ with st.container():
             "未稅金額": st.column_config.NumberColumn("未稅金額", format="$%d"),
             "稅額 (5%)": st.column_config.NumberColumn("稅額 (5%)", format="$%d"),
             "總計": st.column_config.NumberColumn("總計", format="$%d"),
+            "總計變化": st.column_config.TextColumn("總計變化", width="small", help="與上一行對比變化百分比"),
             "備註": st.column_config.TextColumn("備註", width="medium"),
             "建立時間": st.column_config.DatetimeColumn("建立時間", format="YYYY/MM/DD HH:mm")
         }
         
-        # 處理日期列：嘗試轉換為日期類型
-        df_for_editor = df.copy()
+        # 文字類欄位左對齊配置
+        text_columns = ["賣方名稱", "發票號碼", "賣方統編", "類型", "會計科目", "狀態", "備註"]
+        for col in text_columns:
+            if col in df_for_editor.columns and col not in column_config:
+                column_config[col] = st.column_config.TextColumn(col, width="medium")
+        
+        # 添加圖片預覽列配置（如果存在）
+        if "圖片預覽" in df_for_editor.columns:
+            column_config["圖片預覽"] = st.column_config.ImageColumn(
+                "圖片預覽",
+                help="發票圖片預覽",
+                width="small"
+            )
+        
+        # 添加狀態列配置（帶顏色小圓點）
+        if "狀態" in df_for_editor.columns:
+            column_config["狀態"] = st.column_config.TextColumn(
+                "狀態",
+                help="🟢 正常 | 🔴 缺失",
+                width="small"
+            )
         
         # 確保id列在df_for_editor中（用於刪除功能），但不在column_config中配置（隱藏顯示）
         # 注意：如果列不在column_config中，Streamlit會自動隱藏它
@@ -2883,23 +3025,60 @@ with st.container():
                 column_config["建立時間"] = st.column_config.TextColumn("建立時間", width="medium")
                 df_for_editor["建立時間"] = df["建立時間"]
         
-        # 添加 JavaScript 來高亮問題行（在表格渲染後執行）
+        # 添加 JavaScript 來高亮問題行並設置列對齊（在表格渲染後執行）
         st.markdown("""
         <script>
         (function() {
-            function highlightWarningRows() {
+            function formatTable() {
                 const editor = document.querySelector('[data-testid="stDataEditor"]');
                 if (editor) {
                     const rows = editor.querySelectorAll('tbody tr');
+                    const headerRow = editor.querySelector('thead tr');
+                    
+                    // 獲取表頭列名，用於確定列索引
+                    const headers = [];
+                    if (headerRow) {
+                        headerRow.querySelectorAll('th').forEach(function(th) {
+                            headers.push(th.textContent.trim());
+                        });
+                    }
+                    
+                    // 定義金額類欄位（需要右對齊）
+                    const amountColumns = ['銷售額', '稅額', '未稅金額', '稅額 (5%)', '總計'];
+                    // 定義變化百分比欄位（需要居中對齊）
+                    const changeColumns = ['總計變化'];
+                    
                     rows.forEach(function(row) {
                         const cells = row.querySelectorAll('td');
                         let isWarning = false;
-                        cells.forEach(function(cell) {
+                        
+                        cells.forEach(function(cell, index) {
                             const text = cell.textContent || cell.innerText || '';
+                            
+                            // 檢查是否為問題行
                             if (text.includes('⚠️') || text.includes('❌ 缺失') || text.includes('❌ 缺漏')) {
                                 isWarning = true;
                             }
+                            
+                            // 設置列對齊
+                            const columnName = headers[index] || '';
+                            
+                            // 金額類欄位右對齊
+                            if (amountColumns.includes(columnName)) {
+                                cell.style.textAlign = 'right';
+                            }
+                            // 變化百分比欄位居中對齊
+                            else if (changeColumns.includes(columnName)) {
+                                cell.style.textAlign = 'center';
+                                cell.style.fontSize = '13px';
+                            }
+                            // 文字類欄位左對齊（默認）
+                            else {
+                                cell.style.textAlign = 'left';
+                            }
                         });
+                        
+                        // 高亮問題行
                         if (isWarning) {
                             row.style.backgroundColor = 'rgba(234, 67, 53, 0.15)';
                             row.style.borderLeft = '4px solid #EA4335';
@@ -2913,10 +3092,11 @@ with st.container():
                     });
                 }
             }
+            
             // 等待表格渲染完成後執行
-            setTimeout(highlightWarningRows, 500);
+            setTimeout(formatTable, 500);
             // 監聽表格更新
-            const observer = new MutationObserver(highlightWarningRows);
+            const observer = new MutationObserver(formatTable);
             const targetNode = document.querySelector('[data-testid="stDataEditor"]');
             if (targetNode) {
                 observer.observe(targetNode, { childList: true, subtree: true });
