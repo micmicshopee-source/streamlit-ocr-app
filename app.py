@@ -2006,6 +2006,9 @@ with st.container():
         df_with_id = df.copy() if 'id' in df.columns else None
         # 如果使用df_raw，需要重命名列
         if not df.empty:
+            # 確保 df_raw 不為空，添加調試信息
+            if df_raw.empty:
+                st.warning("⚠️ 數據庫查詢結果為空，請檢查數據是否已正確保存")
             mapping = {
                 "file_name":"檔案名稱",
                 "date":"日期",
@@ -2446,10 +2449,16 @@ with st.container():
         df['_original_index'] = df.index
     
     # 手動在記憶體中篩選（避免 SQL 過於複雜出錯）
+    # 記錄篩選前的數據行數（用於調試）
+    df_before_filter = len(df) if not df.empty else 0
+    
     if not df.empty:
         # 1. 通用關鍵字搜尋（保留原有功能）
         if search:
+            df_before_search = len(df)
             df = df[df.apply(lambda row: search.lower() in str(row).lower(), axis=1)]
+            if len(df) == 0 and df_before_search > 0:
+                st.info(f"💡 關鍵字「{search}」沒有匹配到任何數據（已過濾 {df_before_search} 筆）")
         
         # 2. 專門搜尋「賣方名稱」或「發票號碼」
         invoice_search = st.session_state.get("invoice_search_input", "")
@@ -2477,37 +2486,99 @@ with st.container():
                 df = df[df["狀態"].astype(str).str.contains("缺失|缺漏|❌", na=False, regex=True)]
         
         # 4. 日期區間過濾（使用 session_state 中的日期範圍）
+        # 默認顯示全部：只有當 date_start 和 date_end 都不為 None 時才進行日期篩選
         date_start = st.session_state.get("date_range_start")
         date_end = st.session_state.get("date_range_end")
         
+        # 確保默認值為 None（顯示全部）- 如果沒有設置，強制設為 None
+        if "date_range_start" not in st.session_state:
+            st.session_state.date_range_start = None
+        if "date_range_end" not in st.session_state:
+            st.session_state.date_range_end = None
+        
+        # 只有當兩個日期都不為 None 時才進行日期篩選
         if date_start is not None and date_end is not None and "日期" in df.columns:
             date_col = "日期"
             
             try:
-                # 將日期列轉換為日期格式
+                # 保存原始日期數據（避免修改原始數據）
+                df_date_backup = df[date_col].copy()
+                
+                # 將日期列轉換為日期格式（不修改原始數據，創建副本）
                 df[date_col] = pd.to_datetime(df[date_col], errors='coerce', format='%Y/%m/%d')
-                df = df.dropna(subset=[date_col])  # 移除無法解析的日期
+                
+                # 只過濾無法解析的日期，但保留原始數據
+                valid_dates_mask = df[date_col].notna()
                 
                 # 使用日期區間篩選（包含開始和結束日期）
-                df = df[(df[date_col].dt.date >= date_start) & (df[date_col].dt.date <= date_end)]
+                date_filter_mask = (df[date_col].dt.date >= date_start) & (df[date_col].dt.date <= date_end)
+                df = df[valid_dates_mask & date_filter_mask]
+                
+                # 恢復原始日期格式（如果需要）
+                if not df.empty:
+                    df[date_col] = df_date_backup.loc[df.index]
             except Exception as e:
                 # 如果日期格式不正確，嘗試字符串匹配
-                date_start_str = date_start.strftime("%Y/%m/%d")
-                date_end_str = date_end.strftime("%Y/%m/%d")
-                
-                # 轉換為字符串後進行範圍比較（較不精確，但作為備選方案）
-                def date_in_range(date_str):
-                    try:
-                        date_val = datetime.strptime(str(date_str), "%Y/%m/%d").date()
-                        return date_start <= date_val <= date_end
-                    except:
-                        return False
-                
-                df = df[df[date_col].astype(str).apply(date_in_range)]
+                try:
+                    date_start_str = date_start.strftime("%Y/%m/%d")
+                    date_end_str = date_end.strftime("%Y/%m/%d")
+                    
+                    # 轉換為字符串後進行範圍比較（較不精確，但作為備選方案）
+                    def date_in_range(date_str):
+                        try:
+                            date_val = datetime.strptime(str(date_str), "%Y/%m/%d").date()
+                            return date_start <= date_val <= date_end
+                        except:
+                            return False
+                    
+                    df = df[df[date_col].astype(str).apply(date_in_range)]
+                except:
+                    # 如果日期篩選失敗，不進行篩選（顯示全部）
+                    pass
     
     # 數據表格顯示（df已經重命名過，直接使用）
+    # 添加調試信息（如果數據為空但原始數據不為空）
     if df.empty:
-        st.info("📊 目前沒有數據，請上傳發票圖片或導入CSV數據")
+        if not df_raw.empty:
+            # 有原始數據但篩選後為空，顯示調試信息
+            with st.expander("🔍 調試信息：為什麼沒有顯示數據？", expanded=True):
+                st.write(f"**原始數據行數:** {len(df_raw)}")
+                st.write(f"**篩選後數據行數:** {len(df)}")
+                st.write(f"**當前篩選條件:**")
+                st.write(f"- 關鍵字搜尋: {search if search else '無'}")
+                st.write(f"- 發票搜尋: {st.session_state.get('invoice_search_input', '無')}")
+                st.write(f"- 狀態篩選: {st.session_state.get('status_filter_pills', '全部')}")
+                date_start = st.session_state.get("date_range_start")
+                date_end = st.session_state.get("date_range_end")
+                if date_start and date_end:
+                    st.write(f"- 日期範圍: {date_start} ~ {date_end}")
+                else:
+                    st.write(f"- 日期範圍: 顯示全部（未選擇日期）")
+                
+                # 顯示原始數據的前幾行（用於調試）
+                st.write(f"**原始數據前3行（用於調試）:**")
+                if 'date' in df_raw.columns:
+                    st.dataframe(df_raw[['id', 'date', 'invoice_number', 'seller_name', 'total']].head(3))
+                else:
+                    st.dataframe(df_raw.head(3))
+                
+                st.write(f"**提示:** 請檢查篩選條件是否過於嚴格，或清除篩選條件以顯示所有數據。")
+                # 添加清除篩選按鈕
+                if st.button("🔄 清除所有篩選條件", use_container_width=True):
+                    # 清除所有篩選條件
+                    if "invoice_search_input" in st.session_state:
+                        del st.session_state.invoice_search_input
+                    if "status_filter_pills" in st.session_state:
+                        st.session_state.status_filter_pills = "全部"
+                    if "date_range_start" in st.session_state:
+                        st.session_state.date_range_start = None
+                    if "date_range_end" in st.session_state:
+                        st.session_state.date_range_end = None
+                    st.rerun()
+        elif df_raw.empty:
+            st.info("📊 目前沒有數據，請上傳發票圖片或導入CSV數據")
+        else:
+            st.info("📊 目前沒有數據，請上傳發票圖片或導入CSV數據")
     else:
         # 處理空值：用"No"替換
         def fill_empty(val):
