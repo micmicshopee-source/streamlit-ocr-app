@@ -1917,13 +1917,26 @@ with st.container():
         if "date_range_end" not in st.session_state:
             st.session_state.date_range_end = None
         
+        # 準備日期區間值（避免傳入 None 元組）
+        date_start_val = st.session_state.date_range_start
+        date_end_val = st.session_state.date_range_end
+        
         # 日期區間選擇器
-        date_range = st.date_input(
-            "🕒 時間範圍（按發票日期）",
-            value=(st.session_state.date_range_start, st.session_state.date_range_end),
-            help="選擇開始日期和結束日期，或點擊快捷按鈕",
-            label_visibility="visible"
-        )
+        if date_start_val is not None and date_end_val is not None:
+            # 兩個日期都有值，傳入元組
+            date_range = st.date_input(
+                "🕒 時間範圍（按發票日期）",
+                value=(date_start_val, date_end_val),
+                help="選擇開始日期和結束日期，或點擊快捷按鈕",
+                label_visibility="visible"
+            )
+        else:
+            # 至少有一個是 None，不傳 value 參數（讓用戶自由選擇）
+            date_range = st.date_input(
+                "🕒 時間範圍（按發票日期）",
+                help="選擇開始日期和結束日期，或點擊快捷按鈕",
+                label_visibility="visible"
+            )
         
         # 處理日期區間（date_input 可能返回單一日期或元組）
         if isinstance(date_range, tuple) and len(date_range) == 2:
