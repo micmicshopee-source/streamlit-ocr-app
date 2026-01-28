@@ -3106,14 +3106,40 @@ with st.container():
         """, unsafe_allow_html=True)
         
         # 使用 column_order 隱藏 id 欄位，但在返回的資料中仍保留 id（供後端更新使用）
+        # 確保 visible_columns 中的列都在 df_for_editor 中存在，且沒有重複
         visible_columns = [c for c in df_for_editor.columns if c != "id"]
+        
+        # 檢查並清理列名：確保沒有重複，且所有列都在 df_for_editor 中
+        visible_columns = list(dict.fromkeys(visible_columns))  # 移除重複，保持順序
+        visible_columns = [c for c in visible_columns if c in df_for_editor.columns]
+        
+        # 驗證列名：確保沒有 None、空字符串或無效字符
+        def is_valid_column_name(name):
+            """檢查列名是否有效"""
+            if name is None:
+                return False
+            if not isinstance(name, str):
+                return False
+            if name.strip() == "":
+                return False
+            return True
+        
+        visible_columns = [c for c in visible_columns if is_valid_column_name(c)]
+        
+        # 確保 column_config 中的列也在 df_for_editor 中存在，且列名有效
+        valid_column_config = {}
+        for k, v in column_config.items():
+            if k in df_for_editor.columns and is_valid_column_name(k):
+                valid_column_config[k] = v
+        
+        # 如果沒有有效的列，使用默認行為（不傳 column_order）
         ed_df = st.data_editor(
             df_for_editor,
             use_container_width=True,
             hide_index=True,
             height=500,
-            column_config=column_config,
-            column_order=visible_columns,
+            column_config=valid_column_config if valid_column_config else None,
+            column_order=visible_columns if visible_columns else None,
             key="data_editor"
         )
         
