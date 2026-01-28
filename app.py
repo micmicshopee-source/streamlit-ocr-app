@@ -2568,8 +2568,9 @@ with st.container():
                     # 清除所有篩選條件
                     if "invoice_search_input" in st.session_state:
                         del st.session_state.invoice_search_input
+                    # st.pills 創建的 session_state 不能直接修改，需要刪除後讓 widget 重新創建
                     if "status_filter_pills" in st.session_state:
-                        st.session_state.status_filter_pills = "全部"
+                        del st.session_state.status_filter_pills
                     if "date_range_start" in st.session_state:
                         st.session_state.date_range_start = None
                     if "date_range_end" in st.session_state:
