@@ -75,6 +75,58 @@ st.markdown("""
         box-shadow: 0 2px 4px rgba(0,0,0,0.2) !important;
     }
     
+    /* 數據卡片樣式 - 專業 SaaS 介面 */
+    .metric-card {
+        background: linear-gradient(135deg, #2F2F2F 0%, #3A3A3A 100%) !important;
+        border-radius: 12px !important;
+        padding: 1.5rem !important;
+        margin-bottom: 1rem !important;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3), 0 2px 4px rgba(0, 0, 0, 0.2) !important;
+        border: 1px solid rgba(255, 255, 255, 0.05) !important;
+        transition: all 0.3s ease !important;
+        position: relative !important;
+        overflow: hidden !important;
+    }
+    
+    .metric-card::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 3px;
+        background: linear-gradient(90deg, #4285F4, #34A853, #FBBC04, #EA4335);
+        opacity: 0.6;
+    }
+    
+    .metric-card:hover {
+        transform: translateY(-2px) !important;
+        box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4), 0 4px 8px rgba(0, 0, 0, 0.3) !important;
+    }
+    
+    .metric-card-title {
+        font-size: 0.875rem !important;
+        color: #B0B0B0 !important;
+        font-weight: 500 !important;
+        margin-bottom: 0.5rem !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.5px !important;
+    }
+    
+    .metric-card-value {
+        font-size: 1.75rem !important;
+        font-weight: 700 !important;
+        color: #FFFFFF !important;
+        margin: 0 !important;
+        line-height: 1.2 !important;
+    }
+    
+    .metric-card-icon {
+        font-size: 2rem !important;
+        margin-bottom: 0.5rem !important;
+        opacity: 0.8 !important;
+    }
+    
     /* 減少分隔線的間距 */
     hr {
         margin-top: 0.5rem !important;
@@ -1317,9 +1369,8 @@ with title_col2:
 user_email = st.session_state.get('user_email', 'default_user')
 df_raw = run_query("SELECT * FROM invoices WHERE user_email = ? ORDER BY id DESC", (user_email,))
 
-# ========== 1. 統計指標區（最頂部）==========
+# ========== 1. 統計指標區（最頂部）- 專業儀表板 ==========
 with st.container():
-    # st.markdown("### 📊 統計報表")  # 隱藏表頭
     df_stats = df_raw.copy()
     if not df_stats.empty:
         # 先重命名列以便統計報表使用
@@ -1331,23 +1382,105 @@ with st.container():
                 if c in df_stats.columns:
                     df_stats[c] = pd.to_numeric(df_stats[c].astype(str).str.replace(',',''), errors='coerce').fillna(0)
             
-            # 統計指標卡片（並排顯示）
-            stat_col1, stat_col2, stat_col3, stat_col4 = st.columns(4)
-            total_sum = pd.to_numeric(df_stats['總計'], errors='coerce').fillna(0).sum()
-            tax_sum = pd.to_numeric(df_stats['稅額'], errors='coerce').fillna(0).sum()
-            invoice_count = len(df_stats)
-            missing_count = len(df_stats[df_stats['狀態'].astype(str).str.contains('缺失', na=False)]) if '狀態' in df_stats.columns else 0
+            # 計算「本月」數據
+            today = datetime.now().date()
+            month_start = today.replace(day=1)
             
+            # 篩選本月的發票
+            if "日期" in df_stats.columns:
+                try:
+                    df_stats['日期_parsed'] = pd.to_datetime(df_stats['日期'], errors='coerce', format='%Y/%m/%d')
+                    df_month = df_stats[df_stats['日期_parsed'].dt.date >= month_start].copy()
+                except:
+                    # 如果日期解析失敗，使用字符串匹配
+                    month_str = today.strftime("%Y/%m")
+                    df_month = df_stats[df_stats['日期'].astype(str).str.contains(month_str, na=False)].copy()
+            else:
+                df_month = df_stats.copy()
+            
+            # 計算本月統計數據
+            month_total = pd.to_numeric(df_month['總計'], errors='coerce').fillna(0).sum() if not df_month.empty else 0
+            month_tax = pd.to_numeric(df_month['稅額'], errors='coerce').fillna(0).sum() if not df_month.empty else 0
+            month_invoice_count = len(df_month) if not df_month.empty else 0
+            month_missing_count = len(df_month[df_month['狀態'].astype(str).str.contains('缺失', na=False)]) if not df_month.empty and '狀態' in df_month.columns else 0
+            
+            # 四個數據卡片（並排顯示）
+            stat_col1, stat_col2, stat_col3, stat_col4 = st.columns(4)
+            
+            # 卡片 1: 本月總計
             with stat_col1:
-                st.metric("累計金額", f"${total_sum:,.0f}")
+                st.markdown(f"""
+                <div class="metric-card">
+                    <div class="metric-card-icon">💰</div>
+                    <div class="metric-card-title">本月總計</div>
+                    <div class="metric-card-value">${month_total:,.0f}</div>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            # 卡片 2: 預計稅額
             with stat_col2:
-                st.metric("累計稅額", f"${tax_sum:,.0f}")
+                st.markdown(f"""
+                <div class="metric-card">
+                    <div class="metric-card-icon">📊</div>
+                    <div class="metric-card-title">預計稅額</div>
+                    <div class="metric-card-value">${month_tax:,.0f}</div>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            # 卡片 3: 發票總數
             with stat_col3:
-                st.metric("發票總數", f"{invoice_count} 筆")
+                st.markdown(f"""
+                <div class="metric-card">
+                    <div class="metric-card-icon">📄</div>
+                    <div class="metric-card-title">發票總數</div>
+                    <div class="metric-card-value">{month_invoice_count:,} 筆</div>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            # 卡片 4: 缺失件數
             with stat_col4:
-                st.metric("缺失數據", f"{missing_count} 筆", delta=f"-{invoice_count - missing_count} 正常" if invoice_count > 0 else None)
+                st.markdown(f"""
+                <div class="metric-card">
+                    <div class="metric-card-icon">⚠️</div>
+                    <div class="metric-card-title">缺失件數</div>
+                    <div class="metric-card-value">{month_missing_count:,} 筆</div>
+                </div>
+                """, unsafe_allow_html=True)
     else:
-        st.info("📊 目前無統計數據")
+        # 無數據時顯示空卡片
+        stat_col1, stat_col2, stat_col3, stat_col4 = st.columns(4)
+        with stat_col1:
+            st.markdown("""
+            <div class="metric-card">
+                <div class="metric-card-icon">💰</div>
+                <div class="metric-card-title">本月總計</div>
+                <div class="metric-card-value">$0</div>
+            </div>
+            """, unsafe_allow_html=True)
+        with stat_col2:
+            st.markdown("""
+            <div class="metric-card">
+                <div class="metric-card-icon">📊</div>
+                <div class="metric-card-title">預計稅額</div>
+                <div class="metric-card-value">$0</div>
+            </div>
+            """, unsafe_allow_html=True)
+        with stat_col3:
+            st.markdown("""
+            <div class="metric-card">
+                <div class="metric-card-icon">📄</div>
+                <div class="metric-card-title">發票總數</div>
+                <div class="metric-card-value">0 筆</div>
+            </div>
+            """, unsafe_allow_html=True)
+        with stat_col4:
+            st.markdown("""
+            <div class="metric-card">
+                <div class="metric-card-icon">⚠️</div>
+                <div class="metric-card-title">缺失件數</div>
+                <div class="metric-card-value">0 筆</div>
+            </div>
+            """, unsafe_allow_html=True)
 
 # 初始化 dialog 狀態
 if "show_upload_dialog" not in st.session_state:
