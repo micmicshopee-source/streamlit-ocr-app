@@ -1,4 +1,8 @@
 import streamlit as st
+try:
+    from streamlit.runtime.secrets import StreamlitSecretNotFoundError
+except ImportError:
+    StreamlitSecretNotFoundError = type("StreamlitSecretNotFoundError", (Exception,), {})
 import google.generativeai as genai
 from PIL import Image, ImageEnhance
 import pandas as pd
@@ -608,22 +612,25 @@ def verify_user(email, password):
         # 資料庫查詢失敗，繼續使用其他方式
         pass
     
-    # ② 使用 Streamlit Secrets
-    if "USERS" in st.secrets:
-        users = st.secrets["USERS"]
-        if isinstance(users, dict):
-            # 格式：{"user@example.com": "password", ...}
-            if email in users:
-                if users[email] == password or users[email] == "":
-                    return True, "登錄成功"
-        elif isinstance(users, str):
-            # 格式：字符串，每行一個 "email:password"
-            for line in users.strip().split('\n'):
-                if ':' in line:
-                    user_email, user_password = line.split(':', 1)
-                    if user_email.strip() == email:
-                        if user_password.strip() == password or user_password.strip() == "":
-                            return True, "登錄成功"
+    # ② 使用 Streamlit Secrets（若無 secrets.toml 或無 USERS 則跳過，不報錯）
+    try:
+        if "USERS" in st.secrets:
+            users = st.secrets["USERS"]
+            if isinstance(users, dict):
+                # 格式：{"user@example.com": "password", ...}
+                if email in users:
+                    if users[email] == password or users[email] == "":
+                        return True, "登錄成功"
+            elif isinstance(users, str):
+                # 格式：字符串，每行一個 "email:password"
+                for line in users.strip().split('\n'):
+                    if ':' in line:
+                        user_email, user_password = line.split(':', 1)
+                        if user_email.strip() == email:
+                            if user_password.strip() == password or user_password.strip() == "":
+                                return True, "登錄成功"
+    except StreamlitSecretNotFoundError:
+        pass
     
     # 其次使用環境變數
     env_users = os.getenv("USERS")
@@ -1274,11 +1281,14 @@ with st.sidebar:
     
     st.markdown("---")
     
-    # 優先使用 Streamlit Secrets
-    if "GEMINI_API_KEY" in st.secrets:
-        st.success("🔑 已使用 Secrets 金鑰")
-        api_key = st.secrets["GEMINI_API_KEY"]
-    else:
+    # 優先使用 Streamlit Secrets（若無 secrets.toml 則不報錯）
+    try:
+        if "GEMINI_API_KEY" in st.secrets:
+            st.success("🔑 已使用 Secrets 金鑰")
+            api_key = st.secrets["GEMINI_API_KEY"]
+        else:
+            api_key = st.text_input("Gemini API Key", DEFAULT_KEY, type="password")
+    except StreamlitSecretNotFoundError:
         api_key = st.text_input("Gemini API Key", DEFAULT_KEY, type="password")
         if not api_key:
             st.warning("請輸入 API Key 或設定 Secrets")
