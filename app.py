@@ -1697,34 +1697,6 @@ with st.container():
 st.markdown('<div class="hero-sep"></div>', unsafe_allow_html=True)
 st.markdown("---")
 
-# --- 步驟導引（1→2→3，響應式：窄螢幕自動堆疊）---
-step1, step2, step3 = st.columns(3)
-with step1:
-    st.markdown("""
-    <div class="workflow-step">
-        <span class="workflow-step-num">1</span>
-        <span class="workflow-step-label">上傳</span>
-        <span class="workflow-step-desc">圖片或 CSV 導入</span>
-    </div>
-    """, unsafe_allow_html=True)
-with step2:
-    st.markdown("""
-    <div class="workflow-step">
-        <span class="workflow-step-num">2</span>
-        <span class="workflow-step-label">辨識／校正</span>
-        <span class="workflow-step-desc">AI 辨識與明細編輯</span>
-    </div>
-    """, unsafe_allow_html=True)
-with step3:
-    st.markdown("""
-    <div class="workflow-step">
-        <span class="workflow-step-num">3</span>
-        <span class="workflow-step-label">導出</span>
-        <span class="workflow-step-desc">Excel / PDF 報表</span>
-    </div>
-    """, unsafe_allow_html=True)
-st.markdown("---")
-
 # 查詢當前用戶的數據（多用戶版本：使用 user_email）
 user_email = st.session_state.get('user_email', 'default_user')
 df_raw = run_query("SELECT * FROM invoices WHERE user_email = ? ORDER BY id DESC", (user_email,))
@@ -1747,13 +1719,14 @@ with st.container():
             today = datetime.now().date()
             month_start = today.replace(day=1)
             
-            # 篩選本月的發票
+            # 篩選本月的發票（支援多種日期格式）
             if "日期" in df_stats.columns:
                 try:
                     df_stats['日期_parsed'] = pd.to_datetime(df_stats['日期'], errors='coerce', format='%Y/%m/%d')
-                    df_month = df_stats[df_stats['日期_parsed'].dt.date >= month_start].copy()
-                except:
-                    # 如果日期解析失敗，使用字符串匹配
+                    if df_stats['日期_parsed'].isna().all():
+                        df_stats['日期_parsed'] = pd.to_datetime(df_stats['日期'], errors='coerce', format='%Y-%m-%d')
+                    df_month = df_stats[df_stats['日期_parsed'].notna() & (df_stats['日期_parsed'].dt.date >= month_start)].copy()
+                except Exception:
                     month_str = today.strftime("%Y/%m")
                     df_month = df_stats[df_stats['日期'].astype(str).str.contains(month_str, na=False)].copy()
             else:
@@ -1807,6 +1780,8 @@ with st.container():
                     <div class="metric-card-value">{month_missing_count:,} 筆</div>
                 </div>
                 """, unsafe_allow_html=True)
+            if month_invoice_count == 0:
+                st.caption("尚無本月發票，請先上傳或導入。")
     else:
         # 無數據時顯示空卡片
         stat_col1, stat_col2, stat_col3, stat_col4 = st.columns(4)
@@ -1863,6 +1838,7 @@ def upload_dialog():
     if upload_mode == "ocr":
         # OCR識別區域
         st.markdown("### 📷 上傳發票圖")
+        st.caption("支援 JPG、PNG；建議單張清晰、光線充足，以利辨識。")
         files = st.file_uploader("批次選擇照片", type=["jpg","png","jpeg"], accept_multiple_files=True)
         if files:
             st.caption(f"已選擇 {len(files)} 個文件")
@@ -1873,8 +1849,8 @@ def upload_dialog():
             st.rerun()
     else:
         # 數據導入區域
-        st.markdown("### 📥 CSV數據導入")
-        st.info("💡 支持導入 Excel (.xlsx) 或 CSV (.csv) 格式的發票數據")
+        st.markdown("### 📥 CSV／Excel 數據導入")
+        st.info("💡 支援 Excel (.xlsx) 或 CSV (.csv)；必填欄位：日期、發票號碼、總計。可先下載模板再填寫。")
         
         # 下載導入模板
         template_data = {
@@ -1901,11 +1877,37 @@ def upload_dialog():
             st.session_state.start_import = True
             st.rerun()
 
-# 顯示對話框
+# 顯示上傳對話框（優先，以便空狀態按鈕可觸發）
 if st.session_state.show_upload_dialog:
     upload_dialog()
     st.session_state.show_upload_dialog = False
 
+# 發票模組：尚無資料時顯示空狀態與操作引導
+if df_raw.empty:
+    st.markdown("---")
+    st.subheader("📋 發票明細")
+    st.info("尚無發票資料，請先上傳或導入。完成後即可在此查看總覽、編輯與導出報表。")
+    ec1, ec2 = st.columns(2)
+    with ec1:
+        if st.button("📷 上傳發票圖", type="primary", use_container_width=True, key="empty_upload_ocr"):
+            st.session_state.show_upload_dialog = True
+            st.session_state.upload_mode = "ocr"
+            st.rerun()
+    with ec2:
+        if st.button("📥 CSV／Excel 導入", type="primary", use_container_width=True, key="empty_upload_import"):
+            st.session_state.show_upload_dialog = True
+            st.session_state.upload_mode = "import"
+            st.rerun()
+    st.caption("支援發票照片 AI 辨識或批次匯入既有資料。")
+    st.stop()
+
+# 設定公司資訊（用於 PDF 導出）
+with st.expander("📋 設定公司資訊（用於 PDF 導出）", expanded=False):
+    cn = st.text_input("報支公司名稱", value=st.session_state.get("company_name", ""), key="company_name_input", placeholder="例：○○有限公司")
+    ub = st.text_input("公司統編", value=st.session_state.get("company_ubn", ""), key="company_ubn_input", placeholder="8 碼數字")
+    st.session_state.company_name = cn if cn is not None else st.session_state.get("company_name", "")
+    st.session_state.company_ubn = ub if ub is not None else st.session_state.get("company_ubn", "")
+    st.caption("導出 PDF 時會顯示於報表上方；可不填。")
 
 # AI 報帳小助理對話框
 @st.dialog("🤖 AI 報帳小助理", width="large")
@@ -1917,7 +1919,7 @@ def assistant_dialog():
 
     st.caption("可問報帳、會計科目或系統操作；也可用一句話記一筆支出，例如：「今天午餐 120 元 全家」")
     if not api_key:
-        st.warning("請先在左側側邊欄設定 Gemini API Key。")
+        st.warning("請先在左側「進階設定」中設定 Gemini API Key。")
         return
     if history and st.button("🗑️ 清除對話", key="assistant_clear_chat"):
         st.session_state.assistant_chat_history = []
@@ -2546,13 +2548,12 @@ with st.container():
 
     st.markdown('<p class="filter-section-label">篩選條件</p>', unsafe_allow_html=True)
     today = datetime.now().date()
-    week_start = today - timedelta(days=7)
     mapping_opt = {"file_name":"檔案名稱","date":"日期","invoice_number":"發票號碼","seller_name":"賣方名稱","seller_ubn":"賣方統編","subtotal":"銷售額","tax":"稅額","total":"總計","category":"類型","subject":"會計科目","status":"狀態","note":"備註","created_at":"建立時間"}
     df_opt = df_raw.rename(columns=mapping_opt) if not df_raw.empty else pd.DataFrame()
     subjects = sorted([x for x in df_opt["會計科目"].dropna().astype(str).unique().tolist() if x and str(x).strip() and str(x) != "No"]) if not df_opt.empty and "會計科目" in df_opt.columns else []
     categories = sorted([x for x in df_opt["類型"].dropna().astype(str).unique().tolist() if x and str(x).strip() and str(x) != "No"]) if not df_opt.empty and "類型" in df_opt.columns else []
 
-    filter_row1, filter_row2, filter_row3 = st.columns([2, 1, 1])
+    filter_row1, filter_row2 = st.columns([2, 1])
     with filter_row1:
         search = st.text_input(
             "搜尋發票號碼或賣方名稱",
@@ -2561,41 +2562,6 @@ with st.container():
             key="main_search_input"
         )
     with filter_row2:
-        time_filter_options = ["全部", "本日", "本週", "自訂日期"]
-        if "time_filter" not in st.session_state:
-            st.session_state.time_filter = "全部"
-        current_filter = st.session_state.get("time_filter", "全部")
-        if current_filter not in time_filter_options:
-            current_filter = "全部"
-        time_filter = st.selectbox(
-            "時間範圍",
-            options=time_filter_options,
-            index=time_filter_options.index(current_filter),
-            help="按發票日期篩選",
-            label_visibility="visible",
-            key="time_filter_selectbox"
-        )
-        st.session_state.time_filter = time_filter
-        if time_filter == "本日":
-            st.session_state.date_range_start = today
-            st.session_state.date_range_end = today
-        elif time_filter == "本週":
-            st.session_state.date_range_start = week_start
-            st.session_state.date_range_end = today
-        elif time_filter == "自訂日期":
-            d_start = st.session_state.get("date_range_start") or today
-            d_end = st.session_state.get("date_range_end") or today
-            col_d1, col_d2 = st.columns(2)
-            with col_d1:
-                d_start = st.date_input("開始日期", value=d_start, key="filter_date_start")
-            with col_d2:
-                d_end = st.date_input("結束日期", value=d_end, key="filter_date_end")
-            st.session_state.date_range_start = d_start
-            st.session_state.date_range_end = d_end
-        else:
-            st.session_state.date_range_start = None
-            st.session_state.date_range_end = None
-    with filter_row3:
         status_filter = st.pills(
             "狀態",
             options=["全部", "正常", "缺失"],
@@ -2604,7 +2570,60 @@ with st.container():
             key="status_filter_pills"
         )
 
-    with st.expander("進階篩選（會計科目、類型、金額）", expanded=False):
+    # 時間範圍：左側快捷選項（預設全部），右側僅「自訂區間」時顯示日期選擇
+    time_filter_options = ["全部", "今天", "昨天", "過去一週", "過去一個月", "近三個月", "自訂區間"]
+    if "time_filter" not in st.session_state:
+        st.session_state.time_filter = "全部"
+    current_filter = st.session_state.get("time_filter", "全部")
+    if current_filter not in time_filter_options:
+        current_filter = "全部"
+    time_left, time_right = st.columns([1, 2])
+    with time_left:
+        time_filter = st.radio(
+            "時間範圍",
+            options=time_filter_options,
+            index=time_filter_options.index(current_filter),
+            key="time_filter_radio",
+            label_visibility="visible",
+            help="按發票日期篩選"
+        )
+    st.session_state.time_filter = time_filter
+    if time_filter == "全部":
+        st.session_state.date_range_start = None
+        st.session_state.date_range_end = None
+    elif time_filter == "今天":
+        st.session_state.date_range_start = today
+        st.session_state.date_range_end = today
+    elif time_filter == "昨天":
+        yesterday = today - timedelta(days=1)
+        st.session_state.date_range_start = yesterday
+        st.session_state.date_range_end = yesterday
+    elif time_filter == "過去一週":
+        st.session_state.date_range_start = today - timedelta(days=6)
+        st.session_state.date_range_end = today
+    elif time_filter == "過去一個月":
+        st.session_state.date_range_start = today - timedelta(days=29)
+        st.session_state.date_range_end = today
+    elif time_filter == "近三個月":
+        st.session_state.date_range_start = today - timedelta(days=89)
+        st.session_state.date_range_end = today
+    with time_right:
+        if time_filter == "自訂區間":
+            d_start = st.session_state.get("date_range_start") or today
+            d_end = st.session_state.get("date_range_end") or today
+            col_d1, col_d2 = st.columns(2)
+            with col_d1:
+                d_start = st.date_input("開始日期", value=d_start, key="filter_date_start")
+            with col_d2:
+                d_end = st.date_input("結束日期", value=d_end, key="filter_date_end")
+            if d_start > d_end:
+                d_start, d_end = d_end, d_start
+            st.session_state.date_range_start = d_start
+            st.session_state.date_range_end = d_end
+        else:
+            pass
+
+    with st.expander("進階篩選（會計科目、類型、金額）", expanded=True):
         adv1, adv2, adv3, adv4 = st.columns(4)
         with adv1:
             filter_subjects = st.multiselect("會計科目", options=subjects, default=st.session_state.get("filter_subjects", []), key="filter_subjects")
@@ -2990,9 +3009,9 @@ with st.container():
                 # 過濾出狀態為「缺失」的發票（包含 ❌ 缺失、缺漏等）
                 df = df[df["狀態"].astype(str).str.contains("缺失|缺漏|❌", na=False, regex=True)]
         
-        # 3. 日期區間過濾（全部、本日、本週、自訂日期）
+        # 3. 日期區間過濾（全部、今天、昨天、過去一週、過去一個月、近三個月、自訂區間）
         time_filter = st.session_state.get("time_filter", "全部")
-        if time_filter not in ("全部", "本日", "本週", "自訂日期"):
+        if time_filter not in ("全部", "今天", "昨天", "過去一週", "過去一個月", "近三個月", "自訂區間"):
             time_filter = "全部"
         if time_filter != "全部" and "日期" in df.columns:
             date_col = "日期"
@@ -3051,39 +3070,26 @@ with st.container():
     # ========== 2. 發票明細與編輯 ==========
     st.subheader("📋 發票明細與編輯")
     # 數據表格顯示（df已經重命名過，直接使用）
-    # 添加調試信息（如果數據為空但原始數據不為空）
+    # 篩選後無結果時顯示友善提示（不使用調試文案）
     if df.empty:
         if not df_raw.empty:
-            # 有原始數據但篩選後為空，顯示調試信息
-            with st.expander("🔍 調試信息：為什麼沒有顯示數據？", expanded=True):
-                st.write(f"**原始數據行數:** {len(df_raw)}")
-                st.write(f"**篩選後數據行數:** {len(df)}")
-                st.write(f"**當前篩選條件:**")
+            # 有原始數據但篩選後為空：使用者導向提示
+            with st.expander("📋 目前篩選結果為 0 筆", expanded=True):
+                st.write("**目前篩選條件：**")
                 st.write(f"- 關鍵字搜尋: {search if search else '無'}")
                 date_start = st.session_state.get("date_range_start")
                 date_end = st.session_state.get("date_range_end")
                 if date_start and date_end:
                     st.write(f"- 日期範圍: {date_start} ~ {date_end}")
                 else:
-                    st.write(f"- 日期範圍: 顯示全部（選擇「全部」）")
-                st.write(f"- 時間篩選: {st.session_state.get('time_filter', '全部')}")
-                
-                # 顯示原始數據的前幾行（用於調試）
-                st.write(f"**原始數據前3行（用於調試）:**")
-                if 'date' in df_raw.columns:
-                    st.dataframe(df_raw[['id', 'date', 'invoice_number', 'seller_name', 'total']].head(3))
-                else:
-                    st.dataframe(df_raw.head(3))
-                
-                st.write(f"**提示:** 請檢查篩選條件是否過於嚴格，或清除篩選條件以顯示所有數據。")
-                # 添加清除篩選按鈕
-                if st.button("🔄 清除所有篩選條件", use_container_width=True):
-                    # 清除所有篩選條件
-                    # 重置時間篩選為"全部"
+                    st.write(f"- 時間範圍: {st.session_state.get('time_filter', '全部')}")
+                st.write(f"- 狀態: {st.session_state.get('status_filter_pills', '全部')}")
+                st.caption("若需顯示更多資料，可放寬條件或清除篩選。")
+                if st.button("🔄 清除所有篩選條件", use_container_width=True, key="clear_filters_empty"):
                     if "time_filter" in st.session_state:
                         st.session_state.time_filter = "全部"
-                    if "time_filter_selectbox" in st.session_state:
-                        del st.session_state.time_filter_selectbox
+                    if "time_filter_radio" in st.session_state:
+                        st.session_state["time_filter_radio"] = "全部"
                     if "date_range_start" in st.session_state:
                         st.session_state.date_range_start = None
                     if "date_range_end" in st.session_state:
