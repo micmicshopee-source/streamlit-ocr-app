@@ -1109,12 +1109,30 @@ with st.sidebar:
     st.markdown("---")
 
 # 已登錄，顯示主應用
+# --- 精簡模式（手機/LINE）：可由網址 ?compact=1 或按鈕切換，隱藏側邊欄 ---
+if "compact_mode" not in st.session_state:
+    st.session_state.compact_mode = st.query_params.get("compact", "") == "1"
+compact_mode = st.session_state.get("compact_mode", False)
+st.markdown(
+    f'<script>document.body.classList.toggle("compact-mode", {str(compact_mode).lower()});</script>',
+    unsafe_allow_html=True,
+)
+
 # --- Hero 區：標題 + 副標 + 主操作（響應式：窄螢幕時按鈕會自動堆疊）---
 with st.container():
     title_col1, title_col2 = st.columns([2.5, 1.5])
     with title_col1:
         st.title("📑 發票收據報帳小秘笈 Pro")
         st.caption("三步驟完成發票整理與報表輸出：上傳 → AI 辨識 → 導出 Excel / PDF")
+        # 精簡模式切換（主內容區顯示，精簡時側邊欄隱藏仍可退出）
+        if compact_mode:
+            if st.button("← 退出精簡模式", key="exit_compact", use_container_width=False):
+                st.session_state.compact_mode = False
+                st.rerun()
+        else:
+            if st.button("📱 精簡模式（手機/LINE）", key="enter_compact", use_container_width=False):
+                st.session_state.compact_mode = True
+                st.rerun()
     with title_col2:
         st.write("")
         btn_row1, btn_row2, btn_row3 = st.columns(3)
@@ -1130,6 +1148,34 @@ with st.container():
             if st.button("🤖 AI 報帳小助理", type="secondary", use_container_width=True):
                 st.session_state.show_assistant_dialog = True
     st.markdown("---")
+
+# --- 步驟導引（1→2→3，響應式：窄螢幕自動堆疊）---
+step1, step2, step3 = st.columns(3)
+with step1:
+    st.markdown("""
+    <div class="workflow-step">
+        <span class="workflow-step-num">1</span>
+        <span class="workflow-step-label">上傳</span>
+        <span class="workflow-step-desc">圖片或 CSV 導入</span>
+    </div>
+    """, unsafe_allow_html=True)
+with step2:
+    st.markdown("""
+    <div class="workflow-step">
+        <span class="workflow-step-num">2</span>
+        <span class="workflow-step-label">辨識／校正</span>
+        <span class="workflow-step-desc">AI 辨識與明細編輯</span>
+    </div>
+    """, unsafe_allow_html=True)
+with step3:
+    st.markdown("""
+    <div class="workflow-step">
+        <span class="workflow-step-num">3</span>
+        <span class="workflow-step-label">導出</span>
+        <span class="workflow-step-desc">Excel / PDF 報表</span>
+    </div>
+    """, unsafe_allow_html=True)
+st.markdown("---")
 
 # 查詢當前用戶的數據（多用戶版本：使用 user_email）
 user_email = st.session_state.get('user_email', 'default_user')
@@ -1719,9 +1765,8 @@ if st.session_state.get("start_import", False) and "import_file" in st.session_s
         st.error(f"導入失敗: {str(e)}")
 
 # ========== 3. 圖表展示區 ==========
+st.subheader("📈 分析圖表")
 with st.container():
-    # st.markdown("### 📈 數據分析")  # 隱藏表頭
-    
     # 準備數據（如果df_stats已定義，使用它；否則使用df_raw並重命名）
     if 'df_stats' in locals() and not df_stats.empty:
         df_chart = df_stats.copy()
@@ -1946,25 +1991,61 @@ with st.container():
             tax_series = pd.to_numeric(df["稅額"], errors="coerce").fillna(0) if has_tax else pd.Series(0, index=df.index)
             df["總計"] = (subtotal_series + tax_series).round(0)
     
-    # 查詢條件、導出與刪除按鈕（並排顯示）
+    # ========== 篩選與操作（Material 3：篩選條件 / 操作 分區）==========
     if "preview_selected_count" not in st.session_state:
         st.session_state.preview_selected_count = 0
     delete_button_top = False  # 預設為未點擊
 
-    # 篩選區與導出 / 刪除操作（同一行佈局）
-    filter_col1, filter_col2, filter_col3, filter_col4, filter_col5 = st.columns([2, 1.6, 1.6, 1, 1])
-    with filter_col1:
-        # 主搜尋框：發票號碼 / 賣方名稱 / 檔名
+    st.markdown('<p class="filter-section-label">篩選條件</p>', unsafe_allow_html=True)
+    filter_row1, filter_row2, filter_row3 = st.columns([2, 1, 1])
+    with filter_row1:
         search = st.text_input(
-            "🔍 搜尋發票號碼或賣方名稱",
+            "搜尋發票號碼或賣方名稱",
             placeholder="輸入發票號碼、賣方名稱或檔名...",
             label_visibility="visible",
             key="main_search_input"
         )
-        # 刪除按鈕：放在搜尋欄下方，貼近查詢操作
+    with filter_row2:
+        today = datetime.now().date()
+        week_start = today - timedelta(days=7)
+        time_filter_options = ["全部", "本日", "本週"]
+        if "time_filter" not in st.session_state:
+            st.session_state.time_filter = "全部"
+        current_filter = st.session_state.get("time_filter", "全部")
+        if current_filter not in time_filter_options:
+            current_filter = "全部"
+        time_filter = st.selectbox(
+            "時間範圍",
+            options=time_filter_options,
+            index=time_filter_options.index(current_filter),
+            help="按發票日期篩選",
+            label_visibility="visible",
+            key="time_filter_selectbox"
+        )
+        st.session_state.time_filter = time_filter
+        if time_filter == "本日":
+            st.session_state.date_range_start = today
+            st.session_state.date_range_end = today
+        elif time_filter == "本週":
+            st.session_state.date_range_start = week_start
+            st.session_state.date_range_end = today
+        else:
+            st.session_state.date_range_start = None
+            st.session_state.date_range_end = None
+    with filter_row3:
+        status_filter = st.pills(
+            "狀態",
+            options=["全部", "正常", "缺失"],
+            default="全部",
+            label_visibility="visible",
+            key="status_filter_pills"
+        )
+
+    st.markdown('<p class="filter-section-label">操作</p>', unsafe_allow_html=True)
+    act_col1, act_col2, act_col3, act_col4, act_col5 = st.columns(5)
+    with act_col1:
         if not df.empty:
             preview_selected = st.session_state.get("preview_selected_count", 0)
-            st.write("")  # 與輸入框拉開距離
             if preview_selected > 0:
                 delete_button_top = st.button(
                     f"🗑️ 刪除 {preview_selected} 條",
@@ -1982,62 +2063,18 @@ with st.container():
                     key="delete_button_top_disabled"
                 )
                 delete_button_top = False
-    with filter_col2:
-        # 時間範圍：使用簡單的選單維持「全部 / 本日 / 本週」邏輯
-        today = datetime.now().date()
-        week_start = today - timedelta(days=7)
-
-        time_filter_options = ["全部", "本日", "本週"]
-        if "time_filter" not in st.session_state:
-            st.session_state.time_filter = "全部"
-
-        current_filter = st.session_state.get("time_filter", "全部")
-        if current_filter not in time_filter_options:
-            current_filter = "全部"
-
-        time_filter = st.selectbox(
-            "🕒 時間範圍（按發票日期）",
-            options=time_filter_options,
-            index=time_filter_options.index(current_filter),
-            help="選擇時間範圍進行篩選；「全部」表示不限制日期",
-            label_visibility="visible",
-            key="time_filter_selectbox"
-        )
-        st.session_state.time_filter = time_filter
-
-        # 根據選擇設置日期範圍（供後續統一過濾使用）
-        if time_filter == "本日":
-            st.session_state.date_range_start = today
-            st.session_state.date_range_end = today
-        elif time_filter == "本週":
-            st.session_state.date_range_start = week_start
-            st.session_state.date_range_end = today
-        else:
-            # 全部：不限制日期
-            st.session_state.date_range_start = None
-            st.session_state.date_range_end = None
-    with filter_col3:
-        # 狀態篩選（pills：全部 / 正常 / 缺失）
-        status_filter = st.pills(
-            "狀態篩選",
-            options=["全部", "正常", "缺失"],
-            default="全部",
-            label_visibility="visible",
-            key="status_filter_pills"
-        )
-        st.write("")  # 與下方導出按鈕拉開距離
+    with act_col2:
         if not df.empty:
             csv_data = df.to_csv(index=False).encode('utf-8-sig')
             st.download_button(
-                "📥 導出CSV",
+                "📥 CSV",
                 csv_data,
                 "invoice_report.csv",
                 mime="text/csv",
                 use_container_width=True,
-                help="導出當前篩選後的數據為 CSV 檔"
+                help="導出當前篩選後的數據為 CSV"
             )
-    with filter_col4:
-        st.write("")  # 空白行用於對齊
+    with act_col3:
         if not df.empty:
             def generate_excel():
                 # 使用統計結果（如有），否則使用當前表格數據
@@ -2134,22 +2171,7 @@ with st.container():
                 use_container_width=True,
                 help="導出符合國稅局欄位結構的 Excel 報表"
             )
-            # 全局重置篩選條件按鈕（隨時可用）
-            if st.button("🔄 重置篩選條件", use_container_width=True, key="reset_filters_button"):
-                # 清除主搜尋
-                if "main_search_input" in st.session_state:
-                    del st.session_state.main_search_input
-                # 狀態篩選恢復為「全部」
-                if "status_filter_pills" in st.session_state:
-                    del st.session_state.status_filter_pills
-                # 時間範圍恢復為「全部」
-                st.session_state.time_filter = "全部"
-                if "time_filter_selectbox" in st.session_state:
-                    del st.session_state.time_filter_selectbox
-                st.session_state.date_range_start = None
-                st.session_state.date_range_end = None
-                st.rerun()
-    with filter_col5:
+    with act_col4:
         if not df.empty:
             if PDF_AVAILABLE:
                 def generate_pdf():
@@ -2333,7 +2355,19 @@ with st.container():
                 )
             else:
                 st.info("📄 PDF", help="需要安裝 fpdf2")
-    
+    with act_col5:
+        if st.button("🔄 重置篩選", use_container_width=True, key="reset_filters_button"):
+            if "main_search_input" in st.session_state:
+                del st.session_state.main_search_input
+            if "status_filter_pills" in st.session_state:
+                del st.session_state.status_filter_pills
+            st.session_state.time_filter = "全部"
+            if "time_filter_selectbox" in st.session_state:
+                del st.session_state.time_filter_selectbox
+            st.session_state.date_range_start = None
+            st.session_state.date_range_end = None
+            st.rerun()
+
     # 移除image相關的列
     if not df.empty:
         columns_to_drop = ['image_data', 'imageData', 'image_path']  # 移除所有圖片相關列

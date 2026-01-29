@@ -138,6 +138,53 @@ div[data-testid="stAppViewContainer"] {
     opacity: 0.8 !important;
 }
 
+/* --- 4b. 步驟導引 (1→2→3) --- */
+.workflow-step {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: var(--spacing-md);
+    background: var(--md-surface-variant);
+    border-radius: 12px;
+    border: 1px solid rgba(255,255,255,0.06);
+}
+.workflow-step-num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: var(--md-primary);
+    color: #fff;
+    font-weight: 700;
+    font-size: 0.875rem;
+    margin-bottom: 6px;
+}
+.workflow-step-label {
+    font-weight: 600;
+    color: var(--md-on-surface);
+    font-size: 0.9375rem;
+}
+.workflow-step-desc {
+    font-size: 0.75rem;
+    color: var(--md-on-surface-muted);
+    margin-top: 2px;
+}
+
+/* --- 4c. 篩選區標籤（篩選條件 / 操作）--- */
+.filter-section-label {
+    font-size: 0.75rem !important;
+    font-weight: 600 !important;
+    color: var(--md-on-surface-muted) !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.05em !important;
+    margin: 1rem 0 0.5rem 0 !important;
+}
+.filter-section-label:first-of-type {
+    margin-top: 0 !important;
+}
+
 /* --- 5. 按鈕 (Material 3 主色強調主操作) --- */
 .stButton > button[kind="primary"] {
     background-color: var(--md-primary) !important;
@@ -203,6 +250,29 @@ div[data-testid="stAppViewContainer"] {
     background-color: #3F3F3F !important;
 }
 
+/* Pills / 篩選 chips（狀態篩選）--- */
+[data-testid="stPills"] {
+    gap: 6px !important;
+}
+[data-testid="stPills"] > label {
+    background-color: var(--md-surface-variant) !important;
+    color: var(--md-on-surface-variant) !important;
+    border: 1px solid var(--md-outline) !important;
+    border-radius: 20px !important;
+    padding: 6px 14px !important;
+    font-size: 0.8125rem !important;
+    transition: all 0.2s ease !important;
+}
+[data-testid="stPills"] > label:hover {
+    background-color: #383838 !important;
+    border-color: var(--md-primary) !important;
+}
+[data-testid="stPills"] > label[data-baseweb="pill"] {
+    background-color: rgba(66, 133, 244, 0.2) !important;
+    border-color: var(--md-primary) !important;
+    color: var(--md-on-surface) !important;
+}
+
 .stTextInput > div > div > input {
     background-color: var(--md-surface-variant) !important;
     color: #FFFFFF !important;
@@ -216,11 +286,15 @@ div[data-testid="stAppViewContainer"] {
     color: var(--md-on-surface-variant) !important;
 }
 
-/* --- 7. 表格與數據編輯器 --- */
-.stDataFrame {
-    border-radius: 8px;
+/* --- 7. 表格與數據編輯器（Material 3 數據表規範）--- */
+/* 參考：M3 數據表 - 表頭 12sp Medium、內容 13sp Regular、數字右對齊、行 hover */
+.stDataFrame,
+[data-testid="stDataFrame"] {
+    border-radius: 12px !important;
     overflow: auto;
     background-color: var(--md-surface-variant) !important;
+    border: 1px solid rgba(255,255,255,0.08) !important;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.2) !important;
 }
 
 .stDataFrame > div {
@@ -229,45 +303,51 @@ div[data-testid="stAppViewContainer"] {
     background-color: var(--md-surface-variant) !important;
 }
 
-.stDataFrame thead th {
-    background-color: var(--md-surface-variant) !important;
+/* 表頭：M3 表頭樣式，略高於內容層 */
+.stDataFrame thead th,
+[data-testid="stDataEditor"] thead th {
+    background: linear-gradient(180deg, #383838 0%, var(--md-surface-variant) 100%) !important;
     font-weight: 600 !important;
+    font-size: 0.8125rem !important;  /* ~13px, M3 表頭 */
     color: var(--md-on-surface) !important;
-    border-bottom: 1px solid var(--md-outline) !important;
-    padding: 14px 18px !important;
-    position: sticky;
-    top: 0;
-    z-index: 10;
-    font-size: 16px !important;
+    border-bottom: 2px solid var(--md-outline) !important;
+    padding: 12px 16px !important;
+    position: sticky !important;
+    top: 0 !important;
+    z-index: 10 !important;
+    letter-spacing: 0.02em !important;
 }
 
-.stDataFrame tbody tr {
-    border-bottom: 1px solid #3F3F3F !important;
+.stDataFrame tbody tr,
+[data-testid="stDataEditor"] tbody tr {
+    border-bottom: 1px solid rgba(255,255,255,0.06) !important;
     background-color: var(--md-surface-variant) !important;
-    transition: background-color 0.2s;
+    transition: background-color 0.15s ease !important;
 }
 
-.stDataFrame tbody tr:hover {
-    background-color: #3F3F3F !important;
+.stDataFrame tbody tr:hover,
+[data-testid="stDataEditor"] tbody tr:hover {
+    background-color: #383838 !important;  /* M3 行 hover */
 }
 
-.stDataFrame td {
-    padding: 14px 18px !important;
+.stDataFrame td,
+[data-testid="stDataEditor"] td {
+    padding: 12px 16px !important;
     color: var(--md-on-surface-variant) !important;
-    font-size: 15px !important;
+    font-size: 0.8125rem !important;  /* M3 內容 13sp */
     line-height: 1.5 !important;
 }
 
 [data-testid="stDataEditor"] {
-    font-size: 15px !important;
-    border-radius: 8px;
+    font-size: 0.8125rem !important;
+    border-radius: 12px !important;
     overflow: auto;
     background-color: var(--md-surface-variant) !important;
+    border: 1px solid rgba(255,255,255,0.08) !important;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.2) !important;
 }
 
-[data-testid="stDataEditor"] td,
 [data-testid="stDataEditor"] th {
-    font-size: 15px !important;
     padding: 12px 16px !important;
 }
 
@@ -291,7 +371,7 @@ div[data-testid="stAppViewContainer"] {
 
 [data-testid="stDataFrame"] *,
 [data-testid="stDataEditor"] * {
-    font-size: 15px !important;
+    font-size: 0.8125rem !important;  /* M3 表內容 ~13sp */
 }
 
 /* --- 8. 側邊欄 --- */
@@ -419,6 +499,21 @@ hr {
     margin-right: 4px !important;
 }
 
+/* --- 11b. 精簡模式（手機 / LINE 小程序）：隱藏側邊欄，主內容全寬 --- */
+body.compact-mode [data-testid="stSidebar"],
+body.compact-mode [data-testid="stSidebar"] > div {
+    width: 0 !important;
+    min-width: 0 !important;
+    max-width: 0 !important;
+    overflow: hidden !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    border: none !important;
+}
+body.compact-mode .main {
+    max-width: 100% !important;
+}
+
 /* --- 12. 響應式：手機 / LINE 小程序 (< 768px) --- */
 @media (max-width: 768px) {
     .main .block-container {
@@ -429,6 +524,21 @@ hr {
 
     h1 {
         font-size: 1.5rem !important;
+    }
+
+    .workflow-step {
+        padding: var(--spacing-sm) !important;
+    }
+    .workflow-step-num {
+        width: 24px !important;
+        height: 24px !important;
+        font-size: 0.75rem !important;
+    }
+    .workflow-step-label {
+        font-size: 0.8125rem !important;
+    }
+    .workflow-step-desc {
+        font-size: 0.6875rem !important;
     }
 
     h2 {
