@@ -1,4 +1,11 @@
 import streamlit as st
+try:
+    from streamlit.errors import StreamlitSecretNotFoundError
+except ImportError:
+    try:
+        from streamlit.runtime.secrets import StreamlitSecretNotFoundError
+    except ImportError:
+        StreamlitSecretNotFoundError = None
 import google.generativeai as genai
 from PIL import Image, ImageEnhance
 import pandas as pd
@@ -21,6 +28,20 @@ try:
     PDF_AVAILABLE = True
 except ImportError:
     PDF_AVAILABLE = False
+
+# 若無 .streamlit/secrets.toml 則建立空檔，避免 Streamlit 報 No secrets found
+def _ensure_secrets_file():
+    try:
+        app_dir = os.path.dirname(os.path.abspath(__file__))
+        streamlit_dir = os.path.join(app_dir, ".streamlit")
+        secrets_path = os.path.join(streamlit_dir, "secrets.toml")
+        if not os.path.isfile(secrets_path):
+            os.makedirs(streamlit_dir, exist_ok=True)
+            with open(secrets_path, "w", encoding="utf-8") as f:
+                f.write("# Optional: GEMINI_API_KEY, USERS, etc.\n")
+    except Exception:
+        pass
+_ensure_secrets_file()
 
 # --- 1. 系統佈局與初始化 ---
 st.set_page_config(page_title="發票報帳小秘笈", page_icon="🧾", layout="wide")
@@ -504,6 +525,20 @@ if "show_delete_confirm" not in st.session_state: st.session_state.show_delete_c
 if "company_name" not in st.session_state: st.session_state.company_name = ""
 if "company_ubn" not in st.session_state: st.session_state.company_ubn = ""
 
+# --- 安全讀取 Streamlit Secrets（無 secrets.toml 時不報錯）---
+def _safe_secrets_get(key, default=None):
+    """若無 .streamlit/secrets.toml 或缺少 key，返回 default，不拋錯。"""
+    try:
+        if key in st.secrets:
+            return st.secrets[key]
+        return default
+    except Exception as e:
+        if StreamlitSecretNotFoundError is not None and isinstance(e, StreamlitSecretNotFoundError):
+            return default
+        if type(e).__name__ == "StreamlitSecretNotFoundError":
+            return default
+        raise
+
 # --- 1.4. 密碼哈希函數 ---
 def hash_password(password: str) -> str:
     """使用 SHA256 產生密碼雜湊"""
@@ -609,25 +644,21 @@ def verify_user(email, password):
         pass
     
     # ② 使用 Streamlit Secrets（若無 secrets.toml 或無 USERS 則跳過，不報錯）
-    try:
-        if "USERS" in st.secrets:
-            users = st.secrets["USERS"]
-            if isinstance(users, dict):
-                # 格式：{"user@example.com": "password", ...}
-                if email in users:
-                    if users[email] == password or users[email] == "":
-                        return True, "登錄成功"
-            elif isinstance(users, str):
-                # 格式：字符串，每行一個 "email:password"
-                for line in users.strip().split('\n'):
-                    if ':' in line:
-                        user_email, user_password = line.split(':', 1)
-                        if user_email.strip() == email:
-                            if user_password.strip() == password or user_password.strip() == "":
-                                return True, "登錄成功"
-    except Exception as e:
-        if type(e).__name__ != "StreamlitSecretNotFoundError":
-            raise
+    users = _safe_secrets_get("USERS")
+    if users is not None:
+        if isinstance(users, dict):
+            # 格式：{"user@example.com": "password", ...}
+            if email in users:
+                if users[email] == password or users[email] == "":
+                    return True, "登錄成功"
+        elif isinstance(users, str):
+            # 格式：字符串，每行一個 "email:password"
+            for line in users.strip().split('\n'):
+                if ':' in line:
+                    user_email, user_password = line.split(':', 1)
+                    if user_email.strip() == email:
+                        if user_password.strip() == password or user_password.strip() == "":
+                            return True, "登錄成功"
     
     # 其次使用環境變數
     env_users = os.getenv("USERS")
@@ -642,9 +673,55 @@ def verify_user(email, password):
     # 生產環境：不提供默認測試帳號，必須通過註冊或 Secrets 配置
     return False, "郵箱或密碼錯誤"
 
+
+def user_exists_in_db(email):
+    """檢查該郵箱是否已在本系統（SQLite users 表）註冊。僅限資料庫註冊用戶可重設密碼。"""
+    if not email or not email.strip():
+        return False
+    try:
+        init_db()
+        path = get_db_path()
+        is_uri = path.startswith("file:") and "mode=memory" in path
+        conn = sqlite3.connect(path, timeout=30, uri=is_uri, check_same_thread=False)
+        cursor = conn.cursor()
+        cursor.execute("SELECT id FROM users WHERE email = ?", (email.strip(),))
+        exists = cursor.fetchone() is not None
+        conn.close()
+        return exists
+    except Exception:
+        return False
+
+
+def update_user_password(email, new_password):
+    """重設本系統註冊用戶的密碼（僅限 SQLite users 表）。回傳 (success, message)。"""
+    email = email.strip()
+    if not email or not new_password:
+        return False, "郵箱與新密碼不可為空"
+    if len(new_password) < 6:
+        return False, "密碼至少需要 6 個字元"
+    try:
+        init_db()
+        path = get_db_path()
+        is_uri = path.startswith("file:") and "mode=memory" in path
+        conn = sqlite3.connect(path, timeout=30, uri=is_uri, check_same_thread=False)
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE users SET password_hash = ? WHERE email = ?",
+            (hash_password(new_password), email),
+        )
+        conn.commit()
+        updated = cursor.rowcount > 0
+        conn.close()
+        if updated:
+            return True, "密碼已更新，請使用新密碼登入"
+        return False, "找不到該郵箱的註冊帳號，請先註冊或確認郵箱是否正確"
+    except Exception as e:
+        return False, f"更新失敗: {str(e)}"
+
+
 # --- 1.7. 登錄頁面（多用戶版本：含註冊功能）---
 def login_page():
-    """顯示登錄頁面（多用戶版本：含註冊和 Google 登入）"""
+    """顯示登錄頁面（多用戶版本：含註冊、忘記密碼和 Google 登入）"""
     col1, col2, col3 = st.columns([1, 2.5, 1])
     with col2:
         st.markdown('<div style="text-align: center; padding: 2rem;">', unsafe_allow_html=True)
@@ -654,6 +731,8 @@ def login_page():
         # 選擇登入或註冊模式
         if "login_mode" not in st.session_state:
             st.session_state.login_mode = "登入"
+        if "show_forgot_password" not in st.session_state:
+            st.session_state.show_forgot_password = False
         
         mode = st.radio(
             "選擇操作", 
@@ -663,44 +742,83 @@ def login_page():
             index=0 if st.session_state.login_mode == "登入" else 1
         )
         st.session_state.login_mode = mode
+        # 切換到註冊時關閉忘記密碼畫面
+        if mode != "登入":
+            st.session_state.show_forgot_password = False
         
         st.markdown("---")
         
         if mode == "登入":
-            email = st.text_input("📧 郵箱", key="login_email", label_visibility="visible", 
-                                 placeholder="user@example.com")
-            password = st.text_input("🔑 密碼", type="password", key="login_password", 
-                                    label_visibility="visible")
-            
-            
-            col_btn1, col_btn2 = st.columns([1, 1])
-            with col_btn1:
-                if st.button("🔑 登錄", type="primary", use_container_width=True):
-                    if not email:
-                        st.error("❌ 請輸入郵箱")
-                    elif not password:
-                        st.error("❌ 請輸入密碼")
-                    else:
-                        success, message = verify_user(email.strip(), password)
-                        if success:
-                            st.session_state.authenticated = True
-                            st.session_state.user_email = email.strip()
-                            st.success(f"✅ {message}")
-                            time.sleep(0.5)
-                            st.rerun()
+            # 忘記密碼流程
+            if st.session_state.show_forgot_password:
+                st.subheader("🔑 重設密碼")
+                st.caption("僅限在本站註冊的帳號可重設密碼（Secrets 設定的帳號請聯繫管理員）")
+                reset_email = st.text_input("📧 註冊時使用的郵箱", key="reset_email", 
+                                           placeholder="user@example.com", label_visibility="visible")
+                new_pw = st.text_input("🔒 新密碼（至少 6 碼）", type="password", key="reset_new_pw", 
+                                      label_visibility="visible")
+                new_pw_confirm = st.text_input("🔒 再輸入一次新密碼", type="password", key="reset_confirm", 
+                                               label_visibility="visible")
+                r1, r2 = st.columns(2)
+                with r1:
+                    if st.button("✅ 重設密碼", type="primary", use_container_width=True, key="btn_reset_pw"):
+                        if not reset_email:
+                            st.error("❌ 請輸入郵箱")
+                        elif not user_exists_in_db(reset_email):
+                            st.error("❌ 找不到該郵箱的註冊帳號，請確認是否在本站註冊過")
+                        elif not new_pw:
+                            st.error("❌ 請輸入新密碼")
+                        elif len(new_pw) < 6:
+                            st.error("❌ 密碼至少需要 6 個字元")
+                        elif new_pw != new_pw_confirm:
+                            st.error("❌ 兩次輸入的密碼不一致")
                         else:
-                            st.error(f"❌ {message}")
-                            # 提供更多帮助信息
-                            if "郵箱或密碼錯誤" in message:
-                                st.info("💡 提示：如果忘記密碼，請使用「註冊」功能創建新帳號。")
-            
-            with col_btn2:
-                # Google 登入按鈕（預留功能）
-                if st.button("🔵 Google 登入", use_container_width=True):
-                    st.info("💡 Google 登入功能開發中，目前請使用郵箱密碼登入")
-                    # TODO: 實作 Google OAuth 登入
-                    # 需要設定 GOOGLE_CLIENT_ID 和 GOOGLE_CLIENT_SECRET
-                    # 並實作 OAuth 2.0 流程
+                            ok, msg = update_user_password(reset_email.strip(), new_pw)
+                            if ok:
+                                st.success(f"✅ {msg}")
+                                st.session_state.show_forgot_password = False
+                                time.sleep(0.8)
+                                st.rerun()
+                            else:
+                                st.error(f"❌ {msg}")
+                with r2:
+                    if st.button("← 返回登入", use_container_width=True, key="btn_back_login"):
+                        st.session_state.show_forgot_password = False
+                        st.rerun()
+            else:
+                # 一般登入表單
+                email = st.text_input("📧 郵箱", key="login_email", label_visibility="visible", 
+                                     placeholder="user@example.com")
+                password = st.text_input("🔑 密碼", type="password", key="login_password", 
+                                        label_visibility="visible")
+                # 忘記密碼連結
+                if st.button("忘記密碼？", key="link_forgot_pw"):
+                    st.session_state.show_forgot_password = True
+                    st.rerun()
+                
+                col_btn1, col_btn2 = st.columns([1, 1])
+                with col_btn1:
+                    if st.button("🔑 登錄", type="primary", use_container_width=True):
+                        if not email:
+                            st.error("❌ 請輸入郵箱")
+                        elif not password:
+                            st.error("❌ 請輸入密碼")
+                        else:
+                            success, message = verify_user(email.strip(), password)
+                            if success:
+                                st.session_state.authenticated = True
+                                st.session_state.user_email = email.strip()
+                                st.success(f"✅ {message}")
+                                time.sleep(0.5)
+                                st.rerun()
+                            else:
+                                st.error(f"❌ {message}")
+                                if "郵箱或密碼錯誤" in message:
+                                    st.info("💡 若忘記密碼，可點上方「忘記密碼？」重設（僅限本站註冊帳號）")
+                
+                with col_btn2:
+                    if st.button("🔵 Google 登入", use_container_width=True):
+                        st.info("💡 Google 登入功能開發中，目前請使用郵箱密碼登入")
             
         else:  # 註冊模式
             email = st.text_input("📧 新帳號郵箱", key="reg_email", label_visibility="visible", 
@@ -1254,6 +1372,121 @@ def process_ocr(image_obj, file_name, model_name, api_key_val):
         return None, f"所有嘗試皆失敗。最後錯誤: {last_err} | 歷程: {'; '.join(debug_info)}"
     except Exception as e: return None, f"系統錯誤: {str(e)}"
 
+
+# --- AI 報帳小助理：對話與自然語言記帳 ---
+ASSISTANT_SYSTEM_PROMPT = """你是「發票報帳小秘笈」的 AI 報帳小助理，使用繁體中文回答。
+你會回答關於發票報帳、會計科目、本系統操作的簡單問題。
+本系統會計科目範例：餐飲費、交通費、辦公用品、差旅費、雜項；類型範例：餐飲、交通、辦公用品、其他。
+若用戶用一句話描述一筆支出（例如「今天午餐 120 元 全家」「昨天計程車 200」），請先簡短回覆確認，然後在回覆「最後一行」單獨寫 [EXPENSE] 並換行，下一行只放一個 JSON 物件，欄位：date(YYYY/MM/DD), seller_name, total(數字), category(類型), subject(會計科目)。若明顯只是問問題而非記帳則不要加 [EXPENSE]。"""
+
+
+def call_gemini_chat(messages, api_key_val, model_name, system_instruction=None):
+    """呼叫 Gemini 多輪對話 API（純文字），回傳 (reply_text, error)。"""
+    if not api_key_val or not messages:
+        return None, "缺少 API Key 或訊息"
+    try:
+        contents = []
+        for m in messages:
+            role = (m.get("role") or "user").strip().lower()
+            if role == "model" or role == "assistant":
+                role = "model"
+            else:
+                role = "user"
+            text = (m.get("content") or "").strip()
+            if not text:
+                continue
+            contents.append({"role": role, "parts": [{"text": text}]})
+        if not contents:
+            return None, "無有效訊息"
+        payload = {
+            "contents": contents,
+            "generationConfig": {"temperature": 0.3, "maxOutputTokens": 1024},
+        }
+        if system_instruction:
+            payload["systemInstruction"] = {"parts": [{"text": system_instruction}]}
+        model_id = model_name if "models/" in model_name else f"models/{model_name}"
+        url = f"https://generativelanguage.googleapis.com/v1beta/{model_id}:generateContent?key={api_key_val}"
+        session = requests.Session()
+        session.trust_env = False
+        resp = session.post(url, json=payload, timeout=30)
+        if resp.status_code != 200:
+            return None, f"API 錯誤: {resp.status_code} {resp.text[:200]}"
+        data = resp.json()
+        if not data.get("candidates") or not data["candidates"][0].get("content", {}).get("parts"):
+            return None, "API 回傳無內容"
+        text = data["candidates"][0]["content"]["parts"][0].get("text", "").strip()
+        return text, None
+    except requests.exceptions.RequestException as e:
+        return None, f"網路錯誤: {str(e)}"
+    except Exception as e:
+        return None, f"錯誤: {str(e)}"
+
+
+def parse_expense_from_assistant_reply(reply_text):
+    """從助理回覆中解析 [EXPENSE] 後的 JSON，回傳 dict 或 None。"""
+    if not reply_text or "[EXPENSE]" not in reply_text:
+        return None
+    try:
+        start = reply_text.find("[EXPENSE]") + len("[EXPENSE]")
+        rest = reply_text[start:].strip()
+        obj = extract_json(rest)
+        if not obj:
+            return None
+        # 正規化欄位：date, seller_name, total, category, subject
+        date_val = obj.get("date") or obj.get("日期") or datetime.now().strftime("%Y/%m/%d")
+        seller = (obj.get("seller_name") or obj.get("賣方") or obj.get("store") or "未知").strip()
+        total_val = obj.get("total") or obj.get("總計") or obj.get("金額") or 0
+        try:
+            total_val = float(total_val)
+        except (TypeError, ValueError):
+            total_val = 0
+        category = (obj.get("category") or obj.get("類型") or "其他").strip()
+        subject = (obj.get("subject") or obj.get("會計科目") or "雜項").strip()
+        return {
+            "date": date_val,
+            "seller_name": seller,
+            "total": total_val,
+            "category": category,
+            "subject": subject,
+        }
+    except Exception:
+        return None
+
+
+def insert_assistant_draft(draft, user_email):
+    """將 AI 助理解析的一筆草稿寫入 invoices 表。回傳 (success, error_message)。"""
+    def safe_str(v, d=""):
+        if v is None or (isinstance(v, str) and not v.strip()): return d
+        return str(v).strip()[:500]
+    def safe_float(v):
+        try: return float(v)
+        except: return 0.0
+    try:
+        q = "INSERT INTO invoices (user_email, file_name, date, invoice_number, seller_name, seller_ubn, subtotal, tax, total, category, subject, status, note) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)"
+        total = safe_float(draft.get("total", 0))
+        tax = round(total / 1.05 * 0.05, 2) if total else 0
+        subtotal = round(total - tax, 2)
+        params = (
+            user_email,
+            "AI助理新增",
+            safe_str(draft.get("date"), datetime.now().strftime("%Y/%m/%d")),
+            "AI-" + datetime.now().strftime("%Y%m%d%H%M%S"),
+            safe_str(draft.get("seller_name"), "未知"),
+            "",
+            subtotal,
+            tax,
+            total,
+            safe_str(draft.get("category"), "其他"),
+            safe_str(draft.get("subject"), "雜項"),
+            "✅ 正常",
+            "由 AI 報帳小助理新增",
+        )
+        result = run_query(q, params, is_select=False)
+        return bool(result), None if result else "寫入失敗"
+    except Exception as e:
+        return False, str(e)
+
+
 # --- 4. 介面渲染 ---
 # 這裡不再硬編碼 Key，防止洩漏。預設為空，強迫使用 Secrets 或手動輸入。
 DEFAULT_KEY = "" 
@@ -1279,21 +1512,17 @@ with st.sidebar:
     st.markdown("---")
     
     # 優先使用 Streamlit Secrets（若無 secrets.toml 則不報錯）
-    try:
-        if "GEMINI_API_KEY" in st.secrets:
-            st.success("🔑 已使用 Secrets 金鑰")
-            api_key = st.secrets["GEMINI_API_KEY"]
-        else:
-            api_key = st.text_input("Gemini API Key", DEFAULT_KEY, type="password")
-    except Exception as e:
-        if type(e).__name__ == "StreamlitSecretNotFoundError":
-            api_key = st.text_input("Gemini API Key", DEFAULT_KEY, type="password")
-        else:
-            raise
+    api_key = _safe_secrets_get("GEMINI_API_KEY")
+    if api_key:
+        st.success("🔑 已使用 Secrets 金鑰")
+    else:
+        api_key = st.text_input("Gemini API Key", DEFAULT_KEY, type="password")
         if not api_key:
             st.warning("請輸入 API Key 或設定 Secrets")
 
     model = st.selectbox("辨識模型", ["gemini-2.0-flash", "gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro"])
+    st.session_state.gemini_api_key = api_key
+    st.session_state.gemini_model = model
     
     st.divider()
     
@@ -1333,7 +1562,7 @@ with title_col1:
     st.title("📑 發票收據報帳小秘笈 Pro")
 with title_col2:
     st.write("")  # 空白行用於對齊
-    btn_row1, btn_row2 = st.columns(2)
+    btn_row1, btn_row2, btn_row3 = st.columns(3)
     with btn_row1:
         if st.button("📷 上傳發票圖", type="primary", use_container_width=True):
             st.session_state.show_upload_dialog = True
@@ -1342,6 +1571,9 @@ with title_col2:
         if st.button("📥 CSV數據導入", type="primary", use_container_width=True):
             st.session_state.show_upload_dialog = True
             st.session_state.upload_mode = "import"
+    with btn_row3:
+        if st.button("🤖 AI 報帳小助理", type="secondary", use_container_width=True):
+            st.session_state.show_assistant_dialog = True
 
 # 查詢當前用戶的數據（多用戶版本：使用 user_email）
 user_email = st.session_state.get('user_email', 'default_user')
@@ -1463,6 +1695,13 @@ with st.container():
 # 初始化 dialog 狀態
 if "show_upload_dialog" not in st.session_state:
     st.session_state.show_upload_dialog = False
+# AI 報帳小助理：對話紀錄、是否顯示對話框、待確認草稿
+if "assistant_chat_history" not in st.session_state:
+    st.session_state.assistant_chat_history = []
+if "show_assistant_dialog" not in st.session_state:
+    st.session_state.show_assistant_dialog = False
+if "assistant_pending_draft" not in st.session_state:
+    st.session_state.assistant_pending_draft = None
 
 # 上傳對話框函數
 @st.dialog("📤 上傳辨識", width="medium")
@@ -1515,6 +1754,75 @@ def upload_dialog():
 if st.session_state.show_upload_dialog:
     upload_dialog()
     st.session_state.show_upload_dialog = False
+
+
+# AI 報帳小助理對話框
+@st.dialog("🤖 AI 報帳小助理", width="large")
+def assistant_dialog():
+    api_key = st.session_state.get("gemini_api_key") or ""
+    model = st.session_state.get("gemini_model") or "gemini-2.0-flash"
+    history = st.session_state.assistant_chat_history
+    pending = st.session_state.assistant_pending_draft
+
+    st.caption("可問報帳、會計科目或系統操作；也可用一句話記一筆支出，例如：「今天午餐 120 元 全家」")
+    if not api_key:
+        st.warning("請先在左側側邊欄設定 Gemini API Key。")
+        return
+    if history and st.button("🗑️ 清除對話", key="assistant_clear_chat"):
+        st.session_state.assistant_chat_history = []
+        st.session_state.assistant_pending_draft = None
+        st.rerun()
+    st.divider()
+
+    # 待確認草稿卡片
+    if pending:
+        with st.container():
+            st.markdown("**📋 是否新增以下報帳？**")
+            st.json(pending)
+            c1, c2 = st.columns(2)
+            with c1:
+                if st.button("✅ 確認新增", type="primary", key="assistant_confirm_draft"):
+                    user_email = st.session_state.get("user_email", "default_user")
+                    ok, err = insert_assistant_draft(pending, user_email)
+                    if ok:
+                        st.success("已新增一筆報帳。")
+                        st.session_state.assistant_pending_draft = None
+                    else:
+                        st.error(err or "新增失敗")
+                    st.rerun()
+            with c2:
+                if st.button("❌ 取消", key="assistant_cancel_draft"):
+                    st.session_state.assistant_pending_draft = None
+                    st.rerun()
+        st.divider()
+
+    # 對話紀錄
+    for msg in history:
+        role = "user" if msg.get("role") == "user" else "assistant"
+        with st.chat_message(role):
+            st.write(msg.get("content", ""))
+
+    # 聊天輸入：送出後呼叫 Gemini 並解析 [EXPENSE]
+    if prompt := st.chat_input("輸入問題或記一筆支出…"):
+        history.append({"role": "user", "content": prompt})
+        messages = [{"role": m["role"], "content": m["content"]} for m in history]
+        reply, err = call_gemini_chat(messages, api_key, model, ASSISTANT_SYSTEM_PROMPT)
+        if err:
+            history.append({"role": "model", "content": f"⚠️ 發生錯誤：{err}"})
+        else:
+            expense = parse_expense_from_assistant_reply(reply)
+            if expense:
+                st.session_state.assistant_pending_draft = expense
+                display_reply = reply.split("[EXPENSE]")[0].strip() if "[EXPENSE]" in reply else reply
+            else:
+                display_reply = reply
+            history.append({"role": "model", "content": display_reply})
+        st.session_state.assistant_chat_history = history
+        st.rerun()
+
+
+if st.session_state.show_assistant_dialog:
+    assistant_dialog()
 
 # 處理 OCR 識別（從 dialog 觸發）
 if st.session_state.get("start_ocr", False) and "upload_files" in st.session_state:
