@@ -2550,7 +2550,7 @@ with st.container():
     subjects = sorted([x for x in df_opt["會計科目"].dropna().astype(str).unique().tolist() if x and str(x).strip() and str(x) != "No"]) if not df_opt.empty and "會計科目" in df_opt.columns else []
     categories = sorted([x for x in df_opt["類型"].dropna().astype(str).unique().tolist() if x and str(x).strip() and str(x) != "No"]) if not df_opt.empty and "類型" in df_opt.columns else []
 
-    filter_row1, filter_row2 = st.columns([2, 1])
+    filter_row1, filter_row2, filter_row3 = st.columns([2, 1, 1])
     with filter_row1:
         search = st.text_input(
             "搜尋發票號碼或賣方名稱",
@@ -2559,6 +2559,31 @@ with st.container():
             key="main_search_input"
         )
     with filter_row2:
+        # 選擇日期範圍：按鈕只顯示文字，不顯示日期；點擊打開日期區間控件
+        date_start = st.session_state.get("date_range_start")
+        date_end = st.session_state.get("date_range_end")
+        with st.popover("📅 選擇日期範圍"):
+            display_start = date_start if date_start is not None else today
+            display_end = date_end if date_end is not None else today
+            if display_start > display_end:
+                display_start, display_end = display_end, display_start
+            date_range_value = st.date_input(
+                "日期區間",
+                value=(display_start, display_end),
+                key="filter_date_range",
+                label_visibility="visible",
+                help="選擇開始與結束日期 (GMT+8)"
+            )
+            if isinstance(date_range_value, (list, tuple)) and len(date_range_value) == 2:
+                dr_start, dr_end = date_range_value[0], date_range_value[1]
+            else:
+                dr_start = dr_end = date_range_value
+            if dr_start and dr_end:
+                if dr_start > dr_end:
+                    dr_start, dr_end = dr_end, dr_start
+                st.session_state.date_range_start = dr_start
+                st.session_state.date_range_end = dr_end
+    with filter_row3:
         status_filter = st.pills(
             "狀態",
             options=["全部", "正常", "缺失"],
@@ -2566,30 +2591,6 @@ with st.container():
             label_visibility="visible",
             key="status_filter_pills"
         )
-
-    # 選擇日期範圍 = 日期區間控件（直接使用，無 popover）
-    date_start = st.session_state.get("date_range_start")
-    date_end = st.session_state.get("date_range_end")
-    display_start = date_start if date_start is not None else today
-    display_end = date_end if date_end is not None else today
-    if display_start > display_end:
-        display_start, display_end = display_end, display_start
-    date_range_value = st.date_input(
-        "選擇日期範圍",
-        value=(display_start, display_end),
-        key="filter_date_range",
-        label_visibility="visible",
-        help="選擇開始與結束日期 (GMT+8)"
-    )
-    if isinstance(date_range_value, (list, tuple)) and len(date_range_value) == 2:
-        dr_start, dr_end = date_range_value[0], date_range_value[1]
-    else:
-        dr_start = dr_end = date_range_value
-    if dr_start and dr_end:
-        if dr_start > dr_end:
-            dr_start, dr_end = dr_end, dr_start
-        st.session_state.date_range_start = dr_start
-        st.session_state.date_range_end = dr_end
 
     st.markdown('<p class="filter-section-label">進階篩選（會計科目、類型、金額）</p>', unsafe_allow_html=True)
     adv1, adv2, adv3, adv4 = st.columns(4)
