@@ -1,24 +1,31 @@
 /* ============================================
-   Material Design 3 深色主題 + 響應式 (桌面 / LINE 小程序)
+   Material Design 3 深色主題 + 響應式
    統一設計系統，不影響功能
    ============================================ */
 
-/* --- 1. 基礎與變數 --- */
+/* --- 1. 基礎與變數（專業 SaaS 風格）--- */
 :root {
-    --md-surface: #1F1F1F;
-    --md-surface-variant: #2F2F2F;
-    --md-surface-container: #3A3A3A;
-    --md-outline: #5F5F5F;
-    --md-outline-light: #6F6F6F;
-    --md-on-surface: #FFFFFF;
+    --md-surface: #1A1A1A;
+    --md-surface-variant: #252525;
+    --md-surface-container: #2E2E2E;
+    --md-outline: #404040;
+    --md-outline-light: #505050;
+    --md-on-surface: #FAFAFA;
     --md-on-surface-variant: #E0E0E0;
-    --md-on-surface-muted: #B0B0B0;
+    --md-on-surface-muted: #9E9E9E;
     --md-primary: #4285F4;
-    --md-primary-dark: #1967D2;
+    --md-primary-dark: #3367D6;
     --spacing-sm: 8px;
     --spacing-md: 16px;
     --spacing-lg: 24px;
+    --spacing-xl: 32px;
+    --section-gap: 28px;
     --touch-min: 44px;
+    --radius-sm: 6px;
+    --radius-md: 10px;
+    --radius-lg: 14px;
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.24);
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.32);
 }
 
 /* --- 2. 應用與主區域 --- */
@@ -28,9 +35,10 @@
 }
 
 [data-testid="stSidebar"] {
-    background-color: #1A1A1A !important;
+    background-color: #1E1E1E !important;
     overflow-y: auto !important;
     overflow-x: hidden !important;
+    border-right: 1px solid rgba(255,255,255,0.06) !important;
 }
 
 .main {
@@ -41,23 +49,47 @@
 
 .main .block-container {
     max-width: 100% !important;
-    padding-top: 1rem !important;
-    padding-bottom: 1rem !important;
+    padding-top: var(--spacing-lg) !important;
+    padding-bottom: var(--spacing-xl) !important;
+    padding-left: var(--spacing-lg) !important;
+    padding-right: var(--spacing-lg) !important;
     background-color: var(--md-surface) !important;
 }
 
-/* --- 3. 標題與間距 --- */
-h1, h2, h3 {
-    margin-top: 0.5rem !important;
-    margin-bottom: 0.5rem !important;
+/* --- 2b. Hero 與區塊分隔 --- */
+.hero-sep {
+    height: 0;
+    margin-top: var(--spacing-md);
+    margin-bottom: var(--spacing-sm);
+    border-bottom: 1px solid rgba(255,255,255,0.06);
 }
 
-h1, h2, h3, h4, h5, h6 {
+/* --- 3. 標題與間距（專業層級）--- */
+h1, h2, h3 {
+    margin-top: 0 !important;
+    margin-bottom: var(--spacing-sm) !important;
+    letter-spacing: -0.02em !important;
+    font-weight: 600 !important;
+}
+
+h1 {
+    font-size: 1.75rem !important;
     color: var(--md-on-surface) !important;
+}
+
+h2, h3, h4, h5, h6 {
+    color: var(--md-on-surface) !important;
+    font-size: 1.125rem !important;
 }
 
 p, span, div, label {
     color: var(--md-on-surface-variant) !important;
+}
+
+/* Streamlit 副標 / caption 更收斂 */
+[data-testid="stCaptionContainer"] {
+    color: var(--md-on-surface-muted) !important;
+    font-size: 0.8125rem !important;
 }
 
 [data-testid="stVerticalBlock"] > [data-testid="element-container"] {
@@ -81,20 +113,21 @@ div[data-testid="stAppViewContainer"] {
 /* --- 4. 圖表與數據卡片 --- */
 .chart-card {
     background-color: var(--md-surface-variant) !important;
-    border-radius: 8px !important;
-    padding: 1rem !important;
-    margin-bottom: 1rem !important;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.2) !important;
+    border-radius: var(--radius-md) !important;
+    padding: var(--spacing-md) !important;
+    margin-bottom: var(--spacing-md) !important;
+    border: 1px solid rgba(255,255,255,0.06) !important;
+    box-shadow: var(--shadow-sm) !important;
 }
 
 .metric-card {
-    background: linear-gradient(135deg, #2F2F2F 0%, #3A3A3A 100%) !important;
-    border-radius: 12px !important;
-    padding: 1.5rem !important;
-    margin-bottom: 1rem !important;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3), 0 2px 4px rgba(0, 0, 0, 0.2) !important;
-    border: 1px solid rgba(255, 255, 255, 0.05) !important;
-    transition: all 0.3s ease !important;
+    background: var(--md-surface-variant) !important;
+    border-radius: var(--radius-lg) !important;
+    padding: 1.25rem 1.5rem !important;
+    margin-bottom: 0 !important;
+    box-shadow: var(--shadow-sm) !important;
+    border: 1px solid rgba(255, 255, 255, 0.06) !important;
+    transition: box-shadow 0.2s ease, border-color 0.2s ease !important;
     position: relative !important;
     overflow: hidden !important;
 }
@@ -104,70 +137,72 @@ div[data-testid="stAppViewContainer"] {
     position: absolute;
     top: 0;
     left: 0;
-    right: 0;
-    height: 3px;
-    background: linear-gradient(90deg, #4285F4, #34A853, #FBBC04, #EA4335);
-    opacity: 0.6;
+    width: 3px;
+    height: 100%;
+    background: var(--md-primary);
+    opacity: 0.8;
 }
 
 .metric-card:hover {
-    transform: translateY(-2px) !important;
-    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4), 0 4px 8px rgba(0, 0, 0, 0.3) !important;
+    box-shadow: var(--shadow-md) !important;
+    border-color: rgba(255,255,255,0.1) !important;
 }
 
 .metric-card-title {
-    font-size: 0.875rem !important;
+    font-size: 0.6875rem !important;
     color: var(--md-on-surface-muted) !important;
-    font-weight: 500 !important;
-    margin-bottom: 0.5rem !important;
+    font-weight: 600 !important;
+    margin-bottom: 0.375rem !important;
     text-transform: uppercase !important;
-    letter-spacing: 0.5px !important;
+    letter-spacing: 0.08em !important;
 }
 
 .metric-card-value {
-    font-size: 1.75rem !important;
+    font-size: 1.5rem !important;
     font-weight: 700 !important;
     color: var(--md-on-surface) !important;
     margin: 0 !important;
-    line-height: 1.2 !important;
+    line-height: 1.25 !important;
+    letter-spacing: -0.02em !important;
 }
 
 .metric-card-icon {
-    font-size: 2rem !important;
+    font-size: 1.25rem !important;
     margin-bottom: 0.5rem !important;
-    opacity: 0.8 !important;
+    opacity: 0.7 !important;
 }
 
-/* --- 4b. 步驟導引 (1→2→3) --- */
+/* --- 4b. 步驟導引 (1→2→3)，專業簡潔 --- */
 .workflow-step {
     display: flex;
     flex-direction: column;
     align-items: center;
-    padding: var(--spacing-md);
+    padding: var(--spacing-md) var(--spacing-sm);
     background: var(--md-surface-variant);
-    border-radius: 12px;
+    border-radius: var(--radius-md);
     border: 1px solid rgba(255,255,255,0.06);
 }
 .workflow-step-num {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 28px;
-    height: 28px;
+    width: 24px;
+    height: 24px;
     border-radius: 50%;
-    background: var(--md-primary);
-    color: #fff;
+    background: rgba(66, 133, 244, 0.2);
+    color: var(--md-primary);
     font-weight: 700;
-    font-size: 0.875rem;
+    font-size: 0.75rem;
     margin-bottom: 6px;
+    border: 1px solid rgba(66, 133, 244, 0.4);
 }
 .workflow-step-label {
     font-weight: 600;
     color: var(--md-on-surface);
-    font-size: 0.9375rem;
+    font-size: 0.8125rem;
 }
 .workflow-step-desc {
-    font-size: 0.75rem;
+    font-size: 0.6875rem;
     color: var(--md-on-surface-muted);
     margin-top: 2px;
 }
@@ -185,17 +220,23 @@ div[data-testid="stAppViewContainer"] {
     margin-top: 0 !important;
 }
 
-/* --- 5. 按鈕 (Material 3 主色強調主操作) --- */
+/* 區塊標題與下方間距（專業層級） */
+h2[data-testid="stMarkdownContainer"],
+.section-header {
+    margin-bottom: var(--spacing-md) !important;
+}
+
+/* --- 5. 按鈕（專業風格：主操作實色、次要描邊）--- */
 .stButton > button[kind="primary"] {
     background-color: var(--md-primary) !important;
     color: #FFFFFF !important;
     border: none !important;
-    border-radius: 20px !important;
+    border-radius: var(--radius-sm) !important;
     padding: 10px 20px !important;
     min-height: var(--touch-min) !important;
     font-weight: 500 !important;
     transition: all 0.2s !important;
-    box-shadow: 0 2px 4px rgba(66, 133, 244, 0.3) !important;
+    box-shadow: var(--shadow-sm) !important;
 }
 
 .stButton > button[kind="primary"]:hover {
@@ -204,11 +245,11 @@ div[data-testid="stAppViewContainer"] {
 }
 
 .stButton > button:not([kind="primary"]) {
-    background-color: #3F3F3F !important;
-    color: #FFFFFF !important;
+    background-color: transparent !important;
+    color: var(--md-on-surface-variant) !important;
     border: 1px solid var(--md-outline) !important;
-    border-radius: 20px !important;
-    padding: 10px 20px !important;
+    border-radius: var(--radius-sm) !important;
+    padding: 10px 18px !important;
     min-height: var(--touch-min) !important;
     transition: all 0.2s !important;
 }
@@ -220,10 +261,15 @@ div[data-testid="stAppViewContainer"] {
 
 /* --- 6. 表單控件 --- */
 .stSelectbox > div > div {
-    background-color: #3F3F3F !important;
+    background-color: var(--md-surface-variant) !important;
     color: #FFFFFF !important;
     border: 1px solid var(--md-outline) !important;
-    border-radius: 8px !important;
+    border-radius: var(--radius-sm) !important;
+    transition: border-color 0.2s, box-shadow 0.2s !important;
+}
+.stSelectbox > div > div:focus-within {
+    border-color: var(--md-primary) !important;
+    box-shadow: 0 0 0 2px rgba(66, 133, 244, 0.2) !important;
 }
 
 .stSelectbox label {
@@ -277,9 +323,15 @@ div[data-testid="stAppViewContainer"] {
     background-color: var(--md-surface-variant) !important;
     color: #FFFFFF !important;
     border: 1px solid var(--md-outline) !important;
-    border-radius: 8px !important;
+    border-radius: var(--radius-sm) !important;
     padding: 10px 14px !important;
     min-height: var(--touch-min) !important;
+    transition: border-color 0.2s, box-shadow 0.2s !important;
+}
+.stTextInput > div > div > input:focus {
+    border-color: var(--md-primary) !important;
+    box-shadow: 0 0 0 2px rgba(66, 133, 244, 0.25) !important;
+    outline: none !important;
 }
 
 .stTextInput label {
@@ -290,11 +342,11 @@ div[data-testid="stAppViewContainer"] {
 /* 參考：M3 數據表 - 表頭 12sp Medium、內容 13sp Regular、數字右對齊、行 hover */
 .stDataFrame,
 [data-testid="stDataFrame"] {
-    border-radius: 12px !important;
+    border-radius: var(--radius-md) !important;
     overflow: auto;
     background-color: var(--md-surface-variant) !important;
-    border: 1px solid rgba(255,255,255,0.08) !important;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.2) !important;
+    border: 1px solid rgba(255,255,255,0.06) !important;
+    box-shadow: var(--shadow-sm) !important;
 }
 
 .stDataFrame > div {
@@ -340,11 +392,11 @@ div[data-testid="stAppViewContainer"] {
 
 [data-testid="stDataEditor"] {
     font-size: 0.8125rem !important;
-    border-radius: 12px !important;
+    border-radius: var(--radius-md) !important;
     overflow: auto;
     background-color: var(--md-surface-variant) !important;
-    border: 1px solid rgba(255,255,255,0.08) !important;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.2) !important;
+    border: 1px solid rgba(255,255,255,0.06) !important;
+    box-shadow: var(--shadow-sm) !important;
 }
 
 [data-testid="stDataEditor"] th {
@@ -414,9 +466,10 @@ body {
 }
 
 hr {
-    margin-top: 0.5rem !important;
-    margin-bottom: 0.5rem !important;
-    border-color: #3F3F3F !important;
+    margin-top: var(--spacing-lg) !important;
+    margin-bottom: var(--spacing-lg) !important;
+    border: none !important;
+    border-top: 1px solid rgba(255,255,255,0.06) !important;
 }
 
 /* --- 10. 指標與信息框 --- */
@@ -429,25 +482,19 @@ hr {
     color: var(--md-on-surface-muted) !important;
 }
 
-.stInfo {
-    background-color: var(--md-surface-variant) !important;
-    border-left: 4px solid var(--md-primary) !important;
-}
-
-.stSuccess {
-    background-color: var(--md-surface-variant) !important;
-    border-left: 4px solid #34A853 !important;
-}
-
-.stWarning {
-    background-color: var(--md-surface-variant) !important;
-    border-left: 4px solid #FBBC04 !important;
-}
-
+.stInfo,
+.stSuccess,
+.stWarning,
 .stError {
     background-color: var(--md-surface-variant) !important;
-    border-left: 4px solid #EA4335 !important;
+    border-radius: var(--radius-sm) !important;
+    padding: var(--spacing-md) !important;
+    border: 1px solid rgba(255,255,255,0.06) !important;
 }
+.stInfo { border-left: 4px solid var(--md-primary) !important; }
+.stSuccess { border-left: 4px solid #34A853 !important; }
+.stWarning { border-left: 4px solid #FBBC04 !important; }
+.stError { border-left: 4px solid #EA4335 !important; }
 
 /* --- 11. Tabs、對話框、固定刪除區 --- */
 .stTabs [data-baseweb="tab-list"] {
@@ -499,22 +546,7 @@ hr {
     margin-right: 4px !important;
 }
 
-/* --- 11b. 精簡模式（手機 / LINE 小程序）：隱藏側邊欄，主內容全寬 --- */
-body.compact-mode [data-testid="stSidebar"],
-body.compact-mode [data-testid="stSidebar"] > div {
-    width: 0 !important;
-    min-width: 0 !important;
-    max-width: 0 !important;
-    overflow: hidden !important;
-    padding: 0 !important;
-    margin: 0 !important;
-    border: none !important;
-}
-body.compact-mode .main {
-    max-width: 100% !important;
-}
-
-/* --- 12. 響應式：手機 / LINE 小程序 (< 768px) --- */
+/* --- 12. 響應式：手機 (< 768px) --- */
 @media (max-width: 768px) {
     .main .block-container {
         padding-left: var(--spacing-md) !important;

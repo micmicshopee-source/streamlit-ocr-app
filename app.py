@@ -46,7 +46,7 @@ _ensure_secrets_file()
 # --- 1. 系統佈局與初始化 ---
 st.set_page_config(page_title="發票報帳小秘笈", page_icon="🧾", layout="wide")
 
-# --- 統一主題：Material 3 深色 + 響應式（桌面 / LINE 小程序）---
+# --- 統一主題：Material 3 深色 + 響應式 ---
 def _load_theme_css():
     """載入 theme_m3_responsive.css，不影響功能。"""
     base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -1109,30 +1109,12 @@ with st.sidebar:
     st.markdown("---")
 
 # 已登錄，顯示主應用
-# --- 精簡模式（手機/LINE）：可由網址 ?compact=1 或按鈕切換，隱藏側邊欄 ---
-if "compact_mode" not in st.session_state:
-    st.session_state.compact_mode = st.query_params.get("compact", "") == "1"
-compact_mode = st.session_state.get("compact_mode", False)
-st.markdown(
-    f'<script>document.body.classList.toggle("compact-mode", {str(compact_mode).lower()});</script>',
-    unsafe_allow_html=True,
-)
-
-# --- Hero 區：標題 + 副標 + 主操作（響應式：窄螢幕時按鈕會自動堆疊）---
+# --- Hero 區：標題 + 副標 + 主操作（專業版面）---
 with st.container():
     title_col1, title_col2 = st.columns([2.5, 1.5])
     with title_col1:
         st.title("📑 發票收據報帳小秘笈 Pro")
         st.caption("三步驟完成發票整理與報表輸出：上傳 → AI 辨識 → 導出 Excel / PDF")
-        # 精簡模式切換（主內容區顯示，精簡時側邊欄隱藏仍可退出）
-        if compact_mode:
-            if st.button("← 退出精簡模式", key="exit_compact", use_container_width=False):
-                st.session_state.compact_mode = False
-                st.rerun()
-        else:
-            if st.button("📱 精簡模式（手機/LINE）", key="enter_compact", use_container_width=False):
-                st.session_state.compact_mode = True
-                st.rerun()
     with title_col2:
         st.write("")
         btn_row1, btn_row2, btn_row3 = st.columns(3)
@@ -1147,7 +1129,8 @@ with st.container():
         with btn_row3:
             if st.button("🤖 AI 報帳小助理", type="secondary", use_container_width=True):
                 st.session_state.show_assistant_dialog = True
-    st.markdown("---")
+st.markdown('<div class="hero-sep"></div>', unsafe_allow_html=True)
+st.markdown("---")
 
 # --- 步驟導引（1→2→3，響應式：窄螢幕自動堆疊）---
 step1, step2, step3 = st.columns(3)
