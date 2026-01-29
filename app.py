@@ -2559,30 +2559,28 @@ with st.container():
             key="main_search_input"
         )
     with filter_row2:
-        # 選擇日期範圍：按鈕只顯示文字，不顯示日期；點擊打開日期區間控件
         date_start = st.session_state.get("date_range_start")
         date_end = st.session_state.get("date_range_end")
-        with st.popover("📅 選擇日期範圍"):
-            display_start = date_start if date_start is not None else today
-            display_end = date_end if date_end is not None else today
-            if display_start > display_end:
-                display_start, display_end = display_end, display_start
-            date_range_value = st.date_input(
-                "日期區間",
-                value=(display_start, display_end),
-                key="filter_date_range",
-                label_visibility="visible",
-                help="選擇開始與結束日期 (GMT+8)"
-            )
-            if isinstance(date_range_value, (list, tuple)) and len(date_range_value) == 2:
-                dr_start, dr_end = date_range_value[0], date_range_value[1]
-            else:
-                dr_start = dr_end = date_range_value
-            if dr_start and dr_end:
-                if dr_start > dr_end:
-                    dr_start, dr_end = dr_end, dr_start
-                st.session_state.date_range_start = dr_start
-                st.session_state.date_range_end = dr_end
+        display_start = date_start if date_start is not None else today
+        display_end = date_end if date_end is not None else today
+        if display_start > display_end:
+            display_start, display_end = display_end, display_start
+        date_range_value = st.date_input(
+            "日期區間",
+            value=(display_start, display_end),
+            key="filter_date_range",
+            label_visibility="collapsed",
+            help="選擇開始與結束日期 (GMT+8)"
+        )
+        if isinstance(date_range_value, (list, tuple)) and len(date_range_value) == 2:
+            dr_start, dr_end = date_range_value[0], date_range_value[1]
+        else:
+            dr_start = dr_end = date_range_value
+        if dr_start and dr_end:
+            if dr_start > dr_end:
+                dr_start, dr_end = dr_end, dr_start
+            st.session_state.date_range_start = dr_start
+            st.session_state.date_range_end = dr_end
     with filter_row3:
         status_filter = st.pills(
             "狀態",
