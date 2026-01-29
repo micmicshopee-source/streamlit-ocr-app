@@ -2567,36 +2567,29 @@ with st.container():
             key="status_filter_pills"
         )
 
-    # 日期區間：點擊打開即為日期區間控件，入口顯示當前區間或「全部時間」
+    # 選擇日期範圍 = 日期區間控件（直接使用，無 popover）
     date_start = st.session_state.get("date_range_start")
     date_end = st.session_state.get("date_range_end")
-    if date_start is None and date_end is None:
-        trigger_label = "全部時間"
+    display_start = date_start if date_start is not None else today
+    display_end = date_end if date_end is not None else today
+    if display_start > display_end:
+        display_start, display_end = display_end, display_start
+    date_range_value = st.date_input(
+        "選擇日期範圍",
+        value=(display_start, display_end),
+        key="filter_date_range",
+        label_visibility="visible",
+        help="選擇開始與結束日期 (GMT+8)"
+    )
+    if isinstance(date_range_value, (list, tuple)) and len(date_range_value) == 2:
+        dr_start, dr_end = date_range_value[0], date_range_value[1]
     else:
-        ds = date_start if date_start is not None else today
-        de = date_end if date_end is not None else today
-        trigger_label = f"{ds} ~ {de}" if ds != de else str(ds)
-    with st.popover("📅 選擇日期範圍 (GMT+8) · " + trigger_label):
-        display_start = date_start if date_start is not None else today
-        display_end = date_end if date_end is not None else today
-        if display_start > display_end:
-            display_start, display_end = display_end, display_start
-        date_range_value = st.date_input(
-            "日期區間",
-            value=(display_start, display_end),
-            key="filter_date_range",
-            label_visibility="visible",
-            help="選擇開始與結束日期"
-        )
-        if isinstance(date_range_value, (list, tuple)) and len(date_range_value) == 2:
-            dr_start, dr_end = date_range_value[0], date_range_value[1]
-        else:
-            dr_start = dr_end = date_range_value
-        if dr_start and dr_end:
-            if dr_start > dr_end:
-                dr_start, dr_end = dr_end, dr_start
-            st.session_state.date_range_start = dr_start
-            st.session_state.date_range_end = dr_end
+        dr_start = dr_end = date_range_value
+    if dr_start and dr_end:
+        if dr_start > dr_end:
+            dr_start, dr_end = dr_end, dr_start
+        st.session_state.date_range_start = dr_start
+        st.session_state.date_range_end = dr_end
 
     st.markdown('<p class="filter-section-label">進階篩選（會計科目、類型、金額）</p>', unsafe_allow_html=True)
     adv1, adv2, adv3, adv4 = st.columns(4)
