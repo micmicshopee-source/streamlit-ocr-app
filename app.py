@@ -46,462 +46,15 @@ _ensure_secrets_file()
 # --- 1. 系統佈局與初始化 ---
 st.set_page_config(page_title="發票報帳小秘笈", page_icon="🧾", layout="wide")
 
-# 添加CSS確保頁面有滾動條並優化樣式（參考Google AI Studio深色主題）
-st.markdown("""
-<style>
-    /* 深色主題背景 - 參考Google AI Studio */
-    .stApp {
-        background-color: #1F1F1F !important;
-        color: #FFFFFF !important;
-    }
-    
-    /* 側邊欄固定，不隨主內容滾動 */
-    [data-testid="stSidebar"] {
-        background-color: #1A1A1A !important;
-        overflow-y: auto !important;
-        overflow-x: hidden !important;
-    }
-    
-    /* 主內容區域可以獨立滾動 */
-    .main {
-        background-color: #1F1F1F !important;
-        overflow-y: auto !important;
-        overflow-x: hidden !important;
-    }
-    
-    .main .block-container {
-        max-width: 100% !important;
-        padding-top: 1rem !important;
-        padding-bottom: 1rem !important;
-        background-color: #1F1F1F !important;
-    }
-    
-    /* 減少標題和內容之間的間距 */
-    h1, h2, h3 {
-        margin-top: 0.5rem !important;
-        margin-bottom: 0.5rem !important;
-    }
-    
-    /* 減少容器之間的間距 */
-    [data-testid="stVerticalBlock"] > [data-testid="element-container"] {
-        margin-bottom: 0.5rem !important;
-    }
-    
-    /* 圖表卡片樣式 - 參考圖片 */
-    .chart-card {
-        background-color: #2F2F2F !important;
-        border-radius: 8px !important;
-        padding: 1rem !important;
-        margin-bottom: 1rem !important;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.2) !important;
-    }
-    
-    /* 數據卡片樣式 - 專業 SaaS 介面 */
-    .metric-card {
-        background: linear-gradient(135deg, #2F2F2F 0%, #3A3A3A 100%) !important;
-        border-radius: 12px !important;
-        padding: 1.5rem !important;
-        margin-bottom: 1rem !important;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3), 0 2px 4px rgba(0, 0, 0, 0.2) !important;
-        border: 1px solid rgba(255, 255, 255, 0.05) !important;
-        transition: all 0.3s ease !important;
-        position: relative !important;
-        overflow: hidden !important;
-    }
-    
-    .metric-card::before {
-        content: '';
-        position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        height: 3px;
-        background: linear-gradient(90deg, #4285F4, #34A853, #FBBC04, #EA4335);
-        opacity: 0.6;
-    }
-    
-    .metric-card:hover {
-        transform: translateY(-2px) !important;
-        box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4), 0 4px 8px rgba(0, 0, 0, 0.3) !important;
-    }
-    
-    .metric-card-title {
-        font-size: 0.875rem !important;
-        color: #B0B0B0 !important;
-        font-weight: 500 !important;
-        margin-bottom: 0.5rem !important;
-        text-transform: uppercase !important;
-        letter-spacing: 0.5px !important;
-    }
-    
-    .metric-card-value {
-        font-size: 1.75rem !important;
-        font-weight: 700 !important;
-        color: #FFFFFF !important;
-        margin: 0 !important;
-        line-height: 1.2 !important;
-    }
-    
-    .metric-card-icon {
-        font-size: 2rem !important;
-        margin-bottom: 0.5rem !important;
-        opacity: 0.8 !important;
-    }
-    
-    /* 減少分隔線的間距 */
-    hr {
-        margin-top: 0.5rem !important;
-        margin-bottom: 0.5rem !important;
-    }
-    
-    /* 確保垂直容器可以正常顯示 */
-    [data-testid="stVerticalBlock"] {
-        overflow: visible !important;
-    }
-    
-    /* 確保Streamlit的根容器可以正常顯示 */
-    section[data-testid="stAppViewContainer"] {
-        overflow: visible !important;
-    }
-    
-    /* 標題文字顏色 */
-    h1, h2, h3, h4, h5, h6 {
-        color: #FFFFFF !important;
-    }
-    
-    /* 文字顏色 */
-    p, span, div, label {
-        color: #E0E0E0 !important;
-    }
-    
-    /* 主要按鈕樣式 - 深灰色背景，白色文字，圓角 */
-    .stButton > button[kind="primary"] {
-        background-color: #3F3F3F !important;
-        color: #FFFFFF !important;
-        border: none !important;
-        border-radius: 20px !important;
-        padding: 8px 16px !important;
-        font-weight: 500 !important;
-        transition: all 0.2s !important;
-        box-shadow: none !important;
-    }
-    
-    .stButton > button[kind="primary"]:hover {
-        background-color: #4F4F4F !important;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.3) !important;
-    }
-    
-    /* 次要按鈕樣式 */
-    .stButton > button:not([kind="primary"]) {
-        background-color: #3F3F3F !important;
-        color: #FFFFFF !important;
-        border: 1px solid #5F5F5F !important;
-        border-radius: 20px !important;
-        padding: 8px 16px !important;
-        transition: all 0.2s !important;
-    }
-    
-    .stButton > button:not([kind="primary"]):hover {
-        background-color: #4F4F4F !important;
-        border-color: #6F6F6F !important;
-    }
-    
-    /* 選擇框樣式 - 深色主題 */
-    .stSelectbox > div > div {
-        background-color: #3F3F3F !important;
-        color: #FFFFFF !important;
-        border: 1px solid #5F5F5F !important;
-        border-radius: 8px !important;
-    }
-    
-    .stSelectbox label {
-        color: #E0E0E0 !important;
-    }
-    
-    /* 單選按鈕樣式 - 切換按鈕 */
-    .stRadio > div {
-        background-color: transparent !important;
-    }
-    
-    .stRadio > div > label {
-        color: #FFFFFF !important;
-        padding: 6px 12px !important;
-        border-radius: 20px !important;
-        transition: all 0.2s !important;
-    }
-    
-    .stRadio > div > label:hover {
-        background-color: #2F2F2F !important;
-    }
-    
-    /* 選中的單選按鈕 */
-    .stRadio > div > label[data-baseweb="radio"] {
-        background-color: #3F3F3F !important;
-    }
-    
-    /* 文本輸入框樣式 */
-    .stTextInput > div > div > input {
-        background-color: #2F2F2F !important;
-        color: #FFFFFF !important;
-        border: 1px solid #5F5F5F !important;
-        border-radius: 8px !important;
-    }
-    
-    .stTextInput label {
-        color: #E0E0E0 !important;
-    }
-    
-    /* 表格樣式 - 深色主題 */
-    .stDataFrame {
-        border-radius: 8px;
-        overflow: auto;
-        background-color: #2F2F2F !important;
-    }
-    
-    .stDataFrame > div {
-        overflow-x: auto !important;
-        overflow-y: auto !important;
-        background-color: #2F2F2F !important;
-    }
-    
-    /* 表格頭部樣式 - 優化字體大小 */
-    .stDataFrame thead th {
-        background-color: #2F2F2F !important;
-        font-weight: 600 !important;
-        color: #FFFFFF !important;
-        border-bottom: 1px solid #5F5F5F !important;
-        padding: 14px 18px !important;
-        position: sticky;
-        top: 0;
-        z-index: 10;
-        font-size: 16px !important;  /* 增大表頭字體 */
-    }
-    
-    /* 表格行樣式 */
-    .stDataFrame tbody tr {
-        border-bottom: 1px solid #3F3F3F !important;
-        background-color: #2F2F2F !important;
-        transition: background-color 0.2s;
-    }
-    
-    .stDataFrame tbody tr:hover {
-        background-color: #3F3F3F !important;
-    }
-    
-    /* 表格單元格樣式 - 優化字體大小 */
-    .stDataFrame td {
-        padding: 14px 18px !important;
-        color: #E0E0E0 !important;
-        font-size: 15px !important;  /* 增大表格文字 */
-        line-height: 1.5 !important;
-    }
-    
-    /* 列對齊由JavaScript動態設置，這裡只保留基礎樣式 */
-    
-    /* 數據編輯器字體大小 - 優化 */
-    [data-testid="stDataEditor"] {
-        font-size: 15px !important;
-    }
-    
-    [data-testid="stDataEditor"] td,
-    [data-testid="stDataEditor"] th {
-        font-size: 15px !important;  /* 增大編輯器文字 */
-        padding: 12px 16px !important;
-    }
-    
-    [data-testid="stDataEditor"] input,
-    [data-testid="stDataEditor"] select,
-    [data-testid="stDataEditor"] textarea {
-        font-size: 15px !important;  /* 增大輸入框文字 */
-        padding: 8px 12px !important;
-    }
-    
-    [data-testid="stDataEditor"] label {
-        font-size: 15px !important;
-    }
-    
-    /* 表格中的文字元素 */
-    .stDataFrame,
-    .stDataFrame * {
-        font-size: 15px !important;
-    }
-    
-    /* 確保表格容器內所有文字都使用較大字體 */
-    [data-testid="stDataFrame"] * {
-        font-size: 15px !important;
-    }
-    
-    [data-testid="stDataEditor"] * {
-        font-size: 15px !important;
-    }
-    
-    /* 數據編輯器樣式 */
-    [data-testid="stDataEditor"] {
-        border-radius: 8px;
-        overflow: auto;
-        background-color: #2F2F2F !important;
-    }
-    
-    [data-testid="stDataEditor"] > div {
-        overflow-x: auto !important;
-        overflow-y: auto !important;
-        max-height: 600px;
-        background-color: #2F2F2F !important;
-    }
-    
-    /* 側邊欄樣式 - 已在上面定義為固定 */
-    
-    [data-testid="stSidebar"] h1,
-    [data-testid="stSidebar"] h2,
-    [data-testid="stSidebar"] h3,
-    [data-testid="stSidebar"] p,
-    [data-testid="stSidebar"] label {
-        color: #E0E0E0 !important;
-    }
-    
-    /* 自定義滾動條樣式 - 深色主題 */
-    ::-webkit-scrollbar {
-        width: 12px !important;
-        height: 12px !important;
-    }
-    
-    ::-webkit-scrollbar-track {
-        background: #2F2F2F !important;
-        border-radius: 6px;
-    }
-    
-    ::-webkit-scrollbar-thumb {
-        background: #5F5F5F !important;
-        border-radius: 6px;
-        border: 2px solid #2F2F2F;
-    }
-    
-    ::-webkit-scrollbar-thumb:hover {
-        background: #7F7F7F !important;
-    }
-    
-    /* 強制顯示滾動條 */
-    html {
-        overflow-y: scroll !important;
-    }
-    
-    body {
-        overflow-y: auto !important;
-        overflow-x: hidden !important;
-    }
-    
-    /* 確保所有主要容器都可以滾動 */
-    div[data-testid="stAppViewContainer"] {
-        overflow-y: auto !important;
-        height: auto !important;
-        min-height: 100vh;
-    }
-    
-    /* 指標卡片樣式 */
-    [data-testid="stMetricValue"] {
-        color: #FFFFFF !important;
-        font-weight: 500;
-    }
-    
-    [data-testid="stMetricLabel"] {
-        color: #B0B0B0 !important;
-    }
-    
-    /* 信息框樣式 */
-    .stInfo {
-        background-color: #2F2F2F !important;
-        border-left: 4px solid #4285F4 !important;
-    }
-    
-    .stSuccess {
-        background-color: #2F2F2F !important;
-        border-left: 4px solid #34A853 !important;
-    }
-    
-    .stWarning {
-        background-color: #2F2F2F !important;
-        border-left: 4px solid #FBBC04 !important;
-    }
-    
-    .stError {
-        background-color: #2F2F2F !important;
-        border-left: 4px solid #EA4335 !important;
-    }
-    
-    /* 標籤頁樣式 */
-    .stTabs [data-baseweb="tab-list"] {
-        background-color: #2F2F2F !important;
-    }
-    
-    .stTabs [data-baseweb="tab"] {
-        color: #E0E0E0 !important;
-    }
-    
-    .stTabs [aria-selected="true"] {
-        color: #FFFFFF !important;
-        border-bottom: 2px solid #4285F4 !important;
-    }
-    
-    /* 對話框樣式 */
-    [data-baseweb="modal"] {
-        background-color: #2F2F2F !important;
-    }
-    
-    /* 分隔線樣式 */
-    hr {
-        border-color: #3F3F3F !important;
-    }
-    
-    /* 固定位置刪除按鈕容器 */
-    .delete-button-fixed {
-        position: sticky !important;
-        top: 0 !important;
-        z-index: 100 !important;
-        background-color: #1F1F1F !important;
-        padding: 12px 0 !important;
-        margin-bottom: 10px !important;
-        border-bottom: 2px solid #5F5F5F !important;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.3) !important;
-    }
-    
-    /* 問題行高亮樣式（發票號碼為 "No" 或狀態為 "缺失"） */
-    /* 使用 CSS 選擇器來高亮包含警示圖示的單元格所在的行 */
-    [data-testid="stDataEditor"] tbody tr td:contains("⚠️"),
-    [data-testid="stDataEditor"] tbody tr:has(td:contains("⚠️")) {
-        background-color: rgba(234, 67, 53, 0.15) !important;
-    }
-    
-    [data-testid="stDataEditor"] tbody tr:has(td:contains("❌ 缺失")),
-    [data-testid="stDataEditor"] tbody tr:has(td:contains("❌ 缺漏")) {
-        background-color: rgba(234, 67, 53, 0.15) !important;
-        border-left: 4px solid #EA4335 !important;
-    }
-    
-    /* 警示圖示樣式 */
-    .warning-icon {
-        color: #EA4335 !important;
-        font-weight: bold !important;
-        margin-right: 4px !important;
-    }
-    
-    /* 確保固定按鈕容器內的按鈕樣式正常 */
-    .delete-button-fixed .stButton {
-        margin: 0 auto !important;
-    }
-    
-    /* 固定按鈕容器的背景遮罩效果 */
-    .delete-button-fixed::before {
-        content: '';
-        position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background: linear-gradient(to bottom, rgba(31,31,31,0.95), rgba(31,31,31,0.98));
-        z-index: -1;
-    }
-</style>
-""", unsafe_allow_html=True)
+# --- 統一主題：Material 3 深色 + 響應式（桌面 / LINE 小程序）---
+def _load_theme_css():
+    """載入 theme_m3_responsive.css，不影響功能。"""
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    css_path = os.path.join(base_dir, "theme_m3_responsive.css")
+    if os.path.isfile(css_path):
+        with open(css_path, "r", encoding="utf-8") as f:
+            st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
+_load_theme_css()
 
 if "db_error" not in st.session_state: st.session_state.db_error = None
 if "db_path_mode" not in st.session_state: st.session_state.db_path_mode = "💾 本地磁碟"
@@ -1556,30 +1109,34 @@ with st.sidebar:
     st.markdown("---")
 
 # 已登錄，顯示主應用
-# 標題和上傳按鈕（並排顯示）
-title_col1, title_col2 = st.columns([2.5, 1.5])
-with title_col1:
-    st.title("📑 發票收據報帳小秘笈 Pro")
-with title_col2:
-    st.write("")  # 空白行用於對齊
-    btn_row1, btn_row2, btn_row3 = st.columns(3)
-    with btn_row1:
-        if st.button("📷 上傳發票圖", type="primary", use_container_width=True):
-            st.session_state.show_upload_dialog = True
-            st.session_state.upload_mode = "ocr"
-    with btn_row2:
-        if st.button("📥 CSV數據導入", type="primary", use_container_width=True):
-            st.session_state.show_upload_dialog = True
-            st.session_state.upload_mode = "import"
-    with btn_row3:
-        if st.button("🤖 AI 報帳小助理", type="secondary", use_container_width=True):
-            st.session_state.show_assistant_dialog = True
+# --- Hero 區：標題 + 副標 + 主操作（響應式：窄螢幕時按鈕會自動堆疊）---
+with st.container():
+    title_col1, title_col2 = st.columns([2.5, 1.5])
+    with title_col1:
+        st.title("📑 發票收據報帳小秘笈 Pro")
+        st.caption("三步驟完成發票整理與報表輸出：上傳 → AI 辨識 → 導出 Excel / PDF")
+    with title_col2:
+        st.write("")
+        btn_row1, btn_row2, btn_row3 = st.columns(3)
+        with btn_row1:
+            if st.button("📷 上傳發票圖", type="primary", use_container_width=True):
+                st.session_state.show_upload_dialog = True
+                st.session_state.upload_mode = "ocr"
+        with btn_row2:
+            if st.button("📥 CSV數據導入", type="primary", use_container_width=True):
+                st.session_state.show_upload_dialog = True
+                st.session_state.upload_mode = "import"
+        with btn_row3:
+            if st.button("🤖 AI 報帳小助理", type="secondary", use_container_width=True):
+                st.session_state.show_assistant_dialog = True
+    st.markdown("---")
 
 # 查詢當前用戶的數據（多用戶版本：使用 user_email）
 user_email = st.session_state.get('user_email', 'default_user')
 df_raw = run_query("SELECT * FROM invoices WHERE user_email = ? ORDER BY id DESC", (user_email,))
 
-# ========== 1. 統計指標區（最頂部）- 專業儀表板 ==========
+# ========== 1. 統計指標區（本期數據總覽）==========
+st.subheader("📊 本期數據總覽")
 with st.container():
     df_stats = df_raw.copy()
     if not df_stats.empty:
@@ -2873,6 +2430,8 @@ with st.container():
                         # 如果日期篩選失敗，不進行篩選（顯示全部）
                         pass
     
+    # ========== 2. 發票明細與編輯 ==========
+    st.subheader("📋 發票明細與編輯")
     # 數據表格顯示（df已經重命名過，直接使用）
     # 添加調試信息（如果數據為空但原始數據不為空）
     if df.empty:
