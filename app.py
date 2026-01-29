@@ -2025,7 +2025,7 @@ with st.container():
         )
 
     st.markdown('<p class="filter-section-label">操作</p>', unsafe_allow_html=True)
-    act_col1, act_col2, act_col3, act_col4, act_col5 = st.columns(5)
+    act_col1, act_col2, act_col3, act_col4 = st.columns(4)
     with act_col1:
         if not df.empty:
             preview_selected = st.session_state.get("preview_selected_count", 0)
@@ -2338,19 +2338,6 @@ with st.container():
                 )
             else:
                 st.info("📄 PDF", help="需要安裝 fpdf2")
-    with act_col5:
-        if st.button("🔄 重置篩選", use_container_width=True, key="reset_filters_button"):
-            if "main_search_input" in st.session_state:
-                del st.session_state.main_search_input
-            if "status_filter_pills" in st.session_state:
-                del st.session_state.status_filter_pills
-            st.session_state.time_filter = "全部"
-            if "time_filter_selectbox" in st.session_state:
-                del st.session_state.time_filter_selectbox
-            st.session_state.date_range_start = None
-            st.session_state.date_range_end = None
-            st.rerun()
-
     # 移除image相關的列
     if not df.empty:
         columns_to_drop = ['image_data', 'imageData', 'image_path']  # 移除所有圖片相關列
