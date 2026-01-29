@@ -2543,7 +2543,6 @@ with st.container():
         st.session_state.preview_selected_count = 0
     delete_button_top = False  # 預設為未點擊
 
-    st.markdown('<p class="filter-section-label">篩選條件</p>', unsafe_allow_html=True)
     today = datetime.now().date()
     mapping_opt = {"file_name":"檔案名稱","date":"日期","invoice_number":"發票號碼","seller_name":"賣方名稱","seller_ubn":"賣方統編","subtotal":"銷售額","tax":"稅額","total":"總計","category":"類型","subject":"會計科目","status":"狀態","note":"備註","created_at":"建立時間"}
     df_opt = df_raw.rename(columns=mapping_opt) if not df_raw.empty else pd.DataFrame()
@@ -2559,6 +2558,7 @@ with st.container():
             key="main_search_input"
         )
     with filter_row2:
+        st.caption("選擇開始與結束日期")
         date_start = st.session_state.get("date_range_start")
         date_end = st.session_state.get("date_range_end")
         display_start = date_start if date_start is not None else today
@@ -2590,7 +2590,6 @@ with st.container():
             key="status_filter_pills"
         )
 
-    st.markdown('<p class="filter-section-label">進階篩選（會計科目、類型、金額）</p>', unsafe_allow_html=True)
     adv1, adv2, adv3, adv4 = st.columns(4)
     with adv1:
         filter_subjects = st.multiselect("會計科目", options=subjects, default=st.session_state.get("filter_subjects", []), key="filter_subjects")
