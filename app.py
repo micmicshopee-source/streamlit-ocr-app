@@ -1,8 +1,4 @@
 import streamlit as st
-try:
-    from streamlit.runtime.secrets import StreamlitSecretNotFoundError
-except ImportError:
-    StreamlitSecretNotFoundError = type("StreamlitSecretNotFoundError", (Exception,), {})
 import google.generativeai as genai
 from PIL import Image, ImageEnhance
 import pandas as pd
@@ -629,8 +625,9 @@ def verify_user(email, password):
                         if user_email.strip() == email:
                             if user_password.strip() == password or user_password.strip() == "":
                                 return True, "登錄成功"
-    except StreamlitSecretNotFoundError:
-        pass
+    except Exception as e:
+        if type(e).__name__ != "StreamlitSecretNotFoundError":
+            raise
     
     # 其次使用環境變數
     env_users = os.getenv("USERS")
@@ -1288,8 +1285,11 @@ with st.sidebar:
             api_key = st.secrets["GEMINI_API_KEY"]
         else:
             api_key = st.text_input("Gemini API Key", DEFAULT_KEY, type="password")
-    except StreamlitSecretNotFoundError:
-        api_key = st.text_input("Gemini API Key", DEFAULT_KEY, type="password")
+    except Exception as e:
+        if type(e).__name__ == "StreamlitSecretNotFoundError":
+            api_key = st.text_input("Gemini API Key", DEFAULT_KEY, type="password")
+        else:
+            raise
         if not api_key:
             st.warning("請輸入 API Key 或設定 Secrets")
 
