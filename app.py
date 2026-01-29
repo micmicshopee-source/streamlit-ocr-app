@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import streamlit as st
 try:
     from streamlit.errors import StreamlitSecretNotFoundError
@@ -20,7 +22,17 @@ import sqlite3
 from datetime import datetime, timedelta
 import hashlib
 import shutil
+import secrets as _secrets_module
+import re
 from openpyxl.styles import Alignment, Font
+
+# 密碼雜湊：優先使用 bcrypt（AUTH-01），無則退回 SHA256
+try:
+    import bcrypt
+    _USE_BCRYPT = True
+except ImportError:
+    _USE_BCRYPT = False
+    bcrypt = None
 
 # PDF 生成庫 (使用 fpdf2)
 try:
@@ -44,7 +56,7 @@ def _ensure_secrets_file():
 _ensure_secrets_file()
 
 # --- 1. 系統佈局與初始化 ---
-st.set_page_config(page_title="發票報帳小秘笈", page_icon="🧾", layout="wide")
+st.set_page_config(page_title="上班族小工具 | 發票報帳・辦公小幫手", page_icon="🧾", layout="wide")
 
 # --- 統一主題：Material 3 深色 + 響應式 ---
 def _load_theme_css():
@@ -65,13 +77,18 @@ if "image_storage_dir" not in st.session_state:
     st.session_state.image_storage_dir = os.path.join(base_dir, "invoice_images")
     os.makedirs(st.session_state.image_storage_dir, exist_ok=True)
 if "last_edited_df_hash" not in st.session_state: st.session_state.last_edited_df_hash = None
-# 登錄狀態管理（多用戶版本）
-# 注意：Streamlit的session_state在頁面刷新時應該保持（同一瀏覽器會話）
-# 如果刷新後登出，可能是因為瀏覽器會話結束或應用重啟
+# 登入狀態管理（多用戶版本）
+# 注意：Streamlit 的 session_state 在頁面刷新時應保持（同一瀏覽器會話）
 if "authenticated" not in st.session_state: 
     st.session_state.authenticated = False
 if "user_email" not in st.session_state: 
     st.session_state.user_email = None
+# AUTH-04：Session 過期（登入時間，用於逾時檢查）
+if "login_at" not in st.session_state:
+    st.session_state.login_at = None
+# 左側小工具導航：目前選中的工具（invoice=發票報帳，其餘為規劃中）
+if "current_tool" not in st.session_state: 
+    st.session_state.current_tool = "invoice"
 # 刪除確認狀態（修復 Bug #2）
 if "show_delete_confirm" not in st.session_state: st.session_state.show_delete_confirm = False
 # 公司資訊（用於 PDF 導出）
@@ -92,27 +109,63 @@ def _safe_secrets_get(key, default=None):
             return default
         raise
 
-# --- 1.4. 密碼哈希函數 ---
+# --- 1.4. 密碼雜湊與強度（AUTH-01, AUTH-02）---
+# bcrypt 雜湊前綴，用於辨識新格式；舊為純 64 字元 hex（SHA256）
+_LEGACY_HASH_PREFIX = "sha256:"
+
 def hash_password(password: str) -> str:
-    """使用 SHA256 產生密碼雜湊"""
-    return hashlib.sha256(password.encode("utf-8")).hexdigest()
+    """產生密碼雜湊：優先 bcrypt，否則 SHA256（相容舊資料）。"""
+    if _USE_BCRYPT and bcrypt:
+        return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+    return _LEGACY_HASH_PREFIX + hashlib.sha256(password.encode("utf-8")).hexdigest()
+
+def verify_password(password: str, stored_hash: str) -> bool:
+    """驗證密碼：支援 bcrypt、帶前綴的 SHA256、與舊版純 64 字元 hex（無前綴）。"""
+    if not stored_hash:
+        return False
+    legacy_hex = hashlib.sha256(password.encode("utf-8")).hexdigest()
+    if stored_hash.startswith(_LEGACY_HASH_PREFIX):
+        return stored_hash == _LEGACY_HASH_PREFIX + legacy_hex
+    # 舊版：純 64 字元 hex（無前綴）
+    if len(stored_hash) == 64 and all(c in "0123456789abcdef" for c in stored_hash.lower()):
+        return stored_hash.lower() == legacy_hex
+    if _USE_BCRYPT and bcrypt:
+        try:
+            return bcrypt.checkpw(password.encode("utf-8"), stored_hash.encode("utf-8"))
+        except Exception:
+            return False
+    return False
+
+def validate_password_strength(password: str) -> tuple[bool, str]:
+    """
+    AUTH-02：密碼強度檢核。至少 8 字元，且含大小寫、數字、符號其中至少兩類。
+    回傳 (ok, message)。
+    """
+    if len(password) < 8:
+        return False, "密碼至少需要 8 個字元"
+    has_upper = any(c.isupper() for c in password)
+    has_lower = any(c.islower() for c in password)
+    has_digit = any(c.isdigit() for c in password)
+    has_special = bool(re.search(r'[!@#$%^&*(),.?":{}|<>_\-+=[\]\\;/\'`~]', password))
+    categories = sum([has_upper, has_lower, has_digit, has_special])
+    if categories < 2:
+        return False, "密碼須包含以下其中至少兩類：大寫、小寫、數字、符號"
+    return True, ""
 
 # --- 1.5. 註冊函數 ---
 def register_user(email: str, password: str):
-    """註冊新用戶（寫入 SQLite users 表）"""
-    import re
-    
+    """註冊新用戶（寫入 SQLite users 表）；密碼須通過強度檢核。"""
     email = email.strip()
     if not email or not password:
-        return False, "郵箱與密碼不可為空"
+        return False, "電子郵件與密碼不可為空"
     
-    # 簡單 email 格式檢查
     email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
     if not re.match(email_pattern, email):
-        return False, "郵箱格式不正確"
+        return False, "電子郵件格式不正確"
     
-    if len(password) < 6:
-        return False, "密碼至少需要 6 個字元"
+    ok, msg = validate_password_strength(password)
+    if not ok:
+        return False, msg
     
     # 初始化資料庫（確保 users 表存在）
     init_db()
@@ -127,7 +180,7 @@ def register_user(email: str, password: str):
         cursor.execute("SELECT id FROM users WHERE email = ?", (email,))
         if cursor.fetchone():
             conn.close()
-            return False, "此郵箱已註冊，請直接登入"
+            return False, "此電子郵件已註冊，請直接登入"
         
         # 寫入新用戶
         cursor.execute(
@@ -136,7 +189,7 @@ def register_user(email: str, password: str):
         )
         conn.commit()
         conn.close()
-        return True, "註冊成功，請使用此帳號登入"
+        return True, "註冊成功，已為您自動登入"
     except Exception as e:
         return False, f"註冊失敗: {str(e)}"
 
@@ -151,12 +204,16 @@ def verify_user(email, password):
     """
     import re
     
-    # 驗證郵箱格式
+    # 驗證電子郵件格式
     email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
     if not re.match(email_pattern, email):
-        return False, "郵箱格式不正確"
+        return False, "電子郵件格式不正確"
     
     email = email.strip()
+    
+    # AUTH-03：登入失敗鎖定檢查
+    if is_login_locked(email):
+        return False, "帳號暫時鎖定，請 15 分鐘後再試"
     
     # ① 優先查詢 SQLite users 表（註冊用戶）
     try:
@@ -174,23 +231,21 @@ def verify_user(email, password):
             user_id, stored_hash = row
             if not stored_hash:
                 conn.close()
-                return False, "此帳號僅支援 Google 登入，請使用 Google 登入"
+                return False, "此帳號僅支援第三方登入，請使用 Google / LINE / Facebook 登入"
             
-            # 計算輸入密碼的哈希值
-            input_hash = hash_password(password)
-            
-            if input_hash == stored_hash:
-                # 更新最後登入時間
+            if verify_password(password, stored_hash):
+                _clear_login_attempts(email)
                 cursor.execute(
                     "UPDATE users SET last_login = ? WHERE id = ?",
                     (datetime.now().isoformat(), user_id),
                 )
                 conn.commit()
                 conn.close()
-                return True, "登錄成功"
+                return True, "登入成功"
             else:
+                _record_login_attempt(email, False)
                 conn.close()
-                return False, "郵箱或密碼錯誤"
+                return False, "電子郵件或密碼錯誤"
         conn.close()
     except Exception as e:
         # 資料庫查詢失敗，繼續使用其他方式
@@ -203,15 +258,15 @@ def verify_user(email, password):
             # 格式：{"user@example.com": "password", ...}
             if email in users:
                 if users[email] == password or users[email] == "":
-                    return True, "登錄成功"
+                    return True, "登入成功"
         elif isinstance(users, str):
-            # 格式：字符串，每行一個 "email:password"
+            # 格式：字串，每行一個 "email:password"
             for line in users.strip().split('\n'):
                 if ':' in line:
                     user_email, user_password = line.split(':', 1)
                     if user_email.strip() == email:
                         if user_password.strip() == password or user_password.strip() == "":
-                            return True, "登錄成功"
+                            return True, "登入成功"
     
     # 其次使用環境變數
     env_users = os.getenv("USERS")
@@ -221,10 +276,10 @@ def verify_user(email, password):
                 user_email, user_password = line.split(':', 1)
                 if user_email.strip() == email:
                     if user_password.strip() == password or user_password.strip() == "":
-                        return True, "登錄成功"
+                        return True, "登入成功"
     
     # 生產環境：不提供默認測試帳號，必須通過註冊或 Secrets 配置
-    return False, "郵箱或密碼錯誤"
+    return False, "電子郵件或密碼錯誤"
 
 
 def user_exists_in_db(email):
@@ -246,12 +301,13 @@ def user_exists_in_db(email):
 
 
 def update_user_password(email, new_password):
-    """重設本系統註冊用戶的密碼（僅限 SQLite users 表）。回傳 (success, message)。"""
+    """重設本系統註冊用戶的密碼（僅限 SQLite users 表）；密碼須通過強度檢核。回傳 (success, message)。"""
     email = email.strip()
     if not email or not new_password:
-        return False, "郵箱與新密碼不可為空"
-    if len(new_password) < 6:
-        return False, "密碼至少需要 6 個字元"
+        return False, "電子郵件與新密碼不可為空"
+    ok, msg = validate_password_strength(new_password)
+    if not ok:
+        return False, msg
     try:
         init_db()
         path = get_db_path()
@@ -267,19 +323,76 @@ def update_user_password(email, new_password):
         conn.close()
         if updated:
             return True, "密碼已更新，請使用新密碼登入"
-        return False, "找不到該郵箱的註冊帳號，請先註冊或確認郵箱是否正確"
+        return False, "找不到該電子郵件的註冊帳號，請先註冊或確認電子郵件是否正確"
     except Exception as e:
         return False, f"更新失敗: {str(e)}"
 
 
-# --- 1.7. 登錄頁面（多用戶版本：含註冊功能）---
+# --- AUTH-03：登入失敗鎖定 ---
+def _record_login_attempt(account_key: str, success: bool):
+    """記錄一次登入嘗試（account_key 為 email 或 IP）。"""
+    try:
+        init_db()
+        path = get_db_path()
+        is_uri = path.startswith("file:") and "mode=memory" in path
+        conn = sqlite3.connect(path, timeout=30, uri=is_uri, check_same_thread=False)
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO login_attempts (account_key, success) VALUES (?, ?)",
+            (account_key, 1 if success else 0),
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+def _clear_login_attempts(account_key: str):
+    """登入成功後清除該帳號的嘗試記錄。"""
+    try:
+        init_db()
+        path = get_db_path()
+        is_uri = path.startswith("file:") and "mode=memory" in path
+        conn = sqlite3.connect(path, timeout=30, uri=is_uri, check_same_thread=False)
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM login_attempts WHERE account_key = ?", (account_key,))
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+def is_login_locked(account_key: str, max_attempts: int = 5, lock_minutes: int = 15) -> bool:
+    """檢查該帳號是否在鎖定期內（最近 max_attempts 次皆失敗且最後一次在 lock_minutes 分鐘內）。"""
+    try:
+        init_db()
+        path = get_db_path()
+        is_uri = path.startswith("file:") and "mode=memory" in path
+        conn = sqlite3.connect(path, timeout=30, uri=is_uri, check_same_thread=False)
+        cursor = conn.cursor()
+        cutoff = (datetime.now() - timedelta(minutes=lock_minutes)).isoformat()
+        cursor.execute(
+            """SELECT COUNT(*) FROM login_attempts
+               WHERE account_key = ? AND success = 0 AND attempt_at >= ?""",
+            (account_key, cutoff),
+        )
+        count = cursor.fetchone()[0]
+        conn.close()
+        return count >= max_attempts
+    except Exception:
+        return False
+
+
+# --- 1.7. 登入頁面（多用戶版本：含註冊功能）---
 def login_page():
-    """顯示登錄頁面（多用戶版本：含註冊、忘記密碼和 Google 登入）"""
+    """顯示登入頁面（台灣版：含註冊、忘記密碼與 Google 登入規劃）"""
+    # AUTH-05：CSRF 用 token，顯示表單時產生
+    if "login_csrf_token" not in st.session_state:
+        st.session_state.login_csrf_token = _secrets_module.token_hex(16)
     col1, col2, col3 = st.columns([1, 2.5, 1])
     with col2:
         st.markdown('<div style="text-align: center; padding: 2rem;">', unsafe_allow_html=True)
-        st.title("🔐 發票報帳後台")
-        st.markdown('<p style="text-align: center; color: #B0B0B0;">多用戶隔離版本</p>', unsafe_allow_html=True)
+        st.title("🔐 上班族小工具")
+        st.markdown('<p style="text-align: center; color: #B0B0B0;">登入以使用發票報帳與更多辦公小幫手</p>', unsafe_allow_html=True)
+        st.caption("您的資料僅供您本人使用，我們不會分享給第三方。")
         
         # 選擇登入或註冊模式
         if "login_mode" not in st.session_state:
@@ -295,20 +408,18 @@ def login_page():
             index=0 if st.session_state.login_mode == "登入" else 1
         )
         st.session_state.login_mode = mode
-        # 切換到註冊時關閉忘記密碼畫面
         if mode != "登入":
             st.session_state.show_forgot_password = False
         
         st.markdown("---")
         
         if mode == "登入":
-            # 忘記密碼流程
             if st.session_state.show_forgot_password:
                 st.subheader("🔑 重設密碼")
                 st.caption("僅限在本站註冊的帳號可重設密碼（Secrets 設定的帳號請聯繫管理員）")
-                reset_email = st.text_input("📧 註冊時使用的郵箱", key="reset_email", 
-                                           placeholder="user@example.com", label_visibility="visible")
-                new_pw = st.text_input("🔒 新密碼（至少 6 碼）", type="password", key="reset_new_pw", 
+                reset_email = st.text_input("📧 註冊時使用的電子郵件", key="reset_email", 
+                                           placeholder="you@example.com", label_visibility="visible")
+                new_pw = st.text_input("🔒 新密碼（至少 8 字元，含大小寫/數字/符號其中兩類）", type="password", key="reset_new_pw", 
                                       label_visibility="visible")
                 new_pw_confirm = st.text_input("🔒 再輸入一次新密碼", type="password", key="reset_confirm", 
                                                label_visibility="visible")
@@ -316,44 +427,44 @@ def login_page():
                 with r1:
                     if st.button("✅ 重設密碼", type="primary", use_container_width=True, key="btn_reset_pw"):
                         if not reset_email:
-                            st.error("❌ 請輸入郵箱")
+                            st.error("❌ 請輸入電子郵件")
                         elif not user_exists_in_db(reset_email):
-                            st.error("❌ 找不到該郵箱的註冊帳號，請確認是否在本站註冊過")
+                            st.error("❌ 找不到該電子郵件的註冊帳號，請確認是否在本站註冊過")
                         elif not new_pw:
                             st.error("❌ 請輸入新密碼")
-                        elif len(new_pw) < 6:
-                            st.error("❌ 密碼至少需要 6 個字元")
-                        elif new_pw != new_pw_confirm:
-                            st.error("❌ 兩次輸入的密碼不一致")
                         else:
-                            ok, msg = update_user_password(reset_email.strip(), new_pw)
-                            if ok:
-                                st.success(f"✅ {msg}")
-                                st.session_state.show_forgot_password = False
-                                time.sleep(0.8)
-                                st.rerun()
+                            ok_pw, msg_pw = validate_password_strength(new_pw)
+                            if not ok_pw:
+                                st.error(f"❌ {msg_pw}")
+                            elif new_pw != new_pw_confirm:
+                                st.error("❌ 兩次輸入的密碼不一致")
                             else:
-                                st.error(f"❌ {msg}")
+                                ok, msg = update_user_password(reset_email.strip(), new_pw)
+                                if ok:
+                                    st.success(f"✅ {msg}")
+                                    st.session_state.show_forgot_password = False
+                                    time.sleep(0.8)
+                                    st.rerun()
+                                else:
+                                    st.error(f"❌ {msg}")
                 with r2:
                     if st.button("← 返回登入", use_container_width=True, key="btn_back_login"):
                         st.session_state.show_forgot_password = False
                         st.rerun()
             else:
-                # 一般登入表單
-                email = st.text_input("📧 郵箱", key="login_email", label_visibility="visible", 
-                                     placeholder="user@example.com")
+                email = st.text_input("📧 電子郵件", key="login_email", label_visibility="visible", 
+                                     placeholder="you@example.com")
                 password = st.text_input("🔑 密碼", type="password", key="login_password", 
                                         label_visibility="visible")
-                # 忘記密碼連結
                 if st.button("忘記密碼？", key="link_forgot_pw"):
                     st.session_state.show_forgot_password = True
                     st.rerun()
                 
                 col_btn1, col_btn2 = st.columns([1, 1])
                 with col_btn1:
-                    if st.button("🔑 登錄", type="primary", use_container_width=True):
+                    if st.button("🔑 登入", type="primary", use_container_width=True):
                         if not email:
-                            st.error("❌ 請輸入郵箱")
+                            st.error("❌ 請輸入電子郵件")
                         elif not password:
                             st.error("❌ 請輸入密碼")
                         else:
@@ -361,29 +472,31 @@ def login_page():
                             if success:
                                 st.session_state.authenticated = True
                                 st.session_state.user_email = email.strip()
+                                st.session_state.login_at = datetime.now().isoformat()
+                                st.session_state.pop("login_csrf_token", None)
                                 st.success(f"✅ {message}")
                                 time.sleep(0.5)
                                 st.rerun()
                             else:
                                 st.error(f"❌ {message}")
-                                if "郵箱或密碼錯誤" in message:
+                                if "電子郵件或密碼錯誤" in message or "郵箱或密碼錯誤" in message:
                                     st.info("💡 若忘記密碼，可點上方「忘記密碼？」重設（僅限本站註冊帳號）")
                 
                 with col_btn2:
                     if st.button("🔵 Google 登入", use_container_width=True):
-                        st.info("💡 Google 登入功能開發中，目前請使用郵箱密碼登入")
+                        st.info("💡 Google 登入功能開發中，目前請使用電子郵件與密碼登入")
             
         else:  # 註冊模式
-            email = st.text_input("📧 新帳號郵箱", key="reg_email", label_visibility="visible", 
+            email = st.text_input("📧 新帳號電子郵件", key="reg_email", label_visibility="visible", 
                                  placeholder="you@example.com")
-            password = st.text_input("🔒 密碼（至少 6 碼）", type="password", key="reg_password", 
+            password = st.text_input("🔒 密碼（至少 8 字元，含大小寫/數字/符號其中兩類）", type="password", key="reg_password", 
                                     label_visibility="visible")
             confirm = st.text_input("🔒 再輸入一次密碼", type="password", key="reg_confirm", 
                                    label_visibility="visible")
             
             if st.button("✅ 建立帳號", type="primary", use_container_width=True):
                 if not email:
-                    st.error("❌ 請輸入郵箱")
+                    st.error("❌ 請輸入電子郵件")
                 elif not password:
                     st.error("❌ 請輸入密碼")
                 elif password != confirm:
@@ -391,9 +504,10 @@ def login_page():
                 else:
                     success, message = register_user(email, password)
                     if success:
-                        # 註冊成功後自動登錄（提升用戶體驗）
                         st.session_state.authenticated = True
                         st.session_state.user_email = email.strip()
+                        st.session_state.login_at = datetime.now().isoformat()
+                        st.session_state.pop("login_csrf_token", None)
                         st.success(f"✅ {message}")
                         time.sleep(0.5)
                         st.rerun()
@@ -459,7 +573,18 @@ def init_db():
                          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                          last_login TIMESTAMP)''')
         
-        # ② 創建 invoices 表（多用戶版本：使用 user_email）
+        # ② 登入嘗試表（AUTH-03：失敗鎖定）
+        cursor.execute('''CREATE TABLE IF NOT EXISTS login_attempts
+                        (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                         account_key TEXT NOT NULL,
+                         attempt_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                         success INTEGER NOT NULL)''')
+        try:
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_login_attempts_key ON login_attempts(account_key)")
+        except Exception:
+            pass
+        
+        # ③ 創建 invoices 表（多用戶版本：使用 user_email）
         cursor.execute('''CREATE TABLE IF NOT EXISTS invoices
                         (id INTEGER PRIMARY KEY AUTOINCREMENT, 
                         user_email TEXT NOT NULL,
@@ -1044,71 +1169,83 @@ def insert_assistant_draft(draft, user_email):
 # 這裡不再硬編碼 Key，防止洩漏。預設為空，強迫使用 Secrets 或手動輸入。
 DEFAULT_KEY = "" 
 
-# --- 主應用入口：檢查登錄狀態（多用戶版本）---
+# --- 主應用入口：檢查登入狀態（多用戶版本）---
+# AUTH-04：Session 過期（預設 24 小時）
+_SESSION_EXPIRE_HOURS = 24
+if st.session_state.authenticated and st.session_state.user_email and st.session_state.get("login_at"):
+    try:
+        login_at = datetime.fromisoformat(st.session_state.login_at)
+        if (datetime.now() - login_at).total_seconds() > _SESSION_EXPIRE_HOURS * 3600:
+            st.session_state.authenticated = False
+            st.session_state.user_email = None
+            st.session_state.login_at = None
+    except Exception:
+        st.session_state.login_at = None
+
 if not st.session_state.authenticated or not st.session_state.user_email:
     login_page()
-    st.stop()  # 未登錄時停止執行後續代碼
+    st.stop()  # 未登入時停止執行後續代碼
 
-# 已登錄，顯示側邊欄系統狀態
+# 已登入，顯示側邊欄：小工具導航（移除系統狀態）
 with st.sidebar:
-    st.title("⚙️ 系統狀態")
-    # 顯示當前登錄用戶（多用戶版本）
-    user_email = st.session_state.get('user_email', '未登錄')
-    st.info(f"👤 當前用戶: {user_email}")
+    st.title("🛠️ 小工具")
+    # 小工具選單
+    tool_options = [
+        ("invoice", "📑 發票報帳小秘笈"),
+        ("contract", "⚖️ AI 合約比對"),
+        ("customer_service", "📧 AI 客服小秘"),
+        ("meeting", "📅 AI 會議精華"),
+    ]
+    current = st.session_state.current_tool
+    idx = next((i for i, (k, _) in enumerate(tool_options) if k == current), 0)
+    choice = st.radio(
+        "選擇工具",
+        options=[label for _, label in tool_options],
+        index=idx,
+        key="sidebar_tool_radio",
+        label_visibility="collapsed",
+    )
+    st.session_state.current_tool = next(k for k, label in tool_options if label == choice)
     
-    # 登出按鈕
+    st.markdown("---")
+    # 當前用戶與登出
+    user_email = st.session_state.get("user_email", "未登入")
+    st.caption(f"👤 {user_email}")
     if st.button("🚪 登出", use_container_width=True):
         st.session_state.authenticated = False
         st.session_state.user_email = None
+        st.session_state.login_at = None
         st.rerun()
     
     st.markdown("---")
+    # 進階設定（API Key、模型）收合
+    with st.expander("⚙️ 進階設定", expanded=False):
+        api_key = _safe_secrets_get("GEMINI_API_KEY")
+        if api_key:
+            st.success("🔑 已使用 Secrets 金鑰")
+        else:
+            api_key = st.text_input("Gemini API Key", DEFAULT_KEY, type="password", key="sidebar_api_key")
+            if not api_key:
+                st.caption("請輸入 API Key 或設定 Secrets")
+        model = st.selectbox(
+            "辨識模型",
+            ["gemini-2.0-flash", "gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro"],
+            key="sidebar_model",
+        )
+        st.session_state.gemini_api_key = api_key
+        st.session_state.gemini_model = model
     
-    # 優先使用 Streamlit Secrets（若無 secrets.toml 則不報錯）
-    api_key = _safe_secrets_get("GEMINI_API_KEY")
-    if api_key:
-        st.success("🔑 已使用 Secrets 金鑰")
-    else:
-        api_key = st.text_input("Gemini API Key", DEFAULT_KEY, type="password")
-        if not api_key:
-            st.warning("請輸入 API Key 或設定 Secrets")
-
-    model = st.selectbox("辨識模型", ["gemini-2.0-flash", "gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro"])
-    st.session_state.gemini_api_key = api_key
-    st.session_state.gemini_model = model
-    
-    st.divider()
-    
-    # 生產環境：僅使用數據庫模式，移除內存模式選項
     st.session_state.use_memory_mode = False
-    
-    # 顯示資料庫狀態
-    db_path = get_db_path()
-    if "mode=memory" in db_path:
-        st.warning(f"⚠️ {st.session_state.db_path_mode}")
-        if st.session_state.db_error:
-            st.error(f"❌ {st.session_state.db_error}")
-        # 提供重置按鈕，嘗試切換到文件模式
-        if st.button("🔄 嘗試切換到文件模式", help="清除當前設置，重新嘗試使用文件數據庫"):
-            if "current_db_path" in st.session_state:
-                del st.session_state.current_db_path
-            if "db_error" in st.session_state:
-                del st.session_state.db_error
-            st.rerun()
-    else:
-        st.success(f"✅ {st.session_state.db_path_mode}")
-    
-    # 查詢當前用戶的數據
-    user_email = st.session_state.get('user_email', 'default_user')
-    db_count_df = run_query("SELECT count(*) as count FROM invoices WHERE user_email = ?", (user_email,))
-    if not db_count_df.empty:
-        st.success(f"📊 已存數據: {db_count_df['count'][0]} 筆")
-    
-    # 生產環境：移除數據庫清理功能，避免誤操作
-    
-    st.markdown("---")
 
-# 已登錄，顯示主應用
+# 依所選小工具顯示主內容
+if st.session_state.current_tool != "invoice":
+    # 其他小工具：顯示「即將推出」佔位頁
+    st.subheader({"contract": "⚖️ AI 合約比對", "customer_service": "📧 AI 客服小秘", "meeting": "📅 AI 會議精華"}.get(st.session_state.current_tool, "小工具"))
+    st.info("🛠️ 此工具即將推出，敬請期待。")
+    st.caption("您可先使用左側「📑 發票報帳小秘笈」完成發票整理與報表輸出。")
+    st.stop()
+
+# --- 發票報帳小秘笈主內容 ---
 # --- Hero 區：標題 + 副標 + 主操作（專業版面）---
 with st.container():
     title_col1, title_col2 = st.columns([2.5, 1.5])
