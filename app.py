@@ -2567,7 +2567,7 @@ with st.container():
             key="status_filter_pills"
         )
 
-    # 專業快顯日期選擇器：popover 入口顯示當前區間，彈窗內左按鈕右日曆，連動 metric 與表格
+    # 日期區間：點擊打開即為日期區間控件，入口顯示當前區間或「全部時間」
     date_start = st.session_state.get("date_range_start")
     date_end = st.session_state.get("date_range_end")
     if date_start is None and date_end is None:
@@ -2577,69 +2577,26 @@ with st.container():
         de = date_end if date_end is not None else today
         trigger_label = f"{ds} ~ {de}" if ds != de else str(ds)
     with st.popover("📅 選擇日期範圍 (GMT+8) · " + trigger_label):
-        st.caption("快捷鍵")
-        btn_all, btn_today, btn_yest, btn_week, btn_month, btn_quarter = st.columns(6)
-        with btn_all:
-            if st.button("全部", key="date_btn_all", use_container_width=True):
-                st.session_state.date_range_start = None
-                st.session_state.date_range_end = None
-                st.session_state["time_filter_last_preset"] = "全部"
-                st.rerun()
-        with btn_today:
-            if st.button("今天", key="date_btn_today", use_container_width=True):
-                st.session_state.date_range_start = today
-                st.session_state.date_range_end = today
-                st.session_state["time_filter_last_preset"] = "今天"
-                st.rerun()
-        with btn_yest:
-            if st.button("昨天", key="date_btn_yesterday", use_container_width=True):
-                d = today - timedelta(days=1)
-                st.session_state.date_range_start = d
-                st.session_state.date_range_end = d
-                st.session_state["time_filter_last_preset"] = "昨天"
-                st.rerun()
-        with btn_week:
-            if st.button("過去一週", key="date_btn_week", use_container_width=True):
-                st.session_state.date_range_start = today - timedelta(days=6)
-                st.session_state.date_range_end = today
-                st.session_state["time_filter_last_preset"] = "過去一週"
-                st.rerun()
-        with btn_month:
-            if st.button("過去一個月", key="date_btn_month", use_container_width=True):
-                st.session_state.date_range_start = today - timedelta(days=29)
-                st.session_state.date_range_end = today
-                st.session_state["time_filter_last_preset"] = "過去一個月"
-                st.rerun()
-        with btn_quarter:
-            if st.button("近三個月", key="date_btn_quarter", use_container_width=True):
-                st.session_state.date_range_start = today - timedelta(days=89)
-                st.session_state.date_range_end = today
-                st.session_state["time_filter_last_preset"] = "近三個月"
-                st.rerun()
-        st.markdown("")  # 小間距
-        time_right = st.container()
-        with time_right:
-            # 右側：單一 date_input 區間選擇 value=(start, end)
-            display_start = date_start if date_start is not None else today
-            display_end = date_end if date_end is not None else today
-            if display_start > display_end:
-                display_start, display_end = display_end, display_start
-            date_range_value = st.date_input(
-                "日期區間",
-                value=(display_start, display_end),
-                key="filter_date_range",
-                label_visibility="visible",
-                help="選擇開始與結束日期，或由左側快捷設定"
-            )
-            if isinstance(date_range_value, (list, tuple)) and len(date_range_value) == 2:
-                dr_start, dr_end = date_range_value[0], date_range_value[1]
-            else:
-                dr_start = dr_end = date_range_value
-            if dr_start and dr_end:
-                if dr_start > dr_end:
-                    dr_start, dr_end = dr_end, dr_start
-                st.session_state.date_range_start = dr_start
-                st.session_state.date_range_end = dr_end
+        display_start = date_start if date_start is not None else today
+        display_end = date_end if date_end is not None else today
+        if display_start > display_end:
+            display_start, display_end = display_end, display_start
+        date_range_value = st.date_input(
+            "日期區間",
+            value=(display_start, display_end),
+            key="filter_date_range",
+            label_visibility="visible",
+            help="選擇開始與結束日期"
+        )
+        if isinstance(date_range_value, (list, tuple)) and len(date_range_value) == 2:
+            dr_start, dr_end = date_range_value[0], date_range_value[1]
+        else:
+            dr_start = dr_end = date_range_value
+        if dr_start and dr_end:
+            if dr_start > dr_end:
+                dr_start, dr_end = dr_end, dr_start
+            st.session_state.date_range_start = dr_start
+            st.session_state.date_range_end = dr_end
 
     st.markdown('<p class="filter-section-label">進階篩選（會計科目、類型、金額）</p>', unsafe_allow_html=True)
     adv1, adv2, adv3, adv4 = st.columns(4)

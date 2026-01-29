@@ -630,21 +630,6 @@ section[data-testid="stPopover"] {
     border-radius: var(--radius-md, 10px) !important;
     overflow: hidden !important;
 }
-/* 日期快捷鍵：字體不換行、按鈕等寬 */
-section[data-testid="stPopover"] [data-testid="column"] {
-    flex: 1 1 0 !important;
-    min-width: 0 !important;
-}
-section[data-testid="stPopover"] button[kind="header"],
-section[data-testid="stPopover"] [data-testid="stButton"] button {
-    white-space: nowrap !important;
-    min-width: 0 !important;
-}
-section[data-testid="stPopover"] [data-testid="column"]:first-child {
-    background-color: #f0f0f0 !important;
-    padding: 10px 8px !important;
-    border-radius: 8px 0 0 8px !important;
-}
 section[data-testid="stPopover"] [data-testid="stDateInput"] {
     background-color: #ffffff !important;
     min-width: 280px !important;
