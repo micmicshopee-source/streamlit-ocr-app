@@ -1980,6 +1980,13 @@ with st.container():
     delete_button_top = False  # 預設為未點擊
 
     st.markdown('<p class="filter-section-label">篩選條件</p>', unsafe_allow_html=True)
+    today = datetime.now().date()
+    week_start = today - timedelta(days=7)
+    mapping_opt = {"file_name":"檔案名稱","date":"日期","invoice_number":"發票號碼","seller_name":"賣方名稱","seller_ubn":"賣方統編","subtotal":"銷售額","tax":"稅額","total":"總計","category":"類型","subject":"會計科目","status":"狀態","note":"備註","created_at":"建立時間"}
+    df_opt = df_raw.rename(columns=mapping_opt) if not df_raw.empty else pd.DataFrame()
+    subjects = sorted([x for x in df_opt["會計科目"].dropna().astype(str).unique().tolist() if x and str(x).strip() and str(x) != "No"]) if not df_opt.empty and "會計科目" in df_opt.columns else []
+    categories = sorted([x for x in df_opt["類型"].dropna().astype(str).unique().tolist() if x and str(x).strip() and str(x) != "No"]) if not df_opt.empty and "類型" in df_opt.columns else []
+
     filter_row1, filter_row2, filter_row3 = st.columns([2, 1, 1])
     with filter_row1:
         search = st.text_input(
@@ -1989,9 +1996,7 @@ with st.container():
             key="main_search_input"
         )
     with filter_row2:
-        today = datetime.now().date()
-        week_start = today - timedelta(days=7)
-        time_filter_options = ["全部", "本日", "本週"]
+        time_filter_options = ["全部", "本日", "本週", "自訂日期"]
         if "time_filter" not in st.session_state:
             st.session_state.time_filter = "全部"
         current_filter = st.session_state.get("time_filter", "全部")
@@ -2012,6 +2017,16 @@ with st.container():
         elif time_filter == "本週":
             st.session_state.date_range_start = week_start
             st.session_state.date_range_end = today
+        elif time_filter == "自訂日期":
+            d_start = st.session_state.get("date_range_start") or today
+            d_end = st.session_state.get("date_range_end") or today
+            col_d1, col_d2 = st.columns(2)
+            with col_d1:
+                d_start = st.date_input("開始日期", value=d_start, key="filter_date_start")
+            with col_d2:
+                d_end = st.date_input("結束日期", value=d_end, key="filter_date_end")
+            st.session_state.date_range_start = d_start
+            st.session_state.date_range_end = d_end
         else:
             st.session_state.date_range_start = None
             st.session_state.date_range_end = None
@@ -2023,6 +2038,17 @@ with st.container():
             label_visibility="visible",
             key="status_filter_pills"
         )
+
+    with st.expander("進階篩選（會計科目、類型、金額）", expanded=False):
+        adv1, adv2, adv3, adv4 = st.columns(4)
+        with adv1:
+            filter_subjects = st.multiselect("會計科目", options=subjects, default=st.session_state.get("filter_subjects", []), key="filter_subjects")
+        with adv2:
+            filter_categories = st.multiselect("類型", options=categories, default=st.session_state.get("filter_categories", []), key="filter_categories")
+        with adv3:
+            filter_amount_min = st.number_input("最小金額", min_value=0, value=int(st.session_state.get("filter_amount_min", 0)), step=100, key="filter_amount_min")
+        with adv4:
+            filter_amount_max = st.number_input("最大金額", min_value=0, value=int(st.session_state.get("filter_amount_max", 0)), step=100, key="filter_amount_max")
 
     st.markdown('<p class="filter-section-label">操作</p>', unsafe_allow_html=True)
     act_col1, act_col2, act_col3, act_col4 = st.columns(4)
@@ -2399,9 +2425,10 @@ with st.container():
                 # 過濾出狀態為「缺失」的發票（包含 ❌ 缺失、缺漏等）
                 df = df[df["狀態"].astype(str).str.contains("缺失|缺漏|❌", na=False, regex=True)]
         
-        # 3. 日期區間過濾（使用簡單的時間篩選：全部、本日、本週）
+        # 3. 日期區間過濾（全部、本日、本週、自訂日期）
         time_filter = st.session_state.get("time_filter", "全部")
-        
+        if time_filter not in ("全部", "本日", "本週", "自訂日期"):
+            time_filter = "全部"
         if time_filter != "全部" and "日期" in df.columns:
             date_col = "日期"
             date_start = st.session_state.get("date_range_start")
@@ -2433,6 +2460,28 @@ with st.container():
                     except:
                         # 如果日期篩選失敗，不進行篩選（顯示全部）
                         pass
+
+        # 4. 會計科目篩選
+        filter_subjects = st.session_state.get("filter_subjects", [])
+        if filter_subjects and "會計科目" in df.columns:
+            df = df[df["會計科目"].astype(str).isin(filter_subjects)]
+
+        # 5. 類型篩選
+        filter_categories = st.session_state.get("filter_categories", [])
+        if filter_categories and "類型" in df.columns:
+            df = df[df["類型"].astype(str).isin(filter_categories)]
+
+        # 6. 金額範圍篩選
+        if "總計" in df.columns:
+            total_num = pd.to_numeric(df["總計"].astype(str).str.replace(",", ""), errors="coerce").fillna(0)
+            amount_min = st.session_state.get("filter_amount_min", 0) or 0
+            amount_max = st.session_state.get("filter_amount_max", 0) or 0
+            mask = pd.Series(True, index=df.index)
+            if amount_min > 0:
+                mask = mask & (total_num >= amount_min)
+            if amount_max > 0:
+                mask = mask & (total_num <= amount_max)
+            df = df[mask]
     
     # ========== 2. 發票明細與編輯 ==========
     st.subheader("📋 發票明細與編輯")
@@ -2633,6 +2682,10 @@ with st.container():
         # 在刪除功能使用後，移除 _original_index 列（如果存在）
         if '_original_index' in df.columns:
             df = df.drop(columns=['_original_index'])
+        
+        view_df = df.drop(columns=['id'], errors='ignore').copy()
+        with st.expander("僅檢視（唯讀表格）", expanded=False):
+            st.dataframe(view_df, use_container_width=True, height=400)
         
         # 不再顯示標題和選中數量
         if st.session_state.get("show_delete_confirm", False):
