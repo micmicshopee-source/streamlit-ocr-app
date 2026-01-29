@@ -56,6 +56,11 @@
     background-color: var(--md-surface) !important;
 }
 
+/* 橫向列內控件垂直對齊（搜尋與日期等） */
+[data-testid="stHorizontalBlock"] {
+    align-items: flex-end !important;
+}
+
 /* --- 2b. Hero 與區塊分隔 --- */
 .hero-sep {
     height: 0;
