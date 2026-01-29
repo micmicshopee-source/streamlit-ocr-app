@@ -1694,9 +1694,6 @@ with st.container():
         with btn_row3:
             if st.button("🤖 AI 報帳小助理", type="secondary", use_container_width=True):
                 st.session_state.show_assistant_dialog = True
-st.markdown('<div class="hero-sep"></div>', unsafe_allow_html=True)
-st.markdown("---")
-
 # 查詢當前用戶的數據（多用戶版本：使用 user_email）
 user_email = st.session_state.get('user_email', 'default_user')
 df_raw = run_query("SELECT * FROM invoices WHERE user_email = ? ORDER BY id DESC", (user_email,))
@@ -2580,40 +2577,47 @@ with st.container():
         de = date_end if date_end is not None else today
         trigger_label = f"{ds} ~ {de}" if ds != de else str(ds)
     with st.popover("📅 選擇日期範圍 (GMT+8) · " + trigger_label):
-        time_left, time_right = st.columns([1, 4])
-        with time_left:
-            st.caption("快捷鍵")
+        st.caption("快捷鍵")
+        btn_all, btn_today, btn_yest, btn_week, btn_month, btn_quarter = st.columns(6)
+        with btn_all:
             if st.button("全部", key="date_btn_all", use_container_width=True):
                 st.session_state.date_range_start = None
                 st.session_state.date_range_end = None
                 st.session_state["time_filter_last_preset"] = "全部"
                 st.rerun()
+        with btn_today:
             if st.button("今天", key="date_btn_today", use_container_width=True):
                 st.session_state.date_range_start = today
                 st.session_state.date_range_end = today
                 st.session_state["time_filter_last_preset"] = "今天"
                 st.rerun()
+        with btn_yest:
             if st.button("昨天", key="date_btn_yesterday", use_container_width=True):
                 d = today - timedelta(days=1)
                 st.session_state.date_range_start = d
                 st.session_state.date_range_end = d
                 st.session_state["time_filter_last_preset"] = "昨天"
                 st.rerun()
+        with btn_week:
             if st.button("過去一週", key="date_btn_week", use_container_width=True):
                 st.session_state.date_range_start = today - timedelta(days=6)
                 st.session_state.date_range_end = today
                 st.session_state["time_filter_last_preset"] = "過去一週"
                 st.rerun()
+        with btn_month:
             if st.button("過去一個月", key="date_btn_month", use_container_width=True):
                 st.session_state.date_range_start = today - timedelta(days=29)
                 st.session_state.date_range_end = today
                 st.session_state["time_filter_last_preset"] = "過去一個月"
                 st.rerun()
+        with btn_quarter:
             if st.button("近三個月", key="date_btn_quarter", use_container_width=True):
                 st.session_state.date_range_start = today - timedelta(days=89)
                 st.session_state.date_range_end = today
                 st.session_state["time_filter_last_preset"] = "近三個月"
                 st.rerun()
+        st.markdown("")  # 小間距
+        time_right = st.container()
         with time_right:
             # 右側：單一 date_input 區間選擇 value=(start, end)
             display_start = date_start if date_start is not None else today
@@ -2637,16 +2641,16 @@ with st.container():
                 st.session_state.date_range_start = dr_start
                 st.session_state.date_range_end = dr_end
 
-    with st.expander("進階篩選（會計科目、類型、金額）", expanded=True):
-        adv1, adv2, adv3, adv4 = st.columns(4)
-        with adv1:
-            filter_subjects = st.multiselect("會計科目", options=subjects, default=st.session_state.get("filter_subjects", []), key="filter_subjects")
-        with adv2:
-            filter_categories = st.multiselect("類型", options=categories, default=st.session_state.get("filter_categories", []), key="filter_categories")
-        with adv3:
-            filter_amount_min = st.number_input("最小金額", min_value=0, value=int(st.session_state.get("filter_amount_min", 0)), step=100, key="filter_amount_min")
-        with adv4:
-            filter_amount_max = st.number_input("最大金額", min_value=0, value=int(st.session_state.get("filter_amount_max", 0)), step=100, key="filter_amount_max")
+    st.markdown('<p class="filter-section-label">進階篩選（會計科目、類型、金額）</p>', unsafe_allow_html=True)
+    adv1, adv2, adv3, adv4 = st.columns(4)
+    with adv1:
+        filter_subjects = st.multiselect("會計科目", options=subjects, default=st.session_state.get("filter_subjects", []), key="filter_subjects")
+    with adv2:
+        filter_categories = st.multiselect("類型", options=categories, default=st.session_state.get("filter_categories", []), key="filter_categories")
+    with adv3:
+        filter_amount_min = st.number_input("最小金額", min_value=0, value=int(st.session_state.get("filter_amount_min", 0)), step=100, key="filter_amount_min")
+    with adv4:
+        filter_amount_max = st.number_input("最大金額", min_value=0, value=int(st.session_state.get("filter_amount_max", 0)), step=100, key="filter_amount_max")
 
     st.markdown('<p class="filter-section-label">操作</p>', unsafe_allow_html=True)
     act_col1, act_col2, act_col3, act_col4 = st.columns(4)
@@ -3254,10 +3258,6 @@ with st.container():
         # 在刪除功能使用後，移除 _original_index 列（如果存在）
         if '_original_index' in df.columns:
             df = df.drop(columns=['_original_index'])
-        
-        view_df = df.drop(columns=['id'], errors='ignore').copy()
-        with st.expander("僅檢視（唯讀表格）", expanded=False):
-            st.dataframe(view_df, use_container_width=True, height=400)
         
         # 不再顯示標題和選中數量
         if st.session_state.get("show_delete_confirm", False):
