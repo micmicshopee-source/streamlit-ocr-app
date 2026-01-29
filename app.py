@@ -96,18 +96,51 @@ if "company_name" not in st.session_state: st.session_state.company_name = ""
 if "company_ubn" not in st.session_state: st.session_state.company_ubn = ""
 
 # --- 安全讀取 Streamlit Secrets（無 secrets.toml 時不報錯）---
+def _load_secrets_from_app_dir():
+    """從 app.py 所在目錄的 .streamlit/secrets.toml 讀取，供 Streamlit 未載入時備援。"""
+    cache = getattr(_load_secrets_from_app_dir, "_cache", None)
+    if cache is not None:
+        return cache
+    out = {}
+    try:
+        app_dir = os.path.dirname(os.path.abspath(__file__))
+        path = os.path.join(app_dir, ".streamlit", "secrets.toml")
+        if not os.path.isfile(path):
+            _load_secrets_from_app_dir._cache = out
+            return out
+        with open(path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if "=" not in line:
+                    continue
+                k, v = line.split("=", 1)
+                k = k.strip()
+                v = v.strip()
+                if (v.startswith('"') and v.endswith('"')) or (v.startswith("'") and v.endswith("'")):
+                    v = v[1:-1].replace("\\n", "\n").replace("\\t", "\t")
+                out[k] = v
+    except Exception:
+        pass
+    _load_secrets_from_app_dir._cache = out
+    return out
+
 def _safe_secrets_get(key, default=None):
-    """若無 .streamlit/secrets.toml 或缺少 key，返回 default，不拋錯。"""
+    """若無 .streamlit/secrets.toml 或缺少 key，返回 default，不拋錯。先試 st.secrets，再試應用目錄檔案。"""
     try:
         if key in st.secrets:
             return st.secrets[key]
-        return default
     except Exception as e:
         if StreamlitSecretNotFoundError is not None and isinstance(e, StreamlitSecretNotFoundError):
-            return default
-        if type(e).__name__ == "StreamlitSecretNotFoundError":
-            return default
-        raise
+            pass
+        elif type(e).__name__ == "StreamlitSecretNotFoundError":
+            pass
+        else:
+            raise
+    # 備援：從 app 目錄的 .streamlit/secrets.toml 直接讀取（避免因工作目錄不同而讀不到）
+    fallback = _load_secrets_from_app_dir()
+    return fallback.get(key, default)
 
 # --- 1.4. 密碼雜湊與強度（AUTH-01, AUTH-02）---
 # bcrypt 雜湊前綴，用於辨識新格式；舊為純 64 字元 hex（SHA256）
@@ -1575,10 +1608,69 @@ with st.sidebar:
 
 # 依所選小工具顯示主內容
 if st.session_state.current_tool != "invoice":
-    # 其他小工具：顯示「即將推出」佔位頁
-    st.subheader({"contract": "⚖️ AI 合約比對", "customer_service": "📧 AI 客服小秘", "meeting": "📅 AI 會議精華"}.get(st.session_state.current_tool, "小工具"))
+    _tool = st.session_state.current_tool
+    api_key = st.session_state.get("gemini_api_key") or _safe_secrets_get("GEMINI_API_KEY")
+    model = st.session_state.get("gemini_model") or "gemini-2.0-flash"
+    
+    # --- 📅 AI 會議精華（最小可用版）---
+    if _tool == "meeting":
+        st.subheader("📅 AI 會議精華")
+        st.caption("貼上會議逐字稿或紀錄，由 AI 產出結論與待辦事項。")
+        if not api_key:
+            st.warning("請在左側「進階設定」中設定 Gemini API Key 以使用此功能。")
+            st.stop()
+        transcript = st.text_area("會議逐字稿或紀錄", height=200, placeholder="貼上會議內容…", key="meeting_transcript")
+        if st.button("產出會議精華", type="primary", key="meeting_btn"):
+            if not (transcript and transcript.strip()):
+                st.error("請先貼上會議內容。")
+            else:
+                with st.spinner("正在產出精華…"):
+                    sys_inst = "你是會議紀錄助手。根據使用者提供的會議逐字稿或紀錄，用繁體中文產出：1) 會議結論（簡短條列）；2) 待辦事項（誰／做什麼／期限若有的話）。結構清晰、條列式。"
+                    reply, err = call_gemini_chat(
+                        [{"role": "user", "content": transcript.strip()[:15000]}],
+                        api_key, model, system_instruction=sys_inst,
+                    )
+                if err:
+                    st.error(err)
+                else:
+                    st.success("已產出")
+                    st.markdown(reply or "")
+        st.stop()
+    
+    # --- ⚖️ AI 合約比對（最小可用版）---
+    if _tool == "contract":
+        st.subheader("⚖️ AI 合約比對")
+        st.caption("貼上兩份合約或條款內容，由 AI 標示差異與重點。")
+        if not api_key:
+            st.warning("請在左側「進階設定」中設定 Gemini API Key 以使用此功能。")
+            st.stop()
+        c1, c2 = st.columns(2)
+        with c1:
+            text_a = st.text_area("合約／條款 A", height=180, placeholder="貼上第一份內容…", key="contract_a")
+        with c2:
+            text_b = st.text_area("合約／條款 B", height=180, placeholder="貼上第二份內容…", key="contract_b")
+        if st.button("開始比對", type="primary", key="contract_btn"):
+            if not (text_a and text_b and text_a.strip() and text_b.strip()):
+                st.error("請在 A、B 兩欄都貼上內容。")
+            else:
+                with st.spinner("正在比對…"):
+                    sys_inst = "你是合約比對助手。根據使用者提供的兩份合約或條款（以 [A] 與 [B] 標示），用繁體中文產出：1) 主要差異（條列）；2) 需注意的條款或風險提示。簡潔明確。"
+                    content = f"[A]\n{text_a.strip()[:8000]}\n\n[B]\n{text_b.strip()[:8000]}"
+                    reply, err = call_gemini_chat(
+                        [{"role": "user", "content": content}],
+                        api_key, model, system_instruction=sys_inst,
+                    )
+                if err:
+                    st.error(err)
+                else:
+                    st.success("比對結果")
+                    st.markdown(reply or "")
+        st.stop()
+    
+    # --- 📧 AI 客服小秘：維持佔位 ---
+    st.subheader({"customer_service": "📧 AI 客服小秘"}.get(_tool, "小工具"))
     st.info("🛠️ 此工具即將推出，敬請期待。")
-    st.caption("您可先使用左側「📑 發票報帳小秘笈」完成發票整理與報表輸出。")
+    st.caption("您可先使用「📑 發票報帳小秘笈」「📅 AI 會議精華」或「⚖️ AI 合約比對」。")
     st.stop()
 
 # --- 發票報帳小秘笈主內容 ---
