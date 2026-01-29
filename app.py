@@ -2570,55 +2570,50 @@ with st.container():
             key="status_filter_pills"
         )
 
-    # 專業雙月份日期選擇器：左 [1] 快捷按鈕、右 [4] 區間 date_input + CSS 美化
-    month_start = today.replace(day=1)
-    time_preset_options = ["全部", "今天", "昨天", "過去一週", "本月", "近三個月"]
+    # 專業快顯日期選擇器：popover 入口顯示當前區間，彈窗內左按鈕右日曆，連動 metric 與表格
     date_start = st.session_state.get("date_range_start")
     date_end = st.session_state.get("date_range_end")
-    prev_preset = st.session_state.get("time_filter_last_preset", "全部")
-    # 依目前起訖日反推左側應選哪一項（自訂時顯示「全部」）
     if date_start is None and date_end is None:
-        preset_index = 0
-    elif date_start == today and date_end == today:
-        preset_index = 1
-    elif date_start == (today - timedelta(days=1)) and date_end == (today - timedelta(days=1)):
-        preset_index = 2
-    elif date_start == (today - timedelta(days=6)) and date_end == today:
-        preset_index = 3
-    elif date_start == month_start and date_end == today:
-        preset_index = 4
-    elif date_start == (today - timedelta(days=89)) and date_end == today:
-        preset_index = 5
+        trigger_label = "全部時間"
     else:
-        preset_index = 0  # 自訂區間
-
-    with st.expander("📅 選擇日期範圍", expanded=False):
+        ds = date_start if date_start is not None else today
+        de = date_end if date_end is not None else today
+        trigger_label = f"{ds} ~ {de}" if ds != de else str(ds)
+    with st.popover("📅 選擇日期範圍 (GMT+8) · " + trigger_label):
         time_left, time_right = st.columns([1, 4])
         with time_left:
-            preset = st.pills(
-                "時間範圍",
-                options=time_preset_options,
-                selection_mode="single",
-                default=time_preset_options[preset_index],
-                key="time_filter_pills",
-                label_visibility="visible",
-                help="左側選預設，右側日曆可自訂區間"
-            )
-            # 快捷連動：點擊左側時更新 session 日期範圍，右側日曆會同步
-            preset_to_range = {
-                "全部": (None, None),
-                "今天": (today, today),
-                "昨天": (today - timedelta(days=1), today - timedelta(days=1)),
-                "過去一週": (today - timedelta(days=6), today),
-                "本月": (month_start, today),
-                "近三個月": (today - timedelta(days=89), today),
-            }
-            if preset in preset_to_range:
-                s, e = preset_to_range[preset]
-                st.session_state["time_filter_last_preset"] = preset
-                st.session_state.date_range_start = s
-                st.session_state.date_range_end = e
-
+            st.caption("快捷鍵")
+            if st.button("全部", key="date_btn_all", use_container_width=True):
+                st.session_state.date_range_start = None
+                st.session_state.date_range_end = None
+                st.session_state["time_filter_last_preset"] = "全部"
+                st.rerun()
+            if st.button("今天", key="date_btn_today", use_container_width=True):
+                st.session_state.date_range_start = today
+                st.session_state.date_range_end = today
+                st.session_state["time_filter_last_preset"] = "今天"
+                st.rerun()
+            if st.button("昨天", key="date_btn_yesterday", use_container_width=True):
+                d = today - timedelta(days=1)
+                st.session_state.date_range_start = d
+                st.session_state.date_range_end = d
+                st.session_state["time_filter_last_preset"] = "昨天"
+                st.rerun()
+            if st.button("過去一週", key="date_btn_week", use_container_width=True):
+                st.session_state.date_range_start = today - timedelta(days=6)
+                st.session_state.date_range_end = today
+                st.session_state["time_filter_last_preset"] = "過去一週"
+                st.rerun()
+            if st.button("過去一個月", key="date_btn_month", use_container_width=True):
+                st.session_state.date_range_start = today - timedelta(days=29)
+                st.session_state.date_range_end = today
+                st.session_state["time_filter_last_preset"] = "過去一個月"
+                st.rerun()
+            if st.button("近三個月", key="date_btn_quarter", use_container_width=True):
+                st.session_state.date_range_start = today - timedelta(days=89)
+                st.session_state.date_range_end = today
+                st.session_state["time_filter_last_preset"] = "近三個月"
+                st.rerun()
         with time_right:
             # 右側：單一 date_input 區間選擇 value=(start, end)
             display_start = date_start if date_start is not None else today
@@ -2632,17 +2627,15 @@ with st.container():
                 label_visibility="visible",
                 help="選擇開始與結束日期，或由左側快捷設定"
             )
-            # 處理回傳：可能是 tuple(start, end) 或單一 date；左側為「全部」時不讓日曆覆寫
-            if preset != "全部":
-                if isinstance(date_range_value, (list, tuple)) and len(date_range_value) == 2:
-                    dr_start, dr_end = date_range_value[0], date_range_value[1]
-                else:
-                    dr_start = dr_end = date_range_value
-                if dr_start and dr_end:
-                    if dr_start > dr_end:
-                        dr_start, dr_end = dr_end, dr_start
-                    st.session_state.date_range_start = dr_start
-                    st.session_state.date_range_end = dr_end
+            if isinstance(date_range_value, (list, tuple)) and len(date_range_value) == 2:
+                dr_start, dr_end = date_range_value[0], date_range_value[1]
+            else:
+                dr_start = dr_end = date_range_value
+            if dr_start and dr_end:
+                if dr_start > dr_end:
+                    dr_start, dr_end = dr_end, dr_start
+                st.session_state.date_range_start = dr_start
+                st.session_state.date_range_end = dr_end
 
     with st.expander("進階篩選（會計科目、類型、金額）", expanded=True):
         adv1, adv2, adv3, adv4 = st.columns(4)
@@ -3096,8 +3089,6 @@ with st.container():
                 st.write(f"- 狀態: {st.session_state.get('status_filter_pills', '全部')}")
                 st.caption("若需顯示更多資料，可放寬條件或清除篩選。")
                 if st.button("🔄 清除所有篩選條件", use_container_width=True, key="clear_filters_empty"):
-                    if "time_filter_pills" in st.session_state:
-                        st.session_state["time_filter_pills"] = "全部"
                     if "time_filter_last_preset" in st.session_state:
                         st.session_state["time_filter_last_preset"] = "全部"
                     if "date_range_start" in st.session_state:

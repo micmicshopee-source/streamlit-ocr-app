@@ -622,3 +622,23 @@ hr {
 [data-testid="stExpander"] [data-testid="stDateInput"] label {
     font-family: "Microsoft JhengHei", "微軟正黑體", "PingFang TC", "Helvetica Neue", sans-serif !important;
 }
+
+/* --- 快顯日期選擇器 popover：邊框、陰影、左側淺灰、右側白底、日曆橫向擴展 --- */
+section[data-testid="stPopover"] {
+    border: 1px solid #ddd !important;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12) !important;
+    border-radius: var(--radius-md, 10px) !important;
+    overflow: hidden !important;
+}
+section[data-testid="stPopover"] [data-testid="column"]:first-child {
+    background-color: #f0f0f0 !important;
+    padding: 10px 8px !important;
+    border-radius: 8px 0 0 8px !important;
+}
+section[data-testid="stPopover"] [data-testid="stDateInput"] {
+    background-color: #ffffff !important;
+    min-width: 280px !important;
+}
+section[data-testid="stPopover"] [data-testid="stDateInput"] > div {
+    min-width: 280px !important;
+}
