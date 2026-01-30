@@ -374,37 +374,137 @@ p, span, div, label {
     font-variant-numeric: tabular-nums !important;
 }
 
-/* --- 主列表 + 詳情抽屜（Slate #0F172A / #334155）--- */
-.master-list-header-cell {
+/* --- 主列表：單一表格（參考 Latest activity 橫向一列一列）--- */
+.master-list-table-wrap {
+    border: 1px solid var(--border-default) !important;
+    border-radius: var(--radius-md) !important;
+    overflow: hidden !important;
+    background: var(--bg-card) !important;
+    margin-bottom: var(--space-4) !important;
+}
+.master-list-table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    font-size: 0.875rem !important;
+}
+.master-list-th {
+    text-align: left !important;
     font-size: 0.75rem !important;
     font-weight: 600 !important;
     color: var(--text-muted) !important;
     text-transform: uppercase !important;
     letter-spacing: 0.05em !important;
-    padding: var(--space-2) 0 !important;
+    padding: var(--space-3) var(--space-4) !important;
+    background: rgba(255, 255, 255, 0.06) !important;
     border-bottom: 1px solid var(--border-default) !important;
-    margin-bottom: var(--space-1) !important;
 }
-.master-list-header-cell.text-right {
+.master-list-th.col-amount {
     text-align: right !important;
 }
-.master-list-cell {
-    font-size: 0.875rem !important;
-    color: var(--text-secondary) !important;
-    min-height: 32px !important;
-    display: flex !important;
-    align-items: center !important;
-    padding: var(--space-2) 0 !important;
+.master-list-td {
+    padding: var(--space-3) var(--space-4) !important;
     border-bottom: 1px solid var(--border-subtle) !important;
+    color: var(--text-secondary) !important;
+    vertical-align: middle !important;
+    height: 48px !important;
+    box-sizing: border-box !important;
 }
-.master-list-header .master-list-cell {
+.master-list-tr:last-child .master-list-td {
     border-bottom: none !important;
 }
-.master-list-cell.col-amount,
+.master-list-tr:hover {
+    background: var(--border-subtle) !important;
+}
+.master-list-td.col-amount,
 .amount-monospace {
     font-family: var(--font-mono) !important;
     text-align: right !important;
     font-variant-numeric: tabular-nums !important;
+}
+.detail-link {
+    color: var(--accent) !important;
+    text-decoration: none !important;
+    font-size: 0.8125rem !important;
+    font-weight: 500 !important;
+    transition: color var(--transition) !important;
+}
+.detail-link:hover {
+    color: var(--accent-hover) !important;
+    text-decoration: underline !important;
+}
+
+/* --- 詳情左：分段式排版（參考 Invoice Detail 左欄）--- */
+.detail-section { margin-bottom: var(--space-4) !important; }
+.detail-title {
+    font-size: 1.25rem !important;
+    font-weight: 600 !important;
+    color: var(--text-primary) !important;
+    margin: 0 0 var(--space-2) 0 !important;
+}
+.detail-meta {
+    font-size: 0.875rem !important;
+    color: var(--text-muted) !important;
+    margin: 0 0 var(--space-3) 0 !important;
+}
+.detail-divider {
+    border: none !important;
+    border-top: 1px solid var(--border-default) !important;
+    margin: var(--space-4) 0 !important;
+}
+.detail-from-to {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    gap: var(--space-5) !important;
+    margin-bottom: var(--space-2) !important;
+}
+.detail-block { margin-bottom: var(--space-2) !important; }
+.detail-label {
+    display: block !important;
+    font-size: 0.875rem !important;
+    font-weight: 600 !important;
+    color: var(--text-primary) !important;
+    margin-bottom: var(--space-1) !important;
+}
+.detail-address {
+    font-size: 0.875rem !important;
+    color: var(--text-secondary) !important;
+    margin: 0 !important;
+    line-height: 1.5 !important;
+}
+.detail-summary-table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    font-size: 0.875rem !important;
+}
+.detail-summary-table td {
+    padding: var(--space-2) 0 !important;
+    border: none !important;
+    color: var(--text-secondary) !important;
+}
+.detail-total-row {
+    font-weight: 600 !important;
+    font-size: 1rem !important;
+    color: var(--text-primary) !important;
+    padding-top: var(--space-2) !important;
+    border-top: 1px solid var(--border-subtle) !important;
+}
+
+/* --- 詳情右：卡片 + Activity 時間軸 --- */
+.detail-card {
+    background: var(--bg-card) !important;
+    border: 1px solid var(--border-default) !important;
+    border-radius: var(--radius-md) !important;
+    padding: var(--space-4) !important;
+    margin-bottom: var(--space-4) !important;
+}
+.detail-card-label {
+    display: block !important;
+    font-size: 0.6875rem !important;
+    font-weight: 500 !important;
+    color: var(--text-muted) !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.05em !important;
+    margin-bottom: var(--space-2) !important;
 }
 .detail-amount {
     font-size: 1.75rem !important;
@@ -420,7 +520,6 @@ p, span, div, label {
     border-radius: 9999px !important;
     font-size: 0.8125rem !important;
     font-weight: 500 !important;
-    margin-bottom: var(--space-4) !important;
 }
 .detail-status-ok {
     background: rgba(34, 197, 94, 0.2) !important;
@@ -429,6 +528,40 @@ p, span, div, label {
 .detail-status-warn {
     background: rgba(234, 67, 53, 0.2) !important;
     color: #f87171 !important;
+}
+.detail-timeline {
+    list-style: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    padding-left: var(--space-4) !important;
+    border-left: 2px solid var(--border-default) !important;
+}
+.detail-timeline-item {
+    position: relative !important;
+    padding-bottom: var(--space-4) !important;
+    display: grid !important;
+    grid-template-columns: 1fr auto !important;
+    gap: var(--space-2) !important;
+    align-items: start !important;
+}
+.detail-timeline-item:last-child { padding-bottom: 0 !important; }
+.detail-timeline-dot {
+    position: absolute !important;
+    left: calc(-1 * var(--space-4) - 5px) !important;
+    top: 4px !important;
+    width: 8px !important;
+    height: 8px !important;
+    border-radius: 50% !important;
+    background: var(--border-default) !important;
+}
+.detail-timeline-text {
+    font-size: 0.875rem !important;
+    color: var(--text-primary) !important;
+}
+.detail-timeline-time {
+    font-size: 0.75rem !important;
+    color: var(--text-muted) !important;
+    white-space: nowrap !important;
 }
 .detail-amount-table {
     width: 100% !important;

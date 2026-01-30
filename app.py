@@ -3798,9 +3798,8 @@ with st.container():
                 # 調用對話框函數
                 delete_confirm_dialog()
 
-            # ========== 主列表 + 詳情抽屜 ==========
+            # ========== 主列表 + 詳情抽屜（參考 Tailwind detail / Latest activity 排版）==========
             MASTER_PAGE_SIZE = 25
-            detail_idx = st.session_state.get("detail_invoice_index")
             list_page = st.session_state.get("invoice_master_page", 0)
             total_pages = max(1, (len(df) + MASTER_PAGE_SIZE - 1) // MASTER_PAGE_SIZE)
             if list_page >= total_pages:
@@ -3808,52 +3807,69 @@ with st.container():
                 st.session_state.invoice_master_page = list_page
             df_page = df.iloc[list_page * MASTER_PAGE_SIZE : (list_page + 1) * MASTER_PAGE_SIZE]
 
-            # 主列表表頭（與資料列同比例 columns，橫向一整行）
-            h0, h1, h2, h3, h4, h5 = st.columns([1, 1.2, 2, 1, 1.2, 0.8])
-            with h0:
-                st.markdown('<div class="master-list-header-cell">日期</div>', unsafe_allow_html=True)
-            with h1:
-                st.markdown('<div class="master-list-header-cell">號碼</div>', unsafe_allow_html=True)
-            with h2:
-                st.markdown('<div class="master-list-header-cell">廠商</div>', unsafe_allow_html=True)
-            with h3:
-                st.markdown('<div class="master-list-header-cell text-right">總計</div>', unsafe_allow_html=True)
-            with h4:
-                st.markdown('<div class="master-list-header-cell">狀態</div>', unsafe_allow_html=True)
-            with h5:
-                st.markdown('<div class="master-list-header-cell">操作</div>', unsafe_allow_html=True)
+            # 由網址 ?detail=i 打開詳情（點「查看詳情」連結時）；關閉後本輪不依 URL 再打開
+            if st.session_state.get("detail_close_requested"):
+                st.session_state.detail_invoice_index = None
+                st.session_state._skip_query_detail = True
+                del st.session_state.detail_close_requested
+            try:
+                if not st.session_state.get("_skip_query_detail"):
+                    q = st.query_params.get("detail")
+                    if q is not None and str(q).isdigit():
+                        i = int(q)
+                        if 0 <= i < len(df_page):
+                            st.session_state.detail_invoice_index = df_page.index[i]
+                if "_skip_query_detail" in st.session_state:
+                    del st.session_state._skip_query_detail
+            except Exception:
+                pass
+            detail_idx = st.session_state.get("detail_invoice_index")
 
-            # 主列表每一行 + 查看詳情按鈕
-            for (idx, row) in df_page.iterrows():
-                date_val = str(row.get("日期", ""))[:10] if pd.notna(row.get("日期")) else ""
-                num_val = str(row.get("發票號碼", "")) if pd.notna(row.get("發票號碼")) else ""
-                vendor_val = str(row.get("賣方名稱", ""))[:40] if pd.notna(row.get("賣方名稱")) else ""
+            # 主列表：單一表格（表頭 + 橫向一列一列，嚴格控制高度與分隔線）
+            def _esc(s):
+                if s is None or (isinstance(s, float) and pd.isna(s)):
+                    return ""
+                return str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")[:50]
+
+            rows_html = []
+            for row_i, (idx, row) in enumerate(df_page.iterrows()):
+                date_val = _esc(row.get("日期"))
+                if len(date_val) > 10:
+                    date_val = date_val[:10]
+                num_val = _esc(row.get("發票號碼"))
+                vendor_val = _esc(row.get("賣方名稱", ""))[:40]
                 total_val = row.get("總計", 0)
                 try:
                     total_fmt = f"{float(total_val):,.0f}" if pd.notna(total_val) and str(total_val) not in ("", "No") else "0"
                 except Exception:
-                    total_fmt = str(total_val) if pd.notna(total_val) else "0"
-                status_val = str(row.get("狀態", "")) if pd.notna(row.get("狀態")) else ""
-
-                c0, c1, c2, c3, c4, c5 = st.columns([1, 1.2, 2, 1, 1.2, 0.8])
-                with c0:
-                    st.markdown(f'<div class="master-list-cell col-date">{date_val}</div>', unsafe_allow_html=True)
-                with c1:
-                    st.markdown(f'<div class="master-list-cell col-num">{num_val}</div>', unsafe_allow_html=True)
-                with c2:
-                    st.markdown(f'<div class="master-list-cell col-vendor">{vendor_val}</div>', unsafe_allow_html=True)
-                with c3:
-                    st.markdown(f'<div class="master-list-cell col-amount amount-monospace">{total_fmt}</div>', unsafe_allow_html=True)
-                with c4:
-                    st.markdown(f'<div class="master-list-cell col-status">{status_val}</div>', unsafe_allow_html=True)
-                with c5:
-                    if st.button("查看詳情", key=f"detail_btn_{idx}", type="secondary"):
-                        st.session_state.detail_invoice_index = idx
-                        st.rerun()
+                    total_fmt = "0"
+                status_val = _esc(row.get("狀態", ""))
+                link = f'<a href="?detail={row_i}" class="detail-link">查看詳情</a>'
+                rows_html.append(
+                    f'<tr class="master-list-tr">'
+                    f'<td class="master-list-td col-date">{date_val}</td>'
+                    f'<td class="master-list-td col-num">{num_val}</td>'
+                    f'<td class="master-list-td col-vendor">{vendor_val}</td>'
+                    f'<td class="master-list-td col-amount amount-monospace">{total_fmt}</td>'
+                    f'<td class="master-list-td col-status">{status_val}</td>'
+                    f'<td class="master-list-td col-action">{link}</td></tr>'
+                )
+            table_html = (
+                '<div class="master-list-table-wrap">'
+                '<table class="master-list-table">'
+                '<thead><tr>'
+                '<th class="master-list-th col-date">日期</th>'
+                '<th class="master-list-th col-num">號碼</th>'
+                '<th class="master-list-th col-vendor">廠商</th>'
+                '<th class="master-list-th col-amount">總計</th>'
+                '<th class="master-list-th col-status">狀態</th>'
+                '<th class="master-list-th col-action">操作</th>'
+                '</tr></thead><tbody>' + "".join(rows_html) + "</tbody></table></div>"
+            )
+            st.markdown(table_html, unsafe_allow_html=True)
 
             # 分頁
             if total_pages > 1:
-                st.markdown("---")
                 pag_c1, pag_c2, pag_c3 = st.columns([1, 2, 1])
                 with pag_c1:
                     if list_page > 0 and st.button("← 上一頁", key="master_prev"):
@@ -3865,24 +3881,32 @@ with st.container():
                         st.rerun()
                 st.caption(f"第 {list_page + 1} / {total_pages} 頁，共 {len(df)} 筆")
 
-            # 詳情抽屜：columns [2, 1]，左=明細+買賣方，右=總額+狀態+Activity
+            # 詳情抽屜：左 = 分段式明細（發票 / 賣方買方 / 項目與金額 / 小計），右 = 卡片（金額 + Activity 時間軸）
             if detail_idx is not None and detail_idx in df.index:
                 row = df.loc[detail_idx]
                 col_left, col_right = st.columns([2, 1])
                 with col_left:
-                    st.markdown("---")
-                    st.markdown("#### 發票明細")
-                    # 賣方 / 買方
+                    # 左側：分段式排版（參考 Invoice Detail 左欄）
+                    date_str = str(row.get("日期", "") or "")[:10]
+                    num_str = str(row.get("發票號碼", "") or "")
+                    st.markdown('<div class="detail-section"><h3 class="detail-title">發票</h3>', unsafe_allow_html=True)
+                    st.markdown(f'<p class="detail-meta">開立日期 {date_str}　發票號碼 {num_str}</p>', unsafe_allow_html=True)
+                    st.markdown('<hr class="detail-divider">', unsafe_allow_html=True)
+
                     seller_name = str(row.get("賣方名稱", "") or "")
                     seller_ubn = str(row.get("賣方統編", "") or "")
-                    st.markdown("**賣方**")
-                    st.caption(f"{seller_name} {seller_ubn}".strip() or "—")
                     buyer_name = st.session_state.get("company_name", "") or ""
                     buyer_ubn = st.session_state.get("company_ubn", "") or ""
-                    st.markdown("**買方**")
-                    st.caption(f"{buyer_name} {buyer_ubn}".strip() or "（請在「設定公司資訊」填寫）")
-                    # 明細表（品項 / 金額）
-                    st.markdown("**項目與金額**")
+                    st.markdown(
+                        '<div class="detail-from-to">'
+                        '<div class="detail-block"><span class="detail-label">賣方</span><p class="detail-address">' + _esc(seller_name) + " " + _esc(seller_ubn) + '</p></div>'
+                        '<div class="detail-block"><span class="detail-label">買方</span><p class="detail-address">' + (_esc(buyer_name) + " " + _esc(buyer_ubn)).strip() or "（請在「設定公司資訊」填寫）" + '</p></div>'
+                        '</div>',
+                        unsafe_allow_html=True,
+                    )
+                    st.markdown('<hr class="detail-divider">', unsafe_allow_html=True)
+
+                    st.markdown('<p class="detail-label">項目與金額</p>', unsafe_allow_html=True)
                     detail_rows = []
                     for label, key in [("銷售額", "銷售額"), ("稅額", "稅額"), ("未稅金額", "未稅金額"), ("總計", "總計")]:
                         if key in row and pd.notna(row[key]) and str(row[key]).strip() not in ("", "No"):
@@ -3892,41 +3916,69 @@ with st.container():
                             except Exception:
                                 detail_rows.append((label, str(row[key])))
                     if not detail_rows and "總計" in row:
-                        total_raw = row["總計"]
                         try:
-                            detail_rows.append(("總計", f"{float(total_raw):,.0f}"))
+                            detail_rows.append(("總計", f"{float(row['總計']):,.0f}"))
                         except Exception:
-                            detail_rows.append(("總計", str(total_raw)))
+                            detail_rows.append(("總計", str(row["總計"])))
                     if detail_rows:
-                        table_html = '<table class="detail-amount-table"><thead><tr><th>項目</th><th class="text-right">金額</th></tr></thead><tbody>'
+                        tbl = '<table class="detail-amount-table"><thead><tr><th>項目</th><th class="text-right">金額</th></tr></thead><tbody>'
                         for lbl, amt in detail_rows:
-                            table_html += f'<tr><td>{lbl}</td><td class="text-right amount-monospace">{amt}</td></tr>'
-                        table_html += "</tbody></table>"
-                        st.markdown(table_html, unsafe_allow_html=True)
-                    else:
-                        st.caption("—")
-                with col_right:
-                    st.markdown("---")
-                    total_val = row.get("總計", 0)
+                            tbl += f'<tr><td>{lbl}</td><td class="text-right amount-monospace">{amt}</td></tr>'
+                        tbl += "</tbody></table>"
+                        st.markdown(tbl, unsafe_allow_html=True)
                     try:
-                        total_num = float(total_val) if pd.notna(total_val) else 0
+                        total_num = float(row.get("總計", 0) or 0)
                     except Exception:
                         total_num = 0
-                    st.markdown(f'<div class="detail-amount">${total_num:,.0f}</div>', unsafe_allow_html=True)
+                    tax_val = row.get("稅額") or row.get("稅額 (5%)")
+                    try:
+                        tax_num = float(tax_val) if pd.notna(tax_val) else 0
+                    except Exception:
+                        tax_num = 0
+                    sub_num = total_num - tax_num
+                    st.markdown('<hr class="detail-divider">', unsafe_allow_html=True)
+                    st.markdown(
+                        '<table class="detail-summary-table">'
+                        f'<tr><td>小計</td><td class="text-right amount-monospace">{sub_num:,.0f}</td></tr>'
+                        f'<tr><td>稅額</td><td class="text-right amount-monospace">{tax_num:,.0f}</td></tr>'
+                        f'<tr><td class="detail-total-row">總計</td><td class="text-right amount-monospace detail-total-row">{total_num:,.0f}</td></tr>'
+                        '</table>',
+                        unsafe_allow_html=True,
+                    )
+
+                with col_right:
+                    # 右側：卡片式（金額卡 + Activity 時間軸卡）
+                    try:
+                        total_num = float(row.get("總計", 0) or 0)
+                    except Exception:
+                        total_num = 0
                     status_val = str(row.get("狀態", ""))
-                    status_class = "detail-status-ok" if "正常" in status_val or "✅" in status_val else "detail-status-warn"
-                    st.markdown(f'<span class="detail-status {status_class}">{status_val}</span>', unsafe_allow_html=True)
-                    st.markdown("**Activity**")
+                    status_class = "detail-status-ok" if ("正常" in status_val or "✅" in status_val) else "detail-status-warn"
+                    st.markdown(
+                        '<div class="detail-card">'
+                        '<span class="detail-card-label">金額</span>'
+                        f'<div class="detail-amount">${total_num:,.0f}</div>'
+                        f'<span class="detail-status {status_class}">{status_val}</span>'
+                        '</div>',
+                        unsafe_allow_html=True,
+                    )
                     created = str(row.get("建立時間", "")) if pd.notna(row.get("建立時間")) else ""
                     modified = str(row.get("修改時間", "")) if pd.notna(row.get("修改時間")) else ""
+                    items = []
                     if created:
-                        st.caption(f"建立 {created[:19]}" if len(created) > 19 else f"建立 {created}")
+                        items.append(("建立發票", created[:19] if len(created) > 19 else created))
                     if modified:
-                        st.caption(f"修改 {modified[:19]}" if len(modified) > 19 else f"修改 {modified}")
-                    if not created and not modified:
-                        st.caption("—")
+                        items.append(("最後修改", modified[:19] if len(modified) > 19 else modified))
+                    if not items:
+                        items.append(("—", ""))
+                    tl = '<div class="detail-card"><p class="detail-card-label">Activity</p><ul class="detail-timeline">'
+                    for desc, ts in items:
+                        tl += f'<li class="detail-timeline-item"><span class="detail-timeline-dot"></span><span class="detail-timeline-text">{_esc(desc)}</span><span class="detail-timeline-time">{_esc(ts)}</span></li>'
+                    tl += "</ul></div>"
+                    st.markdown(tl, unsafe_allow_html=True)
                     if st.button("關閉詳情", key="close_detail"):
                         st.session_state.detail_invoice_index = None
+                        st.session_state.detail_close_requested = True
                         st.rerun()
 
             st.markdown("---")
