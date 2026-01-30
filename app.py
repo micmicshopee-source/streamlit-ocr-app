@@ -1882,8 +1882,12 @@ if st.session_state.show_upload_dialog:
     upload_dialog()
     st.session_state.show_upload_dialog = False
 
-# 發票模組：尚無資料時顯示空狀態與操作引導
-if df_raw.empty:
+# 若有待處理的 OCR 或導入，不要停在空狀態，讓下方 OCR/導入區塊執行
+_has_pending_ocr = st.session_state.get("start_ocr") and ("upload_file_data" in st.session_state or "upload_files" in st.session_state)
+_has_pending_import = st.session_state.get("start_import") and "import_file" in st.session_state
+
+# 發票模組：尚無資料時顯示空狀態與操作引導（有待處理 OCR/導入時不停止，讓辨識先跑）
+if df_raw.empty and not _has_pending_ocr and not _has_pending_import:
     st.markdown("---")
     st.subheader("📋 發票明細")
     st.info("尚無發票資料，請先上傳或導入。完成後即可在此查看總覽、編輯與導出報表。")
