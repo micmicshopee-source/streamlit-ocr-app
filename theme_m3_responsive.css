@@ -34,13 +34,14 @@
     color: var(--md-on-surface) !important;
 }
 
-/* --- 側邊欄：Google AI Studio 風格 --- */
+/* --- 側邊欄：依參考圖文字大小與排版 --- */
 [data-testid="stSidebar"] {
     background-color: #1e1e1e !important;
     overflow-y: auto !important;
     overflow-x: hidden !important;
     border-right: 1px solid rgba(255,255,255,0.06) !important;
     color: #b0b0b0 !important;
+    font-family: "Microsoft JhengHei", "Segoe UI", sans-serif !important;
 }
 
 [data-testid="stSidebar"] .stMarkdown,
@@ -49,57 +50,72 @@
     color: #b0b0b0 !important;
 }
 
+/* 頂部標題：參考圖大字、白字 */
 [data-testid="stSidebar"] h1 {
     color: #fff !important;
-    font-size: 1.25rem !important;
-    margin-bottom: 0.25rem !important;
+    font-size: 1.35rem !important;
+    font-weight: 600 !important;
+    margin-bottom: 0.5rem !important;
+    letter-spacing: -0.01em !important;
 }
 
 .sidebar-nav-link {
     color: #b0b0b0 !important;
     text-decoration: none !important;
-    font-size: 0.9rem !important;
+    font-size: 0.875rem !important;
 }
 
-.sidebar-spacer-sm { height: 12px; min-height: 12px; }
-.sidebar-spacer { flex: 1 1 auto; min-height: 24px; }
+.sidebar-spacer-sm { height: 16px; min-height: 16px; }
+.sidebar-spacer { flex: 1 1 auto; min-height: 32px; }
 
-/* 選中項：灰色圓角背景 + 白字 */
+/* 主導航：參考圖字級與間距，單項約 10px 上下 padding */
+[data-testid="stSidebar"] [data-testid="stRadio"] label,
+[data-testid="stSidebar"] .stRadio label {
+    color: #b0b0b0 !important;
+    font-size: 0.9375rem !important;
+    padding: 10px 12px !important;
+    margin-bottom: 2px !important;
+    border-radius: 8px !important;
+}
+
+/* 選中項：深灰圓角背景 + 白字 */
 [data-testid="stSidebar"] [data-testid="stRadio"] label[data-checked="true"],
 [data-testid="stSidebar"] .stRadio > label[data-checked="true"] {
     background: rgba(255,255,255,0.1) !important;
     border-radius: 8px !important;
     color: #fff !important;
-    padding: 8px 12px !important;
+    padding: 10px 12px !important;
 }
 
-[data-testid="stSidebar"] [data-testid="stRadio"] label,
-[data-testid="stSidebar"] .stRadio label {
-    color: #b0b0b0 !important;
+[data-testid="stSidebar"] .stRadio > div {
+    gap: 2px !important;
 }
 
-/* 選中項備用選擇器（Streamlit 版本差異） */
-[data-testid="stSidebar"] .stRadio div[role="radiogroup"] > label:first-child,
-[data-testid="stSidebar"] .stRadio > div > label {
-    border-radius: 8px !important;
-    padding: 8px 12px !important;
-}
-
+/* 底部區：設定 / 下雪 / 按鈕 — 參考圖字級 */
 [data-testid="stSidebar"] .stExpander label,
 [data-testid="stSidebar"] [data-testid="stExpander"] label {
     color: #b0b0b0 !important;
+    font-size: 0.875rem !important;
 }
 
 [data-testid="stSidebar"] [data-testid="stToggle"] label {
     color: #b0b0b0 !important;
+    font-size: 0.875rem !important;
 }
 
-/* 側邊欄按鈕：無粗框、科技感 */
+[data-testid="stSidebar"] .stExpander,
+[data-testid="stSidebar"] [data-testid="stVerticalBlock"] > div {
+    margin-bottom: 6px !important;
+}
+
+/* 側邊欄按鈕：無框、參考圖字級 */
 [data-testid="stSidebar"] button {
     border: none !important;
     box-shadow: none !important;
     background: transparent !important;
     color: #b0b0b0 !important;
+    font-size: 0.875rem !important;
+    padding: 8px 12px !important;
 }
 
 [data-testid="stSidebar"] button:hover {
@@ -107,32 +123,39 @@
     color: #fff !important;
 }
 
-/* 用戶頭像：圓形橘底白字 */
+/* 底部分隔線上留白（與主導航拉開） */
+[data-testid="stSidebar"] hr {
+    margin: 16px 0 12px 0 !important;
+}
+
+/* 用戶頭像：參考圖圓形橘底白字、略小 */
 .sidebar-avatar {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 28px;
-    height: 28px;
+    width: 26px;
+    height: 26px;
     border-radius: 50%;
     background: #f57c00;
     color: #fff;
     font-weight: 600;
-    font-size: 0.9rem;
-    margin-right: 8px;
+    font-size: 0.8125rem;
+    margin-right: 10px;
     vertical-align: middle;
+    flex-shrink: 0;
 }
 
 .sidebar-user-row {
     display: flex;
     align-items: center;
-    margin-bottom: 8px;
+    margin-bottom: 10px;
     color: #b0b0b0;
-    font-size: 0.85rem;
+    font-size: 0.8125rem;
 }
 
 .sidebar-email {
     color: #b0b0b0;
+    font-size: 0.8125rem;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;

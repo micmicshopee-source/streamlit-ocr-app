@@ -1555,14 +1555,12 @@ if not st.session_state.authenticated or not st.session_state.user_email:
     login_page()
     st.stop()  # 未登入時停止執行後續代碼
 
-# 已登入，顯示側邊欄：Google AI Studio 風格（頂部品牌 + 選單 + 底部固定）
+# 已登入，顯示側邊欄（僅現有功能 + 參考圖 UI 設計）
 with st.sidebar:
-    # --- 頂部品牌區 ---
     st.markdown("# 🚀 AI 智慧管家")
-    st.markdown('<p class="sidebar-nav-link">‹ 儀表板</p>', unsafe_allow_html=True)
     st.markdown("<div class='sidebar-spacer-sm'></div>", unsafe_allow_html=True)
     
-    # --- 選單群組化（簡約文字導航）---
+    # 小工具選單
     tool_options = [
         ("invoice", "📑 發票報帳小秘笈"),
         ("contract", "⚖️ AI 合約比對"),
