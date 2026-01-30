@@ -94,9 +94,10 @@ if "show_delete_confirm" not in st.session_state: st.session_state.show_delete_c
 # 公司資訊（用於 PDF 導出）
 if "company_name" not in st.session_state: st.session_state.company_name = ""
 if "company_ubn" not in st.session_state: st.session_state.company_ubn = ""
-# 主列表 + 詳情抽屜：選中發票 index、列表分頁
+# 主列表 + 詳情抽屜：選中發票 index、列表分頁；詳情彈出框用 id
 if "detail_invoice_index" not in st.session_state: st.session_state.detail_invoice_index = None
 if "invoice_master_page" not in st.session_state: st.session_state.invoice_master_page = 0
+if "detail_invoice_id" not in st.session_state: st.session_state.detail_invoice_id = None
 
 # --- 安全讀取 Streamlit Secrets（無 secrets.toml 時不報錯）---
 def _load_secrets_from_app_dir():
@@ -1423,6 +1424,34 @@ def get_ungrouped_invoices(user_email=None):
         return df
     except Exception:
         return pd.DataFrame()
+
+
+def get_invoice_by_id(invoice_id, user_email=None):
+    """依 id 取得單筆發票（用於詳情彈出框）。回傳 dict（中文欄位名）或 None。"""
+    user_email = user_email or st.session_state.get('user_email', 'default_user')
+    mapping = {"file_name":"檔案名稱","date":"日期","invoice_number":"發票號碼","seller_name":"賣方名稱","seller_ubn":"賣方統編",
+               "subtotal":"銷售額","tax":"稅額","total":"總計","category":"類型","subject":"會計科目","status":"狀態","note":"備註","created_at":"建立時間","modified_at":"修改時間"}
+    if st.session_state.use_memory_mode:
+        for inv in st.session_state.local_invoices:
+            if inv.get('id') == invoice_id and inv.get('user_email', inv.get('user_id', '')) == user_email:
+                d = dict(inv)
+                return {mapping.get(k, k): v for k, v in d.items()}
+        return None
+    try:
+        path = get_db_path()
+        is_uri = path.startswith("file:") and "mode=memory" in path
+        conn = sqlite3.connect(path, timeout=30, uri=is_uri, check_same_thread=False)
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM invoices WHERE id = ? AND user_email = ?", (invoice_id, user_email))
+        row = cursor.fetchone()
+        cols = [d[0] for d in cursor.description]
+        conn.close()
+        if not row:
+            return None
+        d = dict(zip(cols, row))
+        return {mapping.get(k, k): v for k, v in d.items()}
+    except Exception:
+        return None
 
 
 def validate_ubn(val):
@@ -3307,9 +3336,117 @@ with st.container():
     
     # ========== 2. 發票明細與編輯 ==========
     st.subheader("📋 發票明細與編輯")
-    st.caption("按組可檢視批次摘要與導出全部；按單張可篩選、勾選刪除與直接編輯欄位。")
+    st.caption("發票以**組**展示，展開組可看每條數據；點「查看詳情」以**彈出框**查看。按單張可篩選、勾選刪除與直接編輯。")
     _user_email = st.session_state.get('user_email', 'default_user')
-    
+
+    # 詳情彈出框：點「查看詳情」時以 dialog 顯示（按組／按單張共用）
+    if st.session_state.get("detail_invoice_id") is not None:
+        _inv_id = st.session_state.detail_invoice_id
+        _row = get_invoice_by_id(_inv_id, _user_email)
+        @st.dialog("發票詳情")
+        def _invoice_detail_dialog():
+            if not _row:
+                st.warning("找不到該筆發票")
+                if st.button("關閉", key="detail_dialog_close"):
+                    st.session_state.detail_invoice_id = None
+                    st.rerun()
+                return
+            def _esc(s):
+                if s is None or (isinstance(s, float) and pd.isna(s)):
+                    return ""
+                return str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")[:50]
+            col_left, col_right = st.columns([2, 1])
+            with col_left:
+                date_str = str(_row.get("日期", "") or "")[:10]
+                num_str = str(_row.get("發票號碼", "") or "")
+                st.markdown('<div class="detail-section"><h3 class="detail-title">發票</h3>', unsafe_allow_html=True)
+                st.markdown(f'<p class="detail-meta">開立日期 {date_str}　發票號碼 {num_str}</p>', unsafe_allow_html=True)
+                st.markdown('<hr class="detail-divider">', unsafe_allow_html=True)
+                seller_name = str(_row.get("賣方名稱", "") or "")
+                seller_ubn = str(_row.get("賣方統編", "") or "")
+                buyer_name = st.session_state.get("company_name", "") or ""
+                buyer_ubn = st.session_state.get("company_ubn", "") or ""
+                st.markdown(
+                    '<div class="detail-from-to">'
+                    '<div class="detail-block"><span class="detail-label">賣方</span><p class="detail-address">' + _esc(seller_name) + " " + _esc(seller_ubn) + '</p></div>'
+                    '<div class="detail-block"><span class="detail-label">買方</span><p class="detail-address">' + (_esc(buyer_name) + " " + _esc(buyer_ubn)).strip() or "（請在「設定公司資訊」填寫）" + '</p></div>'
+                    '</div>',
+                    unsafe_allow_html=True,
+                )
+                st.markdown('<hr class="detail-divider">', unsafe_allow_html=True)
+                st.markdown('<p class="detail-label">項目與金額</p>', unsafe_allow_html=True)
+                detail_rows = []
+                for label, key in [("銷售額", "銷售額"), ("稅額", "稅額"), ("未稅金額", "未稅金額"), ("總計", "總計")]:
+                    v = _row.get(key)
+                    if v is not None and str(v).strip() not in ("", "No"):
+                        try:
+                            detail_rows.append((label, f"{float(v):,.0f}"))
+                        except Exception:
+                            detail_rows.append((label, str(v)))
+                if not detail_rows and _row.get("總計") is not None:
+                    try:
+                        detail_rows.append(("總計", f"{float(_row['總計']):,.0f}"))
+                    except Exception:
+                        detail_rows.append(("總計", str(_row.get("總計", ""))))
+                if detail_rows:
+                    tbl = '<table class="detail-amount-table"><thead><tr><th>項目</th><th class="text-right">金額</th></tr></thead><tbody>'
+                    for lbl, amt in detail_rows:
+                        tbl += f'<tr><td>{lbl}</td><td class="text-right amount-monospace">{amt}</td></tr>'
+                    tbl += "</tbody></table>"
+                    st.markdown(tbl, unsafe_allow_html=True)
+                try:
+                    total_num = float(_row.get("總計", 0) or 0)
+                except Exception:
+                    total_num = 0
+                tax_val = _row.get("稅額") or _row.get("稅額 (5%)")
+                try:
+                    tax_num = float(tax_val) if tax_val is not None and pd.notna(tax_val) else 0
+                except Exception:
+                    tax_num = 0
+                sub_num = total_num - tax_num
+                st.markdown('<hr class="detail-divider">', unsafe_allow_html=True)
+                st.markdown(
+                    '<table class="detail-summary-table">'
+                    f'<tr><td>小計</td><td class="text-right amount-monospace">{sub_num:,.0f}</td></tr>'
+                    f'<tr><td>稅額</td><td class="text-right amount-monospace">{tax_num:,.0f}</td></tr>'
+                    f'<tr><td class="detail-total-row">總計</td><td class="text-right amount-monospace detail-total-row">{total_num:,.0f}</td></tr>'
+                    '</table>',
+                    unsafe_allow_html=True,
+                )
+            with col_right:
+                try:
+                    total_num = float(_row.get("總計", 0) or 0)
+                except Exception:
+                    total_num = 0
+                status_val = str(_row.get("狀態", ""))
+                status_class = "detail-status-ok" if ("正常" in status_val or "✅" in status_val) else "detail-status-warn"
+                st.markdown(
+                    '<div class="detail-card">'
+                    '<span class="detail-card-label">金額</span>'
+                    f'<div class="detail-amount">${total_num:,.0f}</div>'
+                    f'<span class="detail-status {status_class}">{status_val}</span>'
+                    '</div>',
+                    unsafe_allow_html=True,
+                )
+                created = str(_row.get("建立時間", "")) if _row.get("建立時間") is not None else ""
+                modified = str(_row.get("修改時間", "")) if _row.get("修改時間") is not None else ""
+                items = []
+                if created:
+                    items.append(("建立發票", created[:19] if len(created) > 19 else created))
+                if modified:
+                    items.append(("最後修改", modified[:19] if len(modified) > 19 else modified))
+                if not items:
+                    items.append(("—", ""))
+                tl = '<div class="detail-card"><p class="detail-card-label">Activity</p><ul class="detail-timeline">'
+                for desc, ts in items:
+                    tl += f'<li class="detail-timeline-item"><span class="detail-timeline-dot"></span><span class="detail-timeline-text">{_esc(desc)}</span><span class="detail-timeline-time">{_esc(ts)}</span></li>'
+                tl += "</ul></div>"
+                st.markdown(tl, unsafe_allow_html=True)
+                if st.button("關閉", key="detail_dialog_close"):
+                    st.session_state.detail_invoice_id = None
+                    st.rerun()
+        _invoice_detail_dialog()
+
     if is_group_view:
         # ---------- 按組：組摘要表 + 可展開明細 + 刪除確認 dialog ----------
         batches_list = get_batches_for_user(_user_email)
@@ -3351,8 +3488,34 @@ with st.container():
                         st.markdown('<div class="batch-summary-item"><span class="batch-summary-label">稅額</span><span class="batch-summary-value">${:,.0f}</span></div>'.format(tax_sum), unsafe_allow_html=True)
                     with sum_col3:
                         st.markdown('<div class="batch-summary-item"><span class="batch-summary-label">張數</span><span class="batch-summary-value">{}</span></div>'.format(len(inv_df)), unsafe_allow_html=True)
-                    disp_cols = [c for c in ['日期', '發票號碼', '賣方名稱', '總計', '狀態'] if c in inv_df.columns]
-                    st.dataframe(inv_df[disp_cols] if disp_cols else inv_df, use_container_width=True, hide_index=True)
+                    # 組內每條：日期、號碼、廠商、總計、狀態、查看詳情（點擊彈出框）
+                    st.markdown('<div class="master-list-table-wrap"><table class="master-list-table"><thead><tr><th class="master-list-th col-date">日期</th><th class="master-list-th col-num">號碼</th><th class="master-list-th col-vendor">廠商</th><th class="master-list-th col-amount">總計</th><th class="master-list-th col-status">狀態</th><th class="master-list-th col-action">操作</th></tr></thead></table></div>', unsafe_allow_html=True)
+                    for _, inv_row in inv_df.iterrows():
+                        inv_id = inv_row.get('id')
+                        date_val = str(inv_row.get('日期', ''))[:10] if pd.notna(inv_row.get('日期')) else ''
+                        num_val = str(inv_row.get('發票號碼', '')) if pd.notna(inv_row.get('發票號碼')) else ''
+                        vendor_val = str(inv_row.get('賣方名稱', ''))[:40] if pd.notna(inv_row.get('賣方名稱')) else ''
+                        try:
+                            total_fmt = f"{float(inv_row.get('總計', 0)):,.0f}" if pd.notna(inv_row.get('總計')) else '0'
+                        except Exception:
+                            total_fmt = '0'
+                        status_val = str(inv_row.get('狀態', '')) if pd.notna(inv_row.get('狀態')) else ''
+                        status_dot = 'status-ok' if ('正常' in status_val or '✅' in status_val) else 'status-warn'
+                        sc0, sc1, sc2, sc3, sc4, sc5 = st.columns([1, 1.2, 2, 1, 1.2, 0.8])
+                        with sc0:
+                            st.markdown(f'<div class="master-list-row-cell">{date_val}</div>', unsafe_allow_html=True)
+                        with sc1:
+                            st.markdown(f'<div class="master-list-row-cell">{num_val}</div>', unsafe_allow_html=True)
+                        with sc2:
+                            st.markdown(f'<div class="master-list-row-cell">{vendor_val}</div>', unsafe_allow_html=True)
+                        with sc3:
+                            st.markdown(f'<div class="master-list-row-cell amount-monospace">{total_fmt}</div>', unsafe_allow_html=True)
+                        with sc4:
+                            st.markdown(f'<div class="master-list-row-cell master-list-status"><span class="status-dot {status_dot}"></span><span class="status-text">{status_val}</span></div>', unsafe_allow_html=True)
+                        with sc5:
+                            if st.button("查看詳情", key=f"detail_inv_{inv_id}", type="secondary"):
+                                st.session_state.detail_invoice_id = inv_id
+                                st.rerun()
                     if st.button("🗑️ 刪除此組", key=f"del_batch_{b['id']}", type="secondary"):
                         st.session_state["pending_delete_batch_id"] = b["id"]
                         st.rerun()
@@ -3367,8 +3530,33 @@ with st.container():
                         st.markdown('<div class="batch-summary-item"><span class="batch-summary-label">稅額</span><span class="batch-summary-value">${:,.0f}</span></div>'.format(tax_ug), unsafe_allow_html=True)
                     with sum_col3:
                         st.markdown('<div class="batch-summary-item"><span class="batch-summary-label">張數</span><span class="batch-summary-value">{}</span></div>'.format(len(ungrouped_df)), unsafe_allow_html=True)
-                    disp_cols = [c for c in ['日期', '發票號碼', '賣方名稱', '總計', '狀態'] if c in ungrouped_df.columns]
-                    st.dataframe(ungrouped_df[disp_cols] if disp_cols else ungrouped_df, use_container_width=True, hide_index=True)
+                    st.markdown('<div class="master-list-table-wrap"><table class="master-list-table"><thead><tr><th class="master-list-th col-date">日期</th><th class="master-list-th col-num">號碼</th><th class="master-list-th col-vendor">廠商</th><th class="master-list-th col-amount">總計</th><th class="master-list-th col-status">狀態</th><th class="master-list-th col-action">操作</th></tr></thead></table></div>', unsafe_allow_html=True)
+                    for _, inv_row in ungrouped_df.iterrows():
+                        inv_id = inv_row.get('id')
+                        date_val = str(inv_row.get('日期', ''))[:10] if pd.notna(inv_row.get('日期')) else ''
+                        num_val = str(inv_row.get('發票號碼', '')) if pd.notna(inv_row.get('發票號碼')) else ''
+                        vendor_val = str(inv_row.get('賣方名稱', ''))[:40] if pd.notna(inv_row.get('賣方名稱')) else ''
+                        try:
+                            total_fmt = f"{float(inv_row.get('總計', 0)):,.0f}" if pd.notna(inv_row.get('總計')) else '0'
+                        except Exception:
+                            total_fmt = '0'
+                        status_val = str(inv_row.get('狀態', '')) if pd.notna(inv_row.get('狀態')) else ''
+                        status_dot = 'status-ok' if ('正常' in status_val or '✅' in status_val) else 'status-warn'
+                        uc0, uc1, uc2, uc3, uc4, uc5 = st.columns([1, 1.2, 2, 1, 1.2, 0.8])
+                        with uc0:
+                            st.markdown(f'<div class="master-list-row-cell">{date_val}</div>', unsafe_allow_html=True)
+                        with uc1:
+                            st.markdown(f'<div class="master-list-row-cell">{num_val}</div>', unsafe_allow_html=True)
+                        with uc2:
+                            st.markdown(f'<div class="master-list-row-cell">{vendor_val}</div>', unsafe_allow_html=True)
+                        with uc3:
+                            st.markdown(f'<div class="master-list-row-cell amount-monospace">{total_fmt}</div>', unsafe_allow_html=True)
+                        with uc4:
+                            st.markdown(f'<div class="master-list-row-cell master-list-status"><span class="status-dot {status_dot}"></span><span class="status-text">{status_val}</span></div>', unsafe_allow_html=True)
+                        with uc5:
+                            if st.button("查看詳情", key=f"detail_ug_{inv_id}", type="secondary"):
+                                st.session_state.detail_invoice_id = inv_id
+                                st.rerun()
             # 刪除 Batch 確認：使用 dialog，避免置頂混淆
             if st.session_state.get("pending_delete_batch_id") is not None:
                 _bid = st.session_state["pending_delete_batch_id"]
