@@ -2854,6 +2854,9 @@ with st.container():
             tax_series = pd.to_numeric(df["稅額"], errors="coerce").fillna(0) if has_tax else pd.Series(0, index=df.index)
             df["總計"] = (subtotal_series + tax_series).round(0)
     
+    # 保留未篩選的完整數據（按組視圖與導出全部用）
+    df_base = df.copy() if not df.empty else df
+    
     # ========== 篩選與操作（Material 3：篩選條件 / 操作 分區）==========
     if "preview_selected_count" not in st.session_state:
         st.session_state.preview_selected_count = 0
@@ -2918,12 +2921,73 @@ with st.container():
     with adv4:
         filter_amount_max = st.number_input("最大金額", min_value=0, value=int(st.session_state.get("filter_amount_max", 0)), step=100, key="filter_amount_max")
 
-    if not (search and search.strip()) and not df_raw.empty:
-        st.caption("💡 **按組顯示**：導出 CSV／Excel／PDF 為全部發票資料；輸入搜尋關鍵字可切換為按單張表格。")
-    st.markdown('<p class="filter-section-label">操作</p>', unsafe_allow_html=True)
+    # 視圖切換：按組 / 按單張（篩選與操作僅在按單張時生效）
+    view_mode = st.radio("視圖", ["📦 按組", "📋 按單張"], horizontal=True, key="invoice_view_mode", label_visibility="collapsed")
+    is_group_view = view_mode == "📦 按組"
+    if not is_group_view and not df_base.empty:
+        df = df_base.copy()
+        df_before_search = len(df)
+        search_term = (search or "").strip().lower()
+        if search_term:
+            def _safe_search_val(val):
+                if val is None: return ""
+                try:
+                    if pd.isna(val): return ""
+                except Exception:
+                    pass
+                return str(val).strip()
+            def match_row(row):
+                parts = [_safe_search_val(row.get(col, "")) for col in ["發票號碼", "賣方名稱", "檔案名稱"]]
+                return search_term in " ".join(parts).lower()
+            df = df[df.apply(match_row, axis=1)]
+            if len(df) == 0 and df_before_search > 0:
+                st.info(f"💡 搜尋「{search}」沒有匹配到任何數據（已過濾 {df_before_search} 筆）")
+        status_filter = st.session_state.get("status_filter_pills", "全部")
+        if status_filter != "全部" and "狀態" in df.columns:
+            if status_filter == "正常":
+                df = df[df["狀態"].astype(str).str.contains("正常", na=False)]
+            elif status_filter == "缺失":
+                df = df[df["狀態"].astype(str).str.contains("缺失|缺漏|❌", na=False, regex=True)]
+        date_start = st.session_state.get("date_range_start")
+        date_end = st.session_state.get("date_range_end")
+        if date_start is not None and date_end is not None and "日期" in df.columns:
+            date_col = "日期"
+            try:
+                df[date_col] = pd.to_datetime(df[date_col], errors='coerce', format='%Y/%m/%d')
+                valid_dates_mask = df[date_col].notna()
+                date_filter_mask = (df[date_col].dt.date >= date_start) & (df[date_col].dt.date <= date_end)
+                df = df[valid_dates_mask & date_filter_mask]
+            except Exception:
+                try:
+                    def date_in_range(date_str):
+                        try:
+                            date_val = datetime.strptime(str(date_str), "%Y/%m/%d").date()
+                            return date_start <= date_val <= date_end
+                        except Exception:
+                            return False
+                    df = df[df[date_col].astype(str).apply(date_in_range)]
+                except Exception:
+                    pass
+        filter_subjects = st.session_state.get("filter_subjects", [])
+        if filter_subjects and "會計科目" in df.columns:
+            df = df[df["會計科目"].astype(str).isin(filter_subjects)]
+        filter_categories = st.session_state.get("filter_categories", [])
+        if filter_categories and "類型" in df.columns:
+            df = df[df["類型"].astype(str).isin(filter_categories)]
+        if "總計" in df.columns:
+            total_num = pd.to_numeric(df["總計"].astype(str).str.replace(",", ""), errors="coerce").fillna(0)
+            amount_min = st.session_state.get("filter_amount_min", 0) or 0
+            amount_max = st.session_state.get("filter_amount_max", 0) or 0
+            mask = pd.Series(True, index=df.index)
+            if amount_min > 0: mask = mask & (total_num >= amount_min)
+            if amount_max > 0: mask = mask & (total_num <= amount_max)
+            df = df[mask]
+
+    st.caption("💡 篩選與操作在 **按單張** 視圖生效；**按組** 可導出全部。")
+    st.markdown('<p class="filter-section-label">操作（按單張視圖）</p>', unsafe_allow_html=True)
     act_col1, act_col2, act_col3, act_col4 = st.columns(4)
     with act_col1:
-        if not df.empty:
+        if not df.empty and not is_group_view:
             preview_selected = st.session_state.get("preview_selected_count", 0)
             if preview_selected > 0:
                 delete_button_top = st.button(
@@ -2943,7 +3007,7 @@ with st.container():
                 )
                 delete_button_top = False
     with act_col2:
-        if not df.empty:
+        if not df.empty and not is_group_view:
             csv_data = df.to_csv(index=False).encode('utf-8-sig')
             st.download_button(
                 "📥 CSV",
@@ -2954,7 +3018,7 @@ with st.container():
                 help="導出當前篩選後的數據為 CSV"
             )
     with act_col3:
-        if not df.empty:
+        if not df.empty and not is_group_view:
             def generate_excel():
                 # 使用統計結果（如有），否則使用當前表格數據
                 export_df = df_stats.copy() if 'df_stats' in locals() and not df_stats.empty else df.copy()
@@ -3054,7 +3118,7 @@ with st.container():
                 help="導出符合國稅局欄位結構的 Excel 報表"
             )
     with act_col4:
-        if not df.empty:
+        if not df.empty and not is_group_view:
             if PDF_AVAILABLE:
                 def generate_pdf():
                     pdf = FPDF()
@@ -3274,93 +3338,34 @@ with st.container():
         # 保存原始索引到df中（在篩選前），用於刪除功能
         df['_original_index'] = df.index
     
-    # 手動在記憶體中篩選（避免 SQL 過於複雜出錯）
-    # 記錄篩選前的數據行數（用於調試）
-    df_before_filter = len(df) if not df.empty else 0
-    
-    if not df.empty:
-        # 1. 搜尋發票號碼 / 賣方名稱 / 檔名（主搜尋框）；審計：None/NaN 正規化為空字串，避免 "no" 匹配到 str(None)
-        # 說明書 § 三：有搜尋關鍵字時才套用篩選（按單張模式）；無關鍵字時為按組顯示，不篩選 df
-        if search:
-            df_before_search = len(df)
-            search_term = search.strip().lower()
-            def _safe_search_val(val):
-                if val is None:
-                    return ""
-                try:
-                    if pd.isna(val):
-                        return ""
-                except Exception:
-                    pass
-                return str(val).strip()
-            def match_row(row):
-                parts = [_safe_search_val(row.get(col, "")) for col in ["發票號碼", "賣方名稱", "檔案名稱"]]
-                text = " ".join(parts).lower()
-                return search_term in text
-            df = df[df.apply(match_row, axis=1)]
-            if len(df) == 0 and df_before_search > 0:
-                st.info(f"💡 搜尋「{search}」沒有匹配到任何數據（已過濾 {df_before_search} 筆）")
-            
-            # 2–6. 僅在按單張模式套用其餘篩選
-            status_filter = st.session_state.get("status_filter_pills", "全部")
-            if status_filter != "全部" and "狀態" in df.columns:
-                if status_filter == "正常":
-                    df = df[df["狀態"].astype(str).str.contains("正常", na=False)]
-                elif status_filter == "缺失":
-                    df = df[df["狀態"].astype(str).str.contains("缺失|缺漏|❌", na=False, regex=True)]
-            
-            date_start = st.session_state.get("date_range_start")
-            date_end = st.session_state.get("date_range_end")
-            if date_start is not None and date_end is not None and "日期" in df.columns:
-                date_col = "日期"
-                try:
-                    df[date_col] = pd.to_datetime(df[date_col], errors='coerce', format='%Y/%m/%d')
-                    valid_dates_mask = df[date_col].notna()
-                    date_filter_mask = (df[date_col].dt.date >= date_start) & (df[date_col].dt.date <= date_end)
-                    df = df[valid_dates_mask & date_filter_mask]
-                except Exception:
-                    try:
-                        def date_in_range(date_str):
-                            try:
-                                date_val = datetime.strptime(str(date_str), "%Y/%m/%d").date()
-                                return date_start <= date_val <= date_end
-                            except Exception:
-                                return False
-                        df = df[df[date_col].astype(str).apply(date_in_range)]
-                    except Exception:
-                        pass
-
-            filter_subjects = st.session_state.get("filter_subjects", [])
-            if filter_subjects and "會計科目" in df.columns:
-                df = df[df["會計科目"].astype(str).isin(filter_subjects)]
-
-            filter_categories = st.session_state.get("filter_categories", [])
-            if filter_categories and "類型" in df.columns:
-                df = df[df["類型"].astype(str).isin(filter_categories)]
-
-            if "總計" in df.columns:
-                total_num = pd.to_numeric(df["總計"].astype(str).str.replace(",", ""), errors="coerce").fillna(0)
-                amount_min = st.session_state.get("filter_amount_min", 0) or 0
-                amount_max = st.session_state.get("filter_amount_max", 0) or 0
-                mask = pd.Series(True, index=df.index)
-                if amount_min > 0:
-                    mask = mask & (total_num >= amount_min)
-                if amount_max > 0:
-                    mask = mask & (total_num <= amount_max)
-                df = df[mask]
-    
-    # ========== 2. 發票明細與編輯（說明書 § 三：搜尋為空 → 按組顯示；有字 → 按單張顯示）==========
+    # ========== 2. 發票明細與編輯 ==========
     st.subheader("📋 發票明細與編輯")
     _user_email = st.session_state.get('user_email', 'default_user')
     
-    # 搜尋為空 → 按組顯示（一組一卡、可展開）
-    if not (search and search.strip()):
-        st.caption("💡 **按組顯示**：輸入搜尋關鍵字可切換為「按單張」表格。")
+    if is_group_view:
+        # ---------- 按組：組摘要表 + 可展開明細 + 刪除確認 dialog ----------
         batches_list = get_batches_for_user(_user_email)
         ungrouped_df = get_ungrouped_invoices(_user_email)
         if not batches_list and ungrouped_df.empty:
             st.info("📊 目前沒有數據，請上傳發票圖片或導入 CSV 數據。")
         else:
+            # 組摘要表（一覽：建立時間、來源、張數、合計、稅額）
+            summary_rows = []
+            for b in batches_list:
+                inv_df = get_invoices_by_batch(b['id'], _user_email)
+                if inv_df.empty:
+                    continue
+                created = (b.get('created_at') or '')[:16].replace('T', ' ')
+                src = 'OCR' if (b.get('source') or '') == 'ocr' else '導入'
+                total_sum = pd.to_numeric(inv_df.get('總計', 0), errors='coerce').fillna(0).sum()
+                tax_sum = pd.to_numeric(inv_df.get('稅額', 0), errors='coerce').fillna(0).sum() if '稅額' in inv_df.columns else 0
+                summary_rows.append({"建立時間": created, "來源": src, "張數": len(inv_df), "合計": f"${total_sum:,.0f}", "稅額": f"${tax_sum:,.0f}"})
+            if not ungrouped_df.empty:
+                total_ug = pd.to_numeric(ungrouped_df.get('總計', 0), errors='coerce').fillna(0).sum()
+                tax_ug = pd.to_numeric(ungrouped_df.get('稅額', 0), errors='coerce').fillna(0).sum() if '稅額' in ungrouped_df.columns else 0
+                summary_rows.append({"建立時間": "未分組", "來源": "-", "張數": len(ungrouped_df), "合計": f"${total_ug:,.0f}", "稅額": f"${tax_ug:,.0f}"})
+            if summary_rows:
+                st.dataframe(pd.DataFrame(summary_rows), use_container_width=True, hide_index=True)
             for b in batches_list:
                 inv_df = get_invoices_by_batch(b['id'], _user_email)
                 if inv_df.empty:
@@ -3376,26 +3381,6 @@ with st.container():
                     if st.button("🗑️ 刪除此組", key=f"del_batch_{b['id']}", type="secondary"):
                         st.session_state["pending_delete_batch_id"] = b["id"]
                         st.rerun()
-            
-            # 刪除 Batch 確認對話（置頂顯示，避免 expander 收合後看不到）
-            if st.session_state.get("pending_delete_batch_id") is not None:
-                bid = st.session_state["pending_delete_batch_id"]
-                st.warning("確定要刪除此組及其內所有發票？此操作不可恢復。")
-                c1, c2 = st.columns(2)
-                with c1:
-                    if st.button("✅ 確認刪除此組", key="confirm_del_batch_btn"):
-                        ok, cnt, err = delete_batch_cascade(bid, _user_email)
-                        st.session_state.pop("pending_delete_batch_id", None)
-                        if ok:
-                            st.success(f"已刪除此組，共 {cnt} 張發票。")
-                            time.sleep(0.5)
-                            st.rerun()
-                        else:
-                            st.error(f"刪除失敗：{err}")
-                with c2:
-                    if st.button("❌ 取消", key="cancel_del_batch_btn"):
-                        st.session_state.pop("pending_delete_batch_id", None)
-                        st.rerun()
             if not ungrouped_df.empty:
                 total_ug = pd.to_numeric(ungrouped_df.get('總計', 0), errors='coerce').fillna(0).sum()
                 tax_ug = pd.to_numeric(ungrouped_df.get('稅額', 0), errors='coerce').fillna(0).sum() if '稅額' in ungrouped_df.columns else 0
@@ -3403,6 +3388,37 @@ with st.container():
                     st.caption(f"本組總計：${total_ug:,.0f} 元　稅額：${tax_ug:,.0f} 元")
                     disp_cols = [c for c in ['日期', '發票號碼', '賣方名稱', '總計', '狀態'] if c in ungrouped_df.columns]
                     st.dataframe(ungrouped_df[disp_cols] if disp_cols else ungrouped_df, use_container_width=True, hide_index=True)
+            # 刪除 Batch 確認：使用 dialog，避免置頂混淆
+            if st.session_state.get("pending_delete_batch_id") is not None:
+                _bid = st.session_state["pending_delete_batch_id"]
+                @st.dialog("⚠️ 確認刪除此組")
+                def _delete_batch_dialog():
+                    st.warning("確定要刪除此組及其內所有發票？此操作不可恢復。")
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        if st.button("✅ 確認刪除此組", type="primary", use_container_width=True):
+                            ok, cnt, err = delete_batch_cascade(_bid, _user_email)
+                            st.session_state.pop("pending_delete_batch_id", None)
+                            if ok:
+                                st.success(f"已刪除此組，共 {cnt} 張發票。")
+                                time.sleep(0.5)
+                                st.rerun()
+                            else:
+                                st.error(f"刪除失敗：{err}")
+                    with c2:
+                        if st.button("❌ 取消", use_container_width=True):
+                            st.session_state.pop("pending_delete_batch_id", None)
+                            st.rerun()
+                _delete_batch_dialog()
+        # 按組時導出全部（使用 df_base）
+        if not df_base.empty:
+            st.markdown("**導出全部**")
+            ec1, ec2, ec3 = st.columns(3)
+            with ec1:
+                csv_data = df_base.to_csv(index=False).encode('utf-8-sig')
+                st.download_button("📥 CSV（全部）", csv_data, "invoice_all.csv", mime="text/csv", use_container_width=True, key="export_csv_group")
+            with ec2:
+                st.caption("Excel／PDF 請在「按單張」視圖使用當前篩選導出。")
     else:
         # 搜尋有字 → 按單張顯示（現有表格 + 篩選）
         if df.empty:
