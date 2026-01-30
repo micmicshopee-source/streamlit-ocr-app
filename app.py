@@ -1840,9 +1840,13 @@ def upload_dialog():
             st.caption(f"已選擇 {len(files)} 個文件")
         
         if files and st.button("開始辨識 🚀", type="primary", use_container_width=True):
-            st.session_state.upload_files = files
-            st.session_state.start_ocr = True
-            st.rerun()
+            # 先將檔案內容讀入 session state，避免 rerun 後 Streamlit 清除上傳檔案導致無法辨識
+            try:
+                st.session_state.upload_file_data = [(f.name, f.getvalue()) for f in files]
+                st.session_state.start_ocr = True
+                st.rerun()
+            except Exception as e:
+                st.error(f"讀取檔案失敗，請重試: {e}")
     else:
         # 數據導入區域
         st.markdown("### 📥 CSV／Excel 數據導入")
@@ -1973,11 +1977,16 @@ def assistant_dialog():
 if st.session_state.show_assistant_dialog:
     assistant_dialog()
 
-# 處理 OCR 識別（從 dialog 觸發）
-if st.session_state.get("start_ocr", False) and "upload_files" in st.session_state:
-    files = st.session_state.upload_files
+# 處理 OCR 識別（從 dialog 觸發；使用 upload_file_data 避免 rerun 後上傳檔案被清除）
+if st.session_state.get("start_ocr", False) and ("upload_file_data" in st.session_state or "upload_files" in st.session_state):
+    # 優先使用已讀入的 (檔名, bytes)，否則沿用舊的 upload_files（UploadedFile 在 rerun 後可能失效）
+    if "upload_file_data" in st.session_state:
+        file_data_list = st.session_state.upload_file_data
+        del st.session_state.upload_file_data
+    else:
+        file_data_list = [(f.name, f.getvalue()) for f in st.session_state.upload_files]
+        del st.session_state.upload_files
     st.session_state.start_ocr = False
-    del st.session_state.upload_files
     
     if not api_key:
         st.error("無法辨識：未設定 API 金鑰。請在 **Manage app → Settings → Secrets** 中設定 `GEMINI_API_KEY` 後重新上傳。")
@@ -1991,18 +2000,19 @@ if st.session_state.get("start_ocr", False) and "upload_files" in st.session_sta
         
         with st.status("AI 正在分析發票中...", expanded=True) as status:
             prog = st.progress(0)
+            n_files = len(file_data_list)
             
-            for idx, f in enumerate(files):
-                status.update(label=f"正在處理: {f.name} ({idx+1}/{len(files)})", state="running")
+            for idx, (fname, fbytes) in enumerate(file_data_list):
+                status.update(label=f"正在處理: {fname} ({idx+1}/{n_files})", state="running")
                 try:
-                    image_obj = Image.open(f)
+                    image_obj = Image.open(io.BytesIO(fbytes))
                 except Exception as img_err:
-                    st.error(f"❌ {f.name} 無法讀取圖片: {img_err}")
-                    st.session_state.ocr_report.append(f"{f.name}: 無法讀取圖片 {img_err}")
+                    st.error(f"❌ {fname} 無法讀取圖片: {img_err}")
+                    st.session_state.ocr_report.append(f"{fname}: 無法讀取圖片 {img_err}")
                     fail_count += 1
-                    prog.progress((idx+1)/len(files))
+                    prog.progress((idx+1)/n_files)
                     continue
-                data, err = process_ocr(image_obj, f.name, model, api_key)
+                data, err = process_ocr(image_obj, fname, model, api_key)
                 
                 if data:
                     def clean_n(v):
@@ -2040,7 +2050,7 @@ if st.session_state.get("start_ocr", False) and "upload_files" in st.session_sta
                     else:
                         # 發票號碼為"No"的情況：使用日期+賣方名稱+檔案名稱檢查（避免同一檔案重複上傳）
                         seller_name = safe_value(data.get("seller_name"), "")
-                        file_name = f.name
+                        file_name = fname
                         
                         if st.session_state.use_memory_mode:
                             # 內存模式檢查
@@ -2062,12 +2072,12 @@ if st.session_state.get("start_ocr", False) and "upload_files" in st.session_sta
                                 dup_id = result.iloc[0]['id']
                     
                     if is_duplicate:
-                        st.warning(f"⚠️ {f.name}: 疑似重複發票（發票號碼: {invoice_no}, 日期: {invoice_date}，記錄ID: {dup_id}），已跳過")
+                        st.warning(f"⚠️ {fname}: 疑似重複發票（發票號碼: {invoice_no}, 日期: {invoice_date}，記錄ID: {dup_id}），已跳過")
                         fail_count += 1
                         continue
                     
                     # 保存圖片（多用戶版本：使用 user_email）
-                    image_path = save_invoice_image(image_obj.copy(), f.name, user_email)
+                    image_path = save_invoice_image(image_obj.copy(), fname, user_email)
                     
                     # 根據存儲模式選擇不同的保存方式
                     if st.session_state.use_memory_mode:
@@ -2159,11 +2169,11 @@ if st.session_state.get("start_ocr", False) and "upload_files" in st.session_sta
                             st.session_state.data_saved = True
                     success_count += 1
                 else:
-                    st.error(f"❌ {f.name} 失敗: {err}")
-                    st.session_state.ocr_report.append(f"{f.name}: {err}")
+                    st.error(f"❌ {fname} 失敗: {err}")
+                    st.session_state.ocr_report.append(f"{fname}: {err}")
                     fail_count += 1
                 
-                prog.progress((idx+1)/len(files))
+                prog.progress((idx+1)/n_files)
             
             status.update(label=f"處理完成! 成功: {success_count}, 失敗: {fail_count}", state="complete", expanded=True)
         
