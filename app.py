@@ -422,9 +422,9 @@ def login_page():
         st.session_state.login_csrf_token = _secrets_module.token_hex(16)
     col1, col2, col3 = st.columns([1, 2.5, 1])
     with col2:
-        st.markdown('<div style="text-align: center; padding: 2rem;">', unsafe_allow_html=True)
+        st.markdown('<div class="login-container">', unsafe_allow_html=True)
         st.title("🔐 上班族小工具")
-        st.markdown('<p style="text-align: center; color: #B0B0B0;">登入以使用發票報帳與更多辦公小幫手</p>', unsafe_allow_html=True)
+        st.markdown('<p>登入以使用發票報帳與更多辦公小幫手</p>', unsafe_allow_html=True)
         st.caption("您的資料僅供您本人使用，我們不會分享給第三方。")
         
         # 第三方登入：若使用者已點選某一個，顯示對應授權連結
@@ -448,7 +448,7 @@ def login_page():
                     st.rerun()
             else:
                 st.info(f"請點擊以下連結以 **{label}** 帳號登入：")
-                st.markdown(f'<a href="{url}" target="_self" style="display:inline-block; padding:0.5rem 1rem; background:#4285F4; color:white; border-radius:6px; text-decoration:none;">以 {label} 登入</a>', unsafe_allow_html=True)
+                st.markdown(f'<a href="{url}" target="_self" class="login-oauth-link">以 {label} 登入</a>', unsafe_allow_html=True)
                 st.caption("開啟後將導向授權頁，完成後會回到本頁。")
                 if st.button("← 返回登入頁", key="oauth_cancel"):
                     st.session_state.pop("oauth_pending", None)

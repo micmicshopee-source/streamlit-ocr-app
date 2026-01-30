@@ -45,7 +45,14 @@
     font-family: var(--font-sans) !important;
 }
 
-/* 主工作區：寬度限制 + 置中（不讓表格無止盡撐滿，左右留白）*/
+/* Streamlit 頂部裝飾與視圖容器：移除多餘空白 */
+section[data-testid="stAppViewContainer"],
+div[data-testid="stAppViewContainer"] {
+    padding-top: 0 !important;
+    background-color: var(--bg-base) !important;
+}
+
+/* 主工作區：4px/8px 網格，寬度限制 + 置中 */
 .main .block-container,
 .block-container {
     padding-top: var(--space-5) !important;
@@ -119,8 +126,11 @@
     color: var(--text-primary) !important;
 }
 
+/* 選中態：data-checked 或 :has(input:checked) */
 [data-testid="stSidebar"] [data-testid="stRadio"] label[data-checked="true"],
-[data-testid="stSidebar"] .stRadio > label[data-checked="true"] {
+[data-testid="stSidebar"] .stRadio > label[data-checked="true"],
+[data-testid="stSidebar"] [data-testid="stRadio"] label:has(input:checked),
+[data-testid="stSidebar"] .stRadio label:has(input:checked) {
     background: rgba(255, 255, 255, 0.1) !important;
     border-radius: var(--radius-md) !important;
     color: var(--text-primary) !important;
@@ -191,6 +201,18 @@
 
 [data-testid="stSidebar"] [data-testid="stToggle"] label {
     color: var(--text-secondary) !important;
+}
+
+/* 側邊欄 selectbox / caption：視覺階層 */
+[data-testid="stSidebar"] [data-testid="stSelectbox"] label,
+[data-testid="stSidebar"] .stSelectbox label {
+    color: var(--text-secondary) !important;
+    font-size: 0.875rem !important;
+}
+[data-testid="stSidebar"] [data-testid="stCaptionContainer"],
+[data-testid="stSidebar"] .stCaptionContainer {
+    color: var(--text-muted) !important;
+    font-size: 0.8125rem !important;
 }
 
 /* --- 4. 全域按鈕：移除預設外框與陰影 --- */
@@ -374,11 +396,71 @@ p, span, div, label {
     margin-bottom: var(--space-2) !important;
 }
 
-/* --- 10. 響應式：側邊欄與主區比例 --- */
+/* --- 10. 主區 Radio（視圖切換等）：Hover 過渡 --- */
+.main [data-testid="stRadio"] label,
+.main .stRadio label {
+    color: var(--text-secondary) !important;
+    padding: var(--space-2) var(--space-3) !important;
+    border-radius: var(--radius-md) !important;
+    transition: background-color var(--transition), color var(--transition) !important;
+}
+.main [data-testid="stRadio"] label:hover,
+.main .stRadio label:hover {
+    background: var(--border-subtle) !important;
+    color: var(--text-primary) !important;
+}
+.main [data-testid="stRadio"] label:has(input:checked),
+.main .stRadio label:has(input:checked) {
+    background: rgba(255, 255, 255, 0.1) !important;
+    color: var(--text-primary) !important;
+}
+
+/* --- 11. 登入頁容器（與 app.py 的 .login-container 搭配）--- */
+.login-container {
+    text-align: center !important;
+    padding: var(--space-6) var(--space-5) !important;
+    max-width: 420px !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+}
+.login-container p,
+.login-container .stMarkdown p {
+    color: var(--text-secondary) !important;
+}
+.login-container a {
+    color: var(--accent) !important;
+    text-decoration: none !important;
+    transition: color var(--transition) !important;
+}
+.login-container a:hover {
+    color: var(--accent-hover) !important;
+}
+
+.login-oauth-link {
+    display: inline-block !important;
+    padding: var(--space-2) var(--space-4) !important;
+    background: var(--accent) !important;
+    color: var(--text-primary) !important;
+    border-radius: var(--radius-md) !important;
+    text-decoration: none !important;
+    font-weight: 500 !important;
+    transition: background-color var(--transition), color var(--transition) !important;
+}
+.login-oauth-link:hover {
+    background: var(--accent-hover) !important;
+    color: var(--text-primary) !important;
+}
+
+/* --- 12. 響應式：側邊欄與主區比例 --- */
 @media (max-width: 768px) {
     .main .block-container,
     .block-container {
         padding-left: var(--space-4) !important;
         padding-right: var(--space-4) !important;
+        padding-top: var(--space-4) !important;
+    }
+    [data-testid="stSidebar"] > div {
+        padding-left: var(--space-2) !important;
+        padding-right: var(--space-2) !important;
     }
 }
