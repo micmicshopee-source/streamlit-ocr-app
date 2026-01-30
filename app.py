@@ -34,120 +34,12 @@ except ImportError:
     _USE_BCRYPT = False
     bcrypt = None
 
-# PDF 生成庫 (fpdf2 + xhtml2pdf 專業發票)
+# PDF 生成庫（僅 fpdf2）
 try:
     from fpdf import FPDF
     PDF_AVAILABLE = True
 except ImportError:
     PDF_AVAILABLE = False
-
-HTML_PDF_AVAILABLE = False
-try:
-    from xhtml2pdf import pisa
-    HTML_PDF_AVAILABLE = True
-except ImportError:
-    pass
-
-
-def _generate_invoice_pdf_from_html(export_df, company_name, company_ubn):
-    """使用 HTML 模板生成專業發票 PDF，支援中文字體。"""
-    if not HTML_PDF_AVAILABLE or export_df.empty:
-        return None
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    template_path = os.path.join(base_dir, "templates", "invoice_pdf.html")
-    if not os.path.isfile(template_path):
-        return None
-    try:
-        with open(template_path, "r", encoding="utf-8") as f:
-            html = f.read()
-    except Exception:
-        return None
-
-    def _h(s):
-        if s is None or (isinstance(s, float) and pd.isna(s)):
-            return ""
-        s = str(s).strip()
-        return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
-
-    # 發票編號、日期、到期日（取第一筆或當日）
-    first = export_df.iloc[0]
-    inv_no = _h(first.get("發票號碼", first.get("invoice_number", ""))) or f"INV-{datetime.now().strftime('%Y%m%d')}"
-    date_str = _h(first.get("日期", first.get("date", "")))
-    if not date_str:
-        date_str = datetime.now().strftime("%Y-%m-%d")
-    try:
-        dt = pd.to_datetime(date_str).date() if date_str else datetime.now().date()
-        due_str = (dt + timedelta(days=30)).strftime("%Y-%m-%d")
-    except Exception:
-        due_str = ""
-
-    # 發行方（公司、地址、Email、統編）
-    issuer_lines = []
-    if company_name:
-        issuer_lines.append(f"<div>{_h(company_name)}</div>")
-    issuer_lines.append("<div>地址 Address: —</div>")
-    issuer_lines.append("<div>Email: —</div>")
-    if company_ubn:
-        issuer_lines.append(f"<div>統編 UBN: {_h(company_ubn)}</div>")
-    if not issuer_lines:
-        issuer_lines.append("<div>—</div>")
-    issuer_html = "\n".join(issuer_lines)
-
-    # 接收方（買方，預留）
-    receiver_html = "<div>買方資訊 Bill To</div><div>—</div>"
-
-    # 表格列：描述、數量、單價、總計
-    total_sum = 0.0
-    subtotal_sum = 0.0
-    tax_sum = 0.0
-    rows_html = []
-    for _, row in export_df.iterrows():
-        desc = _h(row.get("賣方名稱", row.get("seller_name", "")) or "")
-        inv = _h(row.get("發票號碼", ""))
-        if inv:
-            desc = f"{desc} ({inv})" if desc else inv
-        note = _h(row.get("備註", "") or row.get("會計科目", "") or row.get("類型", ""))
-        if note:
-            desc = f"{desc} — {note}" if desc else note
-        if not desc:
-            desc = "—"
-        qty = 1
-        total_val = pd.to_numeric(row.get("總計", row.get("total", 0)), errors="coerce")
-        if pd.isna(total_val):
-            total_val = 0.0
-        unit = total_val / qty if qty else 0
-        subtotal_val = pd.to_numeric(row.get("銷售額", row.get("subtotal", 0)), errors="coerce")
-        if pd.isna(subtotal_val):
-            subtotal_val = total_val - (total_val / 1.05) if total_val else 0
-        tax_val = pd.to_numeric(row.get("稅額", row.get("tax", 0)), errors="coerce")
-        if pd.isna(tax_val) and total_val:
-            tax_val = round(total_val - (total_val / 1.05))
-        if pd.isna(tax_val):
-            tax_val = 0.0
-        subtotal_sum += subtotal_val
-        tax_sum += tax_val
-        total_sum += total_val
-        rows_html.append(
-            f"<tr><td>{desc}</td><td class=\"num\">{qty}</td><td class=\"num\">${unit:,.0f}</td><td class=\"num\">${total_val:,.0f}</td></tr>"
-        )
-    table_rows = "\n".join(rows_html) if rows_html else "<tr><td colspan=\"4\">—</td></tr>"
-
-    html = html.replace("{{INVOICE_NUMBER}}", inv_no)
-    html = html.replace("{{DATE}}", date_str)
-    html = html.replace("{{DUE_DATE}}", due_str)
-    html = html.replace("{{ISSUER_HTML}}", issuer_html)
-    html = html.replace("{{RECEIVER_HTML}}", receiver_html)
-    html = html.replace("{{TABLE_ROWS}}", table_rows)
-    html = html.replace("{{SUBTOTAL}}", f"${subtotal_sum:,.0f}")
-    html = html.replace("{{VAT}}", f"${tax_sum:,.0f}")
-    html = html.replace("{{TOTAL}}", f"${total_sum:,.0f}")
-
-    dest = io.BytesIO()
-    result = pisa.CreatePDF(html, dest, encoding="utf-8", path=base_dir)
-    if result.err:
-        return None
-    dest.seek(0)
-    return dest.read()
 
 # 若無 .streamlit/secrets.toml 則建立空檔，避免 Streamlit 報 No secrets found
 def _ensure_secrets_file():
@@ -3004,14 +2896,7 @@ with st.container():
                         return bytes(pdf_bytes)
                     return pdf_bytes
                 
-                # 優先使用 HTML 模板專業發票 PDF（樣式、中文）
-                pdf_data = _generate_invoice_pdf_from_html(
-                    df.copy(),
-                    st.session_state.get("company_name", ""),
-                    st.session_state.get("company_ubn", ""),
-                )
-                if pdf_data is None:
-                    pdf_data = generate_pdf()
+                pdf_data = generate_pdf()
                 st.download_button(
                     "📄 導出PDF",
                     pdf_data,

@@ -16,10 +16,8 @@ pandas>=2.0.0
 # Excel 文件支持（數據導入）
 openpyxl>=3.1.0
 
-# PDF 導出功能
+# PDF 導出功能（僅 fpdf2，無需額外插件）
 fpdf2>=2.7.0
-# 專業發票 PDF（HTML 模板 + 中文；0.2.14+ 無需 pycairo，雲端安裝較穩）
-xhtml2pdf>=0.2.14
 
 # 圖表生成
 altair>=5.0.0
