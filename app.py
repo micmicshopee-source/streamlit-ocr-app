@@ -58,58 +58,7 @@ _ensure_secrets_file()
 # --- 1. 系統佈局與初始化 ---
 st.set_page_config(page_title="上班族小工具 | 發票報帳・辦公小幫手", page_icon="🧾", layout="wide")
 
-# --- 統一主題：Material 3 深色 + 響應式 ---
-def _load_theme_css():
-    """載入 theme_m3_responsive.css，不影響功能。"""
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    css_path = os.path.join(base_dir, "theme_m3_responsive.css")
-    if os.path.isfile(css_path):
-        with open(css_path, "r", encoding="utf-8") as f:
-            st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
-_load_theme_css()
-
-# 側邊欄 Google AI Studio 視覺：全黑背景、導航高亮、底部固定
-st.markdown("""
-<style>
-/* 側邊欄全黑背景與字體優化 */
-[data-testid="stSidebar"] {
-    background-color: #111111 !important;
-    color: #E5E7EB !important;
-    font-family: "Inter", "Segoe UI", sans-serif !important;
-}
-/* 導航項目的高亮與懸停樣式 */
-[data-testid="stSidebar"] [data-testid="stRadio"] label[data-checked="true"],
-[data-testid="stSidebar"] .stRadio > label[data-checked="true"] {
-    background-color: #333333 !important;
-    border-radius: 8px !important;
-    color: #fff !important;
-}
-[data-testid="stSidebar"] .stRadio label {
-    margin-bottom: 8px !important;
-    padding: 8px 12px !important;
-    border: none !important;
-    box-shadow: none !important;
-}
-[data-testid="stSidebar"] .sidebar-footer [data-testid="stButton"] button,
-[data-testid="stSidebar"] [data-testid="stButton"]:last-of-type button {
-    background: transparent !important;
-    border: none !important;
-    box-shadow: none !important;
-    padding: 6px 10px !important;
-    font-size: 1.1rem !important;
-    min-width: auto !important;
-}
-/* 底部用戶欄位排版固定 */
-.sidebar-footer {
-    position: fixed;
-    bottom: 20px;
-    left: 20px;
-    width: 260px;
-    border-top: 1px solid #333;
-    padding-top: 20px;
-}
-</style>
-""", unsafe_allow_html=True)
+# --- 主題：已還原為 Streamlit 預設樣式（不再載入 theme_m3_responsive.css）---
 
 if "db_error" not in st.session_state: st.session_state.db_error = None
 if "db_path_mode" not in st.session_state: st.session_state.db_path_mode = "💾 本地磁碟"
@@ -1598,12 +1547,9 @@ if not st.session_state.authenticated or not st.session_state.user_email:
     login_page()
     st.stop()  # 未登入時停止執行後續代碼
 
-# 已登入，顯示側邊欄（Google AI Studio 視覺：頂部品牌 + 純文字導航 + 底部固定用戶區）
+# 已登入，顯示側邊欄（還原先前樣式：標題 + 選單 + 用戶 + 登出 + 進階設定）
 with st.sidebar:
-    st.markdown("<h1 style='font-size: 24px; color: white; margin-bottom: 0.5rem;'>Google AI Studio</h1>", unsafe_allow_html=True)
-    st.markdown("<div class='sidebar-spacer-sm'></div>", unsafe_allow_html=True)
-    
-    # 功能清單：純文字導航（無按鈕邊框，間距 8px 由 CSS 控制）
+    st.title("🛠️ 小工具")
     tool_options = [
         ("invoice", "📑 發票報帳小秘笈"),
         ("contract", "⚖️ AI 合約比對"),
@@ -1621,11 +1567,17 @@ with st.sidebar:
     )
     st.session_state.current_tool = next(k for k, label in tool_options if label == choice)
     
-    st.markdown("<div class='sidebar-spacer'></div>", unsafe_allow_html=True)
-    st.markdown("<div class='sidebar-footer'>", unsafe_allow_html=True)
+    st.markdown("---")
+    user_email = st.session_state.get("user_email", "未登入")
+    st.caption(f"👤 {user_email}")
+    if st.button("🚪 登出", use_container_width=True, key="sidebar_logout"):
+        st.session_state.authenticated = False
+        st.session_state.user_email = None
+        st.session_state.login_at = None
+        st.rerun()
     
-    # 設定（僅辨識模型；API 金鑰由 Secrets 提供，不展示給用戶）
-    with st.expander("⚙️ 設定", expanded=False):
+    st.markdown("---")
+    with st.expander("⚙️ 進階設定", expanded=False):
         model = st.selectbox(
             "辨識模型",
             ["gemini-2.0-flash", "gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro"],
@@ -1634,32 +1586,6 @@ with st.sidebar:
         st.session_state.gemini_api_key = _safe_secrets_get("GEMINI_API_KEY")
         st.session_state.gemini_model = model
     
-    if "snow_toggle" not in st.session_state:
-        st.session_state.snow_toggle = False
-    st.session_state.snow_toggle = st.toggle("下雪吧 ❄️", value=st.session_state.snow_toggle, key="sidebar_snow_toggle")
-    
-    # 用戶區塊：圓形橘色 Avatar (首字) + Email 並排
-    user_email = st.session_state.get("user_email", "未登入")
-    avatar_letter = (user_email[0] if user_email and user_email != "未登入" else "m").lower()
-    email_short = (user_email[:22] + "…") if user_email and len(user_email) > 22 else (user_email or "未登入")
-    st.markdown(
-        f"""
-        <div class="sidebar-user-row">
-            <span class="sidebar-avatar" aria-hidden="true">{avatar_letter}</span>
-            <span class="sidebar-email">{email_short}</span>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    
-    # 登出改為小圖示（無大框）
-    if st.button("🚪", key="sidebar_logout", help="登出"):
-        st.session_state.authenticated = False
-        st.session_state.user_email = None
-        st.session_state.login_at = None
-        st.rerun()
-    
-    st.markdown("</div>", unsafe_allow_html=True)
     st.session_state.use_memory_mode = False
 
 # 依所選小工具顯示主內容
