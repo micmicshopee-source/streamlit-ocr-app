@@ -1555,10 +1555,14 @@ if not st.session_state.authenticated or not st.session_state.user_email:
     login_page()
     st.stop()  # 未登入時停止執行後續代碼
 
-# 已登入，顯示側邊欄：小工具導航（移除系統狀態）
+# 已登入，顯示側邊欄：Google AI Studio 風格（頂部品牌 + 選單 + 底部固定）
 with st.sidebar:
-    st.title("🛠️ 小工具")
-    # 小工具選單
+    # --- 頂部品牌區 ---
+    st.markdown("# 🚀 AI 智慧管家")
+    st.markdown('<p class="sidebar-nav-link">‹ 儀表板</p>', unsafe_allow_html=True)
+    st.markdown("<div class='sidebar-spacer-sm'></div>", unsafe_allow_html=True)
+    
+    # --- 選單群組化（簡約文字導航）---
     tool_options = [
         ("invoice", "📑 發票報帳小秘笈"),
         ("contract", "⚖️ AI 合約比對"),
@@ -1576,19 +1580,12 @@ with st.sidebar:
     )
     st.session_state.current_tool = next(k for k, label in tool_options if label == choice)
     
+    # --- 底部固定區（分隔線 + 設定 / 趣味開關 / 用戶 / 登出）---
+    st.markdown("<div class='sidebar-spacer'></div>", unsafe_allow_html=True)
     st.markdown("---")
-    # 當前用戶與登出
-    user_email = st.session_state.get("user_email", "未登入")
-    st.caption(f"👤 {user_email}")
-    if st.button("🚪 登出", use_container_width=True):
-        st.session_state.authenticated = False
-        st.session_state.user_email = None
-        st.session_state.login_at = None
-        st.rerun()
     
-    st.markdown("---")
-    # 進階設定（僅辨識模型；API 金鑰由 Secrets 提供，不展示給用戶）
-    with st.expander("⚙️ 進階設定", expanded=False):
+    # 設定（僅辨識模型；API 金鑰由 Secrets 提供，不展示給用戶）
+    with st.expander("⚙️ 設定", expanded=False):
         model = st.selectbox(
             "辨識模型",
             ["gemini-2.0-flash", "gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro"],
@@ -1596,6 +1593,31 @@ with st.sidebar:
         )
         st.session_state.gemini_api_key = _safe_secrets_get("GEMINI_API_KEY")
         st.session_state.gemini_model = model
+    
+    # 趣味開關
+    if "snow_toggle" not in st.session_state:
+        st.session_state.snow_toggle = False
+    st.session_state.snow_toggle = st.toggle("下雪吧 ❄️", value=st.session_state.snow_toggle, key="sidebar_snow_toggle")
+    
+    # 用戶頭像（圓形首字）+ Email 截斷
+    user_email = st.session_state.get("user_email", "未登入")
+    avatar_letter = (user_email[0] if user_email and user_email != "未登入" else "?").upper()
+    email_short = (user_email[:20] + "…") if user_email and len(user_email) > 20 else (user_email or "未登入")
+    st.markdown(
+        f"""
+        <div class="sidebar-user-row">
+            <span class="sidebar-avatar" aria-hidden="true">{avatar_letter}</span>
+            <span class="sidebar-email">{email_short}</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    
+    if st.button("🚪 登出", use_container_width=True, key="sidebar_logout"):
+        st.session_state.authenticated = False
+        st.session_state.user_email = None
+        st.session_state.login_at = None
+        st.rerun()
     
     st.session_state.use_memory_mode = False
 

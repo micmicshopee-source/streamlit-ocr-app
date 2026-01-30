@@ -34,11 +34,108 @@
     color: var(--md-on-surface) !important;
 }
 
+/* --- 側邊欄：Google AI Studio 風格 --- */
 [data-testid="stSidebar"] {
-    background-color: #1E1E1E !important;
+    background-color: #1e1e1e !important;
     overflow-y: auto !important;
     overflow-x: hidden !important;
     border-right: 1px solid rgba(255,255,255,0.06) !important;
+    color: #b0b0b0 !important;
+}
+
+[data-testid="stSidebar"] .stMarkdown,
+[data-testid="stSidebar"] p,
+[data-testid="stSidebar"] label {
+    color: #b0b0b0 !important;
+}
+
+[data-testid="stSidebar"] h1 {
+    color: #fff !important;
+    font-size: 1.25rem !important;
+    margin-bottom: 0.25rem !important;
+}
+
+.sidebar-nav-link {
+    color: #b0b0b0 !important;
+    text-decoration: none !important;
+    font-size: 0.9rem !important;
+}
+
+.sidebar-spacer-sm { height: 12px; min-height: 12px; }
+.sidebar-spacer { flex: 1 1 auto; min-height: 24px; }
+
+/* 選中項：灰色圓角背景 + 白字 */
+[data-testid="stSidebar"] [data-testid="stRadio"] label[data-checked="true"],
+[data-testid="stSidebar"] .stRadio > label[data-checked="true"] {
+    background: rgba(255,255,255,0.1) !important;
+    border-radius: 8px !important;
+    color: #fff !important;
+    padding: 8px 12px !important;
+}
+
+[data-testid="stSidebar"] [data-testid="stRadio"] label,
+[data-testid="stSidebar"] .stRadio label {
+    color: #b0b0b0 !important;
+}
+
+/* 選中項備用選擇器（Streamlit 版本差異） */
+[data-testid="stSidebar"] .stRadio div[role="radiogroup"] > label:first-child,
+[data-testid="stSidebar"] .stRadio > div > label {
+    border-radius: 8px !important;
+    padding: 8px 12px !important;
+}
+
+[data-testid="stSidebar"] .stExpander label,
+[data-testid="stSidebar"] [data-testid="stExpander"] label {
+    color: #b0b0b0 !important;
+}
+
+[data-testid="stSidebar"] [data-testid="stToggle"] label {
+    color: #b0b0b0 !important;
+}
+
+/* 側邊欄按鈕：無粗框、科技感 */
+[data-testid="stSidebar"] button {
+    border: none !important;
+    box-shadow: none !important;
+    background: transparent !important;
+    color: #b0b0b0 !important;
+}
+
+[data-testid="stSidebar"] button:hover {
+    background: rgba(255,255,255,0.08) !important;
+    color: #fff !important;
+}
+
+/* 用戶頭像：圓形橘底白字 */
+.sidebar-avatar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: #f57c00;
+    color: #fff;
+    font-weight: 600;
+    font-size: 0.9rem;
+    margin-right: 8px;
+    vertical-align: middle;
+}
+
+.sidebar-user-row {
+    display: flex;
+    align-items: center;
+    margin-bottom: 8px;
+    color: #b0b0b0;
+    font-size: 0.85rem;
+}
+
+.sidebar-email {
+    color: #b0b0b0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .main {
