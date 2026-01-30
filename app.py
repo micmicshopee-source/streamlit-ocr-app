@@ -1298,6 +1298,33 @@ def get_invoices_by_batch(batch_id, user_email=None):
         return pd.DataFrame()
 
 
+def delete_batch_cascade(batch_id, user_email=None):
+    """刪除一組 Batch 及其下所有發票（說明書 Cascade Delete）。回傳 (success, deleted_invoices_count, error_message)。"""
+    user_email = user_email or st.session_state.get('user_email', 'default_user')
+    if st.session_state.use_memory_mode:
+        before = len(st.session_state.local_invoices)
+        st.session_state.local_invoices = [
+            inv for inv in st.session_state.local_invoices
+            if not (inv.get('batch_id') == batch_id and inv.get('user_email', inv.get('user_id', '')) == user_email)
+        ]
+        deleted = before - len(st.session_state.local_invoices)
+        st.session_state.local_batches = [b for b in st.session_state.local_batches if not (b.get('id') == batch_id and b.get('user_email') == user_email)]
+        return True, deleted, None
+    try:
+        path = get_db_path()
+        is_uri = path.startswith("file:") and "mode=memory" in path
+        conn = sqlite3.connect(path, timeout=30, uri=is_uri, check_same_thread=False)
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM invoices WHERE batch_id = ? AND user_email = ?", (batch_id, user_email))
+        deleted = cursor.rowcount
+        cursor.execute("DELETE FROM batches WHERE id = ? AND user_email = ?", (batch_id, user_email))
+        conn.commit()
+        conn.close()
+        return True, deleted, None
+    except Exception as e:
+        return False, 0, str(e)
+
+
 def get_ungrouped_invoices(user_email=None):
     """取得未分組發票（batch_id 為 NULL）。回傳已重命名欄位的 DataFrame。"""
     user_email = user_email or st.session_state.get('user_email', 'default_user')
@@ -1347,10 +1374,11 @@ def save_edited_data(ed_df, original_df, user_email=None):
     errors = []
     warnings = []
     
-    # 將列名映射回數據庫字段名
+    # 將列名映射回數據庫字段名（含稅率類型，供 0%/免稅 編輯）
     reverse_mapping = {"檔案名稱":"file_name","日期":"date","發票號碼":"invoice_number",
                       "賣方名稱":"seller_name","賣方統編":"seller_ubn","銷售額":"subtotal",
-                      "稅額":"tax","總計":"total","類型":"category","會計科目":"subject","狀態":"status","備註":"note"}
+                      "稅額":"tax","總計":"total","類型":"category","會計科目":"subject","狀態":"status","備註":"note",
+                      "稅率類型":"tax_type"}
     
     for idx, row in ed_df.iterrows():
         if 'id' not in row or pd.isna(row['id']):
@@ -1381,6 +1409,9 @@ def save_edited_data(ed_df, original_df, user_email=None):
             if display_col in row:
                 update_data[db_col] = row[display_col]
         
+        # 稅率類型為空時預設 5%
+        if "tax_type" in update_data and (update_data["tax_type"] is None or str(update_data.get("tax_type", "")).strip() == ""):
+            update_data["tax_type"] = "5%"
         # 統編驗證（僅提示，不阻擋儲存）
         if "seller_ubn" in update_data and update_data["seller_ubn"]:
             ok_ubn, msg_ubn = validate_ubn(update_data["seller_ubn"])
@@ -3261,6 +3292,29 @@ with st.container():
                     st.caption(f"本組總計：${total_sum:,.0f} 元　稅額：${tax_sum:,.0f} 元")
                     disp_cols = [c for c in ['日期', '發票號碼', '賣方名稱', '總計', '狀態'] if c in inv_df.columns]
                     st.dataframe(inv_df[disp_cols] if disp_cols else inv_df, use_container_width=True, hide_index=True)
+                    if st.button("🗑️ 刪除此組", key=f"del_batch_{b['id']}", type="secondary"):
+                        st.session_state["pending_delete_batch_id"] = b["id"]
+                        st.rerun()
+            
+            # 刪除 Batch 確認對話（置頂顯示，避免 expander 收合後看不到）
+            if st.session_state.get("pending_delete_batch_id") is not None:
+                bid = st.session_state["pending_delete_batch_id"]
+                st.warning("確定要刪除此組及其內所有發票？此操作不可恢復。")
+                c1, c2 = st.columns(2)
+                with c1:
+                    if st.button("✅ 確認刪除此組", key="confirm_del_batch_btn"):
+                        ok, cnt, err = delete_batch_cascade(bid, _user_email)
+                        st.session_state.pop("pending_delete_batch_id", None)
+                        if ok:
+                            st.success(f"已刪除此組，共 {cnt} 張發票。")
+                            time.sleep(0.5)
+                            st.rerun()
+                        else:
+                            st.error(f"刪除失敗：{err}")
+                with c2:
+                    if st.button("❌ 取消", key="cancel_del_batch_btn"):
+                        st.session_state.pop("pending_delete_batch_id", None)
+                        st.rerun()
             if not ungrouped_df.empty:
                 total_ug = pd.to_numeric(ungrouped_df.get('總計', 0), errors='coerce').fillna(0).sum()
                 tax_ug = pd.to_numeric(ungrouped_df.get('稅額', 0), errors='coerce').fillna(0).sum() if '稅額' in ungrouped_df.columns else 0
@@ -3647,7 +3701,8 @@ with st.container():
                 "總計": st.column_config.NumberColumn("總計", format="$%d"),
                 "備註": st.column_config.TextColumn("備註", width="medium"),
                 "建立時間": st.column_config.DatetimeColumn("建立時間", format="YYYY-MM-DD"),
-                "修改時間": st.column_config.DatetimeColumn("修改時間", format="YYYY-MM-DD HH:mm", disabled=True)
+                "修改時間": st.column_config.DatetimeColumn("修改時間", format="YYYY-MM-DD HH:mm", disabled=True),
+                "稅率類型": st.column_config.SelectboxColumn("稅率類型", options=["5%", "0%", "免稅", "零稅率"], required=False)
             }
         
             # 文字類欄位左對齊配置
