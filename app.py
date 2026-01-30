@@ -1667,6 +1667,10 @@ if st.session_state.current_tool != "invoice":
     st.stop()
 
 # --- 發票報帳小秘笈主內容 ---
+# 發票 OCR 與 AI 小助理需使用 Gemini API，在此統一取得金鑰與模型
+api_key = st.session_state.get("gemini_api_key") or _safe_secrets_get("GEMINI_API_KEY")
+model = st.session_state.get("gemini_model") or "gemini-2.0-flash"
+
 # --- Hero 區：標題 + 副標 + 主操作（專業版面）---
 with st.container():
     title_col1, title_col2 = st.columns([2.5, 1.5])
@@ -1828,6 +1832,8 @@ def upload_dialog():
     if upload_mode == "ocr":
         # OCR識別區域
         st.markdown("### 📷 上傳發票圖")
+        if not api_key:
+            st.warning("⚠️ 圖片辨識需要 API 金鑰。請在 **Manage app → Settings → Secrets** 中設定 `GEMINI_API_KEY`，設定後重新載入頁面。")
         st.caption("支援 JPG、PNG；建議單張清晰、光線充足，以利辨識。")
         files = st.file_uploader("批次選擇照片", type=["jpg","png","jpeg"], accept_multiple_files=True)
         if files:
@@ -1973,154 +1979,95 @@ if st.session_state.get("start_ocr", False) and "upload_files" in st.session_sta
     st.session_state.start_ocr = False
     del st.session_state.upload_files
     
-    # 初始化 session_state 用於存儲結果報告
-    if "ocr_report" not in st.session_state: 
-        st.session_state.ocr_report = []
-    
-    success_count = 0
-    fail_count = 0
-    
-    with st.status("AI 正在分析發票中...", expanded=False) as status:
-        prog = st.progress(0)
+    if not api_key:
+        st.error("無法辨識：未設定 API 金鑰。請在 **Manage app → Settings → Secrets** 中設定 `GEMINI_API_KEY` 後重新上傳。")
+    else:
+        # 初始化 session_state 用於存儲結果報告
+        if "ocr_report" not in st.session_state: 
+            st.session_state.ocr_report = []
         
-        for idx, f in enumerate(files):
-            status.update(label=f"正在處理: {f.name} ({idx+1}/{len(files)})", state="running")
-            image_obj = Image.open(f)
-            data, err = process_ocr(image_obj, f.name, model, api_key)
+        success_count = 0
+        fail_count = 0
+        
+        with st.status("AI 正在分析發票中...", expanded=False) as status:
+            prog = st.progress(0)
             
-            if data:
-                def clean_n(v):
-                    try: return float(str(v).replace(',','').replace('$',''))
-                    except: return 0.0
+            for idx, f in enumerate(files):
+                status.update(label=f"正在處理: {f.name} ({idx+1}/{len(files)})", state="running")
+                image_obj = Image.open(f)
+                data, err = process_ocr(image_obj, f.name, model, api_key)
                 
-                # 處理空值：確保所有字段都有值
-                def safe_value(val, default='No'):
-                    if val is None or val == '' or val == 'N/A':
-                        return default
-                    return str(val)
-                
-                # 檢查數據是否完整，用於設置狀態
-                def check_data_complete(data):
-                    key_fields = ['date', 'invoice_no', 'seller_name', 'total']
-                    for field in key_fields:
-                        val = data.get(field, '')
-                        if not val or val == 'N/A' or val == '' or (isinstance(val, (int, float)) and val == 0 and field == 'total'):
-                            return False
-                    return True
-                
-                # 檢查重複發票（即使發票號碼為"No"也要檢查，因為可能是同一張發票重複上傳）
-                invoice_no = safe_value(data.get("invoice_no"), "No")
-                invoice_date = safe_value(data.get("date"), datetime.now().strftime("%Y/%m/%d"))
-                # 多用戶版本：使用 user_email
-                user_email = st.session_state.get('user_email', 'default_user')
-                
-                # 檢查重複：如果發票號碼不是"No"，使用發票號碼+日期檢查；如果是"No"，使用日期+賣方名稱檢查
-                is_duplicate = False
-                dup_id = None
-                
-                if invoice_no and invoice_no != "No" and invoice_no != "N/A":
-                    # 正常情況：使用發票號碼+日期檢查
-                    is_duplicate, dup_id = check_duplicate_invoice(invoice_no, invoice_date, user_email)
-                else:
-                    # 發票號碼為"No"的情況：使用日期+賣方名稱+檔案名稱檢查（避免同一檔案重複上傳）
-                    seller_name = safe_value(data.get("seller_name"), "")
-                    file_name = f.name
+                if data:
+                    def clean_n(v):
+                        try: return float(str(v).replace(',','').replace('$',''))
+                        except: return 0.0
                     
-                    if st.session_state.use_memory_mode:
-                        # 內存模式檢查
-                        for inv in st.session_state.local_invoices:
-                            inv_user = inv.get('user_email', inv.get('user_id', 'default_user'))
-                            if (inv_user == user_email and 
-                                inv.get('date') == invoice_date and
-                                inv.get('seller_name') == seller_name and
-                                inv.get('file_name') == file_name):
-                                is_duplicate = True
-                                dup_id = inv.get('id')
-                                break
-                    else:
-                        # 數據庫模式檢查
-                        query = "SELECT id FROM invoices WHERE user_email = ? AND date = ? AND seller_name = ? AND file_name = ?"
-                        result = run_query(query, (user_email, invoice_date, seller_name, file_name), is_select=True)
-                        if not result.empty:
-                            is_duplicate = True
-                            dup_id = result.iloc[0]['id']
-                
-                if is_duplicate:
-                    st.warning(f"⚠️ {f.name}: 疑似重複發票（發票號碼: {invoice_no}, 日期: {invoice_date}，記錄ID: {dup_id}），已跳過")
-                    fail_count += 1
-                    continue
-                
-                # 保存圖片（多用戶版本：使用 user_email）
-                image_path = save_invoice_image(image_obj.copy(), f.name, user_email)
-                
-                # 根據存儲模式選擇不同的保存方式
-                if st.session_state.use_memory_mode:
-                    # 使用內存模式
-                    invoice_record = {
-                        'id': len(st.session_state.local_invoices) + 1,
-                        'user_email': st.session_state.get('user_email', 'default_user'),
-                        'file_name': safe_value(data.get("file_name"), "未命名"),
-                        'date': safe_value(data.get("date"), datetime.now().strftime("%Y/%m/%d")),
-                        'invoice_number': safe_value(data.get("invoice_no"), "No"),
-                        'seller_name': safe_value(data.get("seller_name"), "No"),
-                        'seller_ubn': safe_value(data.get("seller_ubn"), "No"),
-                        'subtotal': clean_n(data.get("subtotal", 0)),
-                        'tax': clean_n(data.get("tax", 0)),
-                        'total': clean_n(data.get("total", 0)),
-                        'category': safe_value(data.get("type"), "其他"),
-                        'subject': safe_value(data.get("category_suggest"), "雜項"),
-                        'status': "❌ 缺失" if not check_data_complete(data) else safe_value(data.get("status"), "✅ 正常"),
-                        'note': safe_value(data.get("note") or data.get("備註"), ""),
-                        'image_path': image_path,
-                        'created_at': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    }
-                    st.session_state.local_invoices.append(invoice_record)
-                    st.session_state.data_saved = True
-                else:
-                    # 使用數據庫 - 確保數據保存
-                    init_db()
+                    # 處理空值：確保所有字段都有值
+                    def safe_value(val, default='No'):
+                        if val is None or val == '' or val == 'N/A':
+                            return default
+                        return str(val)
                     
-                    # 讀取圖片數據（如果圖片路徑存在）
-                    image_data = None
-                    if image_path and os.path.exists(image_path):
-                        try:
-                            with open(image_path, 'rb') as img_file:
-                                image_data = img_file.read()
-                        except:
-                            pass
+                    # 檢查數據是否完整，用於設置狀態
+                    def check_data_complete(data):
+                        key_fields = ['date', 'invoice_no', 'seller_name', 'total']
+                        for field in key_fields:
+                            val = data.get(field, '')
+                            if not val or val == 'N/A' or val == '' or (isinstance(val, (int, float)) and val == 0 and field == 'total'):
+                                return False
+                        return True
                     
+                    # 檢查重複發票（即使發票號碼為"No"也要檢查，因為可能是同一張發票重複上傳）
+                    invoice_no = safe_value(data.get("invoice_no"), "No")
+                    invoice_date = safe_value(data.get("date"), datetime.now().strftime("%Y/%m/%d"))
                     # 多用戶版本：使用 user_email
                     user_email = st.session_state.get('user_email', 'default_user')
-                    q = "INSERT INTO invoices (user_email, file_name, date, invoice_number, seller_name, seller_ubn, subtotal, tax, total, category, subject, status, note, image_path, image_data) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
-                    insert_params = (
-                        user_email, 
-                        safe_value(data.get("file_name"), "未命名"),
-                        safe_value(data.get("date"), datetime.now().strftime("%Y/%m/%d")),
-                        safe_value(data.get("invoice_no"), "No"),
-                        safe_value(data.get("seller_name"), "No"),
-                        safe_value(data.get("seller_ubn"), "No"),
-                        clean_n(data.get("subtotal", 0)),
-                        clean_n(data.get("tax", 0)),
-                        clean_n(data.get("total", 0)),
-                        safe_value(data.get("type"), "其他"),
-                        safe_value(data.get("category_suggest"), "雜項"),
-                        "❌ 缺失" if not check_data_complete(data) else safe_value(data.get("status"), "✅ 正常"),
-                        safe_value(data.get("note") or data.get("備註"), ""),
-                        image_path,
-                        image_data
-                    )
                     
-                    result = run_query(q, insert_params, is_select=False)
+                    # 檢查重複：如果發票號碼不是"No"，使用發票號碼+日期檢查；如果是"No"，使用日期+賣方名稱檢查
+                    is_duplicate = False
+                    dup_id = None
                     
-                    if not result:
-                        st.error(f"⚠️ 數據保存失敗，請檢查資料庫連線")
-                        if st.session_state.db_error:
-                            st.error(f"錯誤詳情: {st.session_state.db_error}")
-                        # 如果數據庫保存失敗，嘗試切換到內存模式
-                        st.warning("💡 嘗試切換到內存模式保存數據...")
+                    if invoice_no and invoice_no != "No" and invoice_no != "N/A":
+                        # 正常情況：使用發票號碼+日期檢查
+                        is_duplicate, dup_id = check_duplicate_invoice(invoice_no, invoice_date, user_email)
+                    else:
+                        # 發票號碼為"No"的情況：使用日期+賣方名稱+檔案名稱檢查（避免同一檔案重複上傳）
+                        seller_name = safe_value(data.get("seller_name"), "")
+                        file_name = f.name
+                        
+                        if st.session_state.use_memory_mode:
+                            # 內存模式檢查
+                            for inv in st.session_state.local_invoices:
+                                inv_user = inv.get('user_email', inv.get('user_id', 'default_user'))
+                                if (inv_user == user_email and 
+                                    inv.get('date') == invoice_date and
+                                    inv.get('seller_name') == seller_name and
+                                    inv.get('file_name') == file_name):
+                                    is_duplicate = True
+                                    dup_id = inv.get('id')
+                                    break
+                        else:
+                            # 數據庫模式檢查
+                            query = "SELECT id FROM invoices WHERE user_email = ? AND date = ? AND seller_name = ? AND file_name = ?"
+                            result = run_query(query, (user_email, invoice_date, seller_name, file_name), is_select=True)
+                            if not result.empty:
+                                is_duplicate = True
+                                dup_id = result.iloc[0]['id']
+                    
+                    if is_duplicate:
+                        st.warning(f"⚠️ {f.name}: 疑似重複發票（發票號碼: {invoice_no}, 日期: {invoice_date}，記錄ID: {dup_id}），已跳過")
+                        fail_count += 1
+                        continue
+                    
+                    # 保存圖片（多用戶版本：使用 user_email）
+                    image_path = save_invoice_image(image_obj.copy(), f.name, user_email)
+                    
+                    # 根據存儲模式選擇不同的保存方式
+                    if st.session_state.use_memory_mode:
+                        # 使用內存模式
                         invoice_record = {
                             'id': len(st.session_state.local_invoices) + 1,
-                            'user_email': user_email,
+                            'user_email': st.session_state.get('user_email', 'default_user'),
                             'file_name': safe_value(data.get("file_name"), "未命名"),
                             'date': safe_value(data.get("date"), datetime.now().strftime("%Y/%m/%d")),
                             'invoice_number': safe_value(data.get("invoice_no"), "No"),
@@ -2131,36 +2078,98 @@ if st.session_state.get("start_ocr", False) and "upload_files" in st.session_sta
                             'total': clean_n(data.get("total", 0)),
                             'category': safe_value(data.get("type"), "其他"),
                             'subject': safe_value(data.get("category_suggest"), "雜項"),
-                            'note': safe_value(data.get("note") or data.get("備註"), ""),
                             'status': "❌ 缺失" if not check_data_complete(data) else safe_value(data.get("status"), "✅ 正常"),
+                            'note': safe_value(data.get("note") or data.get("備註"), ""),
                             'image_path': image_path,
                             'created_at': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                         }
                         st.session_state.local_invoices.append(invoice_record)
-                        st.session_state.use_memory_mode = True
                         st.session_state.data_saved = True
                     else:
-                        st.session_state.data_saved = True
-                success_count += 1
-            else:
-                st.error(f"❌ {f.name} 失敗: {err}")
-                st.session_state.ocr_report.append(f"{f.name}: {err}")
-                fail_count += 1
+                        # 使用數據庫 - 確保數據保存
+                        init_db()
+                        
+                        # 讀取圖片數據（如果圖片路徑存在）
+                        image_data = None
+                        if image_path and os.path.exists(image_path):
+                            try:
+                                with open(image_path, 'rb') as img_file:
+                                    image_data = img_file.read()
+                            except:
+                                pass
+                        
+                        # 多用戶版本：使用 user_email
+                        user_email = st.session_state.get('user_email', 'default_user')
+                        q = "INSERT INTO invoices (user_email, file_name, date, invoice_number, seller_name, seller_ubn, subtotal, tax, total, category, subject, status, note, image_path, image_data) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+                        insert_params = (
+                            user_email, 
+                            safe_value(data.get("file_name"), "未命名"),
+                            safe_value(data.get("date"), datetime.now().strftime("%Y/%m/%d")),
+                            safe_value(data.get("invoice_no"), "No"),
+                            safe_value(data.get("seller_name"), "No"),
+                            safe_value(data.get("seller_ubn"), "No"),
+                            clean_n(data.get("subtotal", 0)),
+                            clean_n(data.get("tax", 0)),
+                            clean_n(data.get("total", 0)),
+                            safe_value(data.get("type"), "其他"),
+                            safe_value(data.get("category_suggest"), "雜項"),
+                            "❌ 缺失" if not check_data_complete(data) else safe_value(data.get("status"), "✅ 正常"),
+                            safe_value(data.get("note") or data.get("備註"), ""),
+                            image_path,
+                            image_data
+                        )
+                        
+                        result = run_query(q, insert_params, is_select=False)
+                        
+                        if not result:
+                            st.error(f"⚠️ 數據保存失敗，請檢查資料庫連線")
+                            if st.session_state.db_error:
+                                st.error(f"錯誤詳情: {st.session_state.db_error}")
+                            # 如果數據庫保存失敗，嘗試切換到內存模式
+                            st.warning("💡 嘗試切換到內存模式保存數據...")
+                            invoice_record = {
+                                'id': len(st.session_state.local_invoices) + 1,
+                                'user_email': user_email,
+                                'file_name': safe_value(data.get("file_name"), "未命名"),
+                                'date': safe_value(data.get("date"), datetime.now().strftime("%Y/%m/%d")),
+                                'invoice_number': safe_value(data.get("invoice_no"), "No"),
+                                'seller_name': safe_value(data.get("seller_name"), "No"),
+                                'seller_ubn': safe_value(data.get("seller_ubn"), "No"),
+                                'subtotal': clean_n(data.get("subtotal", 0)),
+                                'tax': clean_n(data.get("tax", 0)),
+                                'total': clean_n(data.get("total", 0)),
+                                'category': safe_value(data.get("type"), "其他"),
+                                'subject': safe_value(data.get("category_suggest"), "雜項"),
+                                'note': safe_value(data.get("note") or data.get("備註"), ""),
+                                'status': "❌ 缺失" if not check_data_complete(data) else safe_value(data.get("status"), "✅ 正常"),
+                                'image_path': image_path,
+                                'created_at': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                            }
+                            st.session_state.local_invoices.append(invoice_record)
+                            st.session_state.use_memory_mode = True
+                            st.session_state.data_saved = True
+                        else:
+                            st.session_state.data_saved = True
+                    success_count += 1
+                else:
+                    st.error(f"❌ {f.name} 失敗: {err}")
+                    st.session_state.ocr_report.append(f"{f.name}: {err}")
+                    fail_count += 1
+                
+                prog.progress((idx+1)/len(files))
             
-            prog.progress((idx+1)/len(files))
+            status.update(label=f"處理完成! 成功: {success_count}, 失敗: {fail_count}", state="complete", expanded=True)
         
-        status.update(label=f"處理完成! 成功: {success_count}, 失敗: {fail_count}", state="complete", expanded=True)
-    
-    # 簡化顯示識別結果（只顯示摘要，不顯示圖片預覽）
-    if success_count > 0:
-        st.success(f"✅ 成功辨識 {success_count} 張發票")
-        if fail_count > 0:
-            st.warning(f"⚠️ {fail_count} 張辨識失敗")
-        # 自動清空圖片預覽，節省空間
-        if "ocr_images" in st.session_state:
-            st.session_state.ocr_images = []
-        time.sleep(0.5)
-        st.rerun()
+        # 簡化顯示識別結果（只顯示摘要，不顯示圖片預覽）
+        if success_count > 0:
+            st.success(f"✅ 成功辨識 {success_count} 張發票")
+            if fail_count > 0:
+                st.warning(f"⚠️ {fail_count} 張辨識失敗")
+            # 自動清空圖片預覽，節省空間
+            if "ocr_images" in st.session_state:
+                st.session_state.ocr_images = []
+            time.sleep(0.5)
+            st.rerun()
 
 # 處理數據導入（從 dialog 觸發）
 if st.session_state.get("start_import", False) and "import_file" in st.session_state:
