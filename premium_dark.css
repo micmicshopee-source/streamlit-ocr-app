@@ -331,6 +331,15 @@ p, span, div, label {
     opacity: 0.9;
 }
 
+/* 統計卡片列：4px/8px 網格間距 + 與下方區塊留白 */
+.main [data-testid="stHorizontalBlock"]:has(.metric-card) {
+    gap: var(--space-3) !important;
+    margin-bottom: var(--space-5) !important;
+}
+.main .metric-card {
+    margin-bottom: 0 !important;
+}
+
 .chart-card {
     background-color: var(--bg-card) !important;
     border: 1px solid var(--border-default) !important;
@@ -340,10 +349,33 @@ p, span, div, label {
     box-shadow: none !important;
 }
 
-/* --- 7. 數據表格：Stripe 風格（去縱線、狀態綠、金額右對齊）--- */
+/* --- 7. 數據表格：Stripe 風格（去縱線、階層、間距、Hover）--- */
+[data-testid="stDataEditor"],
+[data-testid="stDataFrame"] {
+    margin-top: var(--space-4) !important;
+    border-radius: var(--radius-md) !important;
+    overflow: hidden !important;
+    border: 1px solid var(--border-default) !important;
+    background: var(--bg-card) !important;
+}
+
 [data-testid="stDataEditor"] table,
 [data-testid="stDataFrame"] table {
     border-collapse: collapse !important;
+    width: 100% !important;
+}
+
+[data-testid="stDataEditor"] thead th,
+[data-testid="stDataFrame"] thead th {
+    background: rgba(255, 255, 255, 0.06) !important;
+    color: var(--text-primary) !important;
+    font-weight: 600 !important;
+    font-size: 0.8125rem !important;
+    letter-spacing: 0.02em !important;
+    padding: var(--space-3) var(--space-4) !important;
+    border-bottom: 1px solid var(--border-default) !important;
+    border-left: none !important;
+    border-right: none !important;
 }
 
 [data-testid="stDataEditor"] td,
@@ -354,6 +386,18 @@ p, span, div, label {
     border-right: none !important;
     border-top: 1px solid var(--border-subtle) !important;
     border-bottom: 1px solid var(--border-subtle) !important;
+    padding: var(--space-2) var(--space-4) !important;
+    color: var(--text-secondary) !important;
+    font-size: 0.875rem !important;
+}
+
+[data-testid="stDataEditor"] tbody tr,
+[data-testid="stDataFrame"] tbody tr {
+    transition: background-color var(--transition) !important;
+}
+[data-testid="stDataEditor"] tbody tr:hover,
+[data-testid="stDataFrame"] tbody tr:hover {
+    background: var(--border-subtle) !important;
 }
 
 [data-testid="stDataEditor"] td.status-ok,
@@ -388,12 +432,49 @@ p, span, div, label {
     box-shadow: 0 0 0 1px var(--accent) !important;
 }
 
-/* --- 9. 篩選區塊標籤（與現有 class 相容）--- */
+/* --- 9. 篩選區：視覺階層與間距（4px/8px 網格）--- */
 .filter-section-label {
     color: var(--text-muted) !important;
     font-size: 0.8125rem !important;
     font-weight: 500 !important;
+    margin-top: var(--space-4) !important;
     margin-bottom: var(--space-2) !important;
+}
+
+/* 主區篩選列：表單元素間距一致 */
+.main [data-testid="stHorizontalBlock"] > div {
+    min-width: 0 !important;
+}
+.main [data-testid="stTextInput"] label,
+.main [data-testid="stNumberInput"] label,
+.main [data-testid="stMultiSelect"] label,
+.main [data-testid="stDateInput"] label {
+    color: var(--text-secondary) !important;
+    font-size: 0.875rem !important;
+    font-weight: 500 !important;
+}
+.main [data-testid="stVerticalBlock"] > [data-testid="element-container"]:has([data-testid="stTextInput"]),
+.main [data-testid="stVerticalBlock"] > [data-testid="element-container"]:has([data-testid="stDateInput"]),
+.main [data-testid="stVerticalBlock"] > [data-testid="element-container"]:has([data-testid="stMultiSelect"]),
+.main [data-testid="stVerticalBlock"] > [data-testid="element-container"]:has([data-testid="stNumberInput"]) {
+    margin-bottom: var(--space-2) !important;
+}
+
+/* Pills（狀態篩選）：與設計變數一致 */
+.main [data-testid="stPills"] label,
+.main .stPills label {
+    color: var(--text-secondary) !important;
+    font-size: 0.875rem !important;
+}
+.main [data-testid="stPills"] button,
+.main .stPills button {
+    border-radius: var(--radius-md) !important;
+    transition: background-color var(--transition), color var(--transition) !important;
+}
+.main [data-testid="stPills"] button:hover,
+.main .stPills button:hover {
+    background: var(--border-subtle) !important;
+    color: var(--text-primary) !important;
 }
 
 /* --- 10. 主區 Radio（視圖切換等）：Hover 過渡 --- */
@@ -462,5 +543,18 @@ p, span, div, label {
     [data-testid="stSidebar"] > div {
         padding-left: var(--space-2) !important;
         padding-right: var(--space-2) !important;
+    }
+    .main [data-testid="stHorizontalBlock"]:has(.metric-card) {
+        gap: var(--space-2) !important;
+        margin-bottom: var(--space-4) !important;
+    }
+    [data-testid="stDataEditor"] thead th,
+    [data-testid="stDataFrame"] thead th,
+    [data-testid="stDataEditor"] td,
+    [data-testid="stDataEditor"] th,
+    [data-testid="stDataFrame"] td,
+    [data-testid="stDataFrame"] th {
+        padding: var(--space-2) var(--space-3) !important;
+        font-size: 0.8125rem !important;
     }
 }
