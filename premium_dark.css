@@ -1,0 +1,384 @@
+/* ============================================
+   Premium Dark Theme — Google Black / Stripe 級極簡
+   4px/8px 網格 · 視覺階層 · 深色美學 · 互動過渡
+   ============================================ */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+/* --- 1. 設計變數（Design Tokens）--- */
+:root {
+    /* 深色模式美學 */
+    --bg-base: #0F0F0F;
+    --bg-card: #1E1E1E;
+    --border-default: #333333;
+    --border-subtle: rgba(255, 255, 255, 0.08);
+    
+    /* 視覺階層：主次分明 */
+    --text-primary: #FFFFFF;
+    --text-secondary: #9CA3AF;
+    --text-muted: #6B7280;
+    
+    /* 主色（點綴用，不喧賓奪主）*/
+    --accent: #4285F4;
+    --accent-hover: #5A9BF5;
+    
+    /* 4px/8px 網格 */
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-5: 24px;
+    --space-6: 32px;
+    --space-8: 48px;
+    
+    --radius-sm: 6px;
+    --radius-md: 8px;
+    --radius-lg: 12px;
+    
+    --transition: 0.2s ease;
+    --font-sans: Inter, "Segoe UI", "Microsoft JhengHei", sans-serif;
+}
+
+/* --- 2. 應用根與主區域（拒絕預設頂部空白與陰影）--- */
+.stApp {
+    background-color: var(--bg-base) !important;
+    color: var(--text-primary) !important;
+    font-family: var(--font-sans) !important;
+}
+
+/* 主工作區：寬度限制 + 置中（不讓表格無止盡撐滿，左右留白）*/
+.main .block-container,
+.block-container {
+    padding-top: var(--space-5) !important;
+    padding-bottom: var(--space-6) !important;
+    padding-left: var(--space-5) !important;
+    padding-right: var(--space-5) !important;
+    max-width: 1280px !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+    width: 100% !important;
+    background-color: var(--bg-base) !important;
+}
+
+/* 可選：若用 st.components.v1.html 包主內容時使用的 class */
+.main-content-constrained {
+    max-width: 1280px;
+    margin-left: auto;
+    margin-right: auto;
+    width: 100%;
+    padding-left: var(--space-5);
+    padding-right: var(--space-5);
+}
+
+.main {
+    background-color: var(--bg-base) !important;
+}
+
+/* --- 3. 側邊欄：Google AI Studio 風格 --- */
+[data-testid="stSidebar"] {
+    background-color: var(--bg-card) !important;
+    border-right: 1px solid var(--border-default) !important;
+    color: var(--text-secondary) !important;
+    font-family: var(--font-sans) !important;
+    font-size: 14px !important;
+}
+
+[data-testid="stSidebar"] > div {
+    padding-left: var(--space-3) !important;
+    padding-right: var(--space-3) !important;
+}
+
+[data-testid="stSidebar"] .stMarkdown,
+[data-testid="stSidebar"] p,
+[data-testid="stSidebar"] label {
+    color: var(--text-secondary) !important;
+    font-size: 14px !important;
+}
+
+[data-testid="stSidebar"] h1 {
+    color: var(--text-primary) !important;
+    font-size: 1.25rem !important;
+    font-weight: 600 !important;
+    margin-bottom: var(--space-2) !important;
+    letter-spacing: -0.01em !important;
+}
+
+/* 導航項：Hover 效果 + 平滑過渡 */
+[data-testid="stSidebar"] [data-testid="stRadio"] label,
+[data-testid="stSidebar"] .stRadio label {
+    color: var(--text-secondary) !important;
+    font-size: 0.9375rem !important;
+    padding: var(--space-2) var(--space-3) !important;
+    margin-bottom: var(--space-1) !important;
+    border-radius: var(--radius-md) !important;
+    transition: background-color var(--transition), color var(--transition) !important;
+}
+
+[data-testid="stSidebar"] [data-testid="stRadio"] label:hover,
+[data-testid="stSidebar"] .stRadio label:hover {
+    background: var(--border-subtle) !important;
+    color: var(--text-primary) !important;
+}
+
+[data-testid="stSidebar"] [data-testid="stRadio"] label[data-checked="true"],
+[data-testid="stSidebar"] .stRadio > label[data-checked="true"] {
+    background: rgba(255, 255, 255, 0.1) !important;
+    border-radius: var(--radius-md) !important;
+    color: var(--text-primary) !important;
+    padding: var(--space-2) var(--space-3) !important;
+}
+
+/* 側邊欄按鈕：無框、Hover 過渡 */
+[data-testid="stSidebar"] button {
+    border: none !important;
+    box-shadow: none !important;
+    background: transparent !important;
+    color: var(--text-secondary) !important;
+    font-size: 0.875rem !important;
+    padding: var(--space-2) var(--space-3) !important;
+    border-radius: var(--radius-md) !important;
+    transition: background-color var(--transition), color var(--transition) !important;
+}
+
+[data-testid="stSidebar"] button:hover {
+    background: var(--border-subtle) !important;
+    color: var(--text-primary) !important;
+}
+
+[data-testid="stSidebar"] hr {
+    margin: var(--space-4) 0 var(--space-3) 0 !important;
+    border-color: var(--border-default) !important;
+}
+
+/* 側欄底部固定區（可與 st.components.v1.html 搭配使用）*/
+.sidebar-bottom-fixed {
+    position: absolute !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    padding: var(--space-4) !important;
+    border-top: 1px solid var(--border-default) !important;
+    background-color: var(--bg-card) !important;
+    color: var(--text-secondary) !important;
+    font-size: 14px !important;
+}
+.sidebar-bottom-fixed .sidebar-avatar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: var(--border-default);
+    color: var(--text-primary);
+    font-weight: 600;
+    font-size: 0.75rem;
+    margin-right: var(--space-2);
+    vertical-align: middle;
+}
+.sidebar-bottom-fixed .sidebar-email {
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+[data-testid="stSidebar"] .stExpander label,
+[data-testid="stSidebar"] [data-testid="stExpander"] label {
+    color: var(--text-secondary) !important;
+    font-size: 14px !important;
+}
+
+[data-testid="stSidebar"] [data-testid="stToggle"] label {
+    color: var(--text-secondary) !important;
+}
+
+/* --- 4. 全域按鈕：移除預設外框與陰影 --- */
+.stButton > button {
+    border: 1px solid var(--border-default) !important;
+    box-shadow: none !important;
+    border-radius: var(--radius-md) !important;
+    font-weight: 500 !important;
+    transition: background-color var(--transition), border-color var(--transition), color var(--transition) !important;
+}
+
+.stButton > button[kind="primary"] {
+    background-color: var(--accent) !important;
+    color: var(--text-primary) !important;
+    border-color: var(--accent) !important;
+}
+
+.stButton > button[kind="primary"]:hover {
+    background-color: var(--accent-hover) !important;
+    border-color: var(--accent-hover) !important;
+}
+
+.stButton > button:not([kind="primary"]) {
+    background-color: var(--bg-card) !important;
+    color: var(--text-secondary) !important;
+}
+
+.stButton > button:not([kind="primary"]):hover {
+    background-color: var(--border-subtle) !important;
+    color: var(--text-primary) !important;
+    border-color: var(--text-muted) !important;
+}
+
+/* --- 5. 視覺階層：標題與內文 --- */
+h1, h2, h3, h4, h5, h6 {
+    color: var(--text-primary) !important;
+    font-weight: 600 !important;
+    letter-spacing: -0.02em !important;
+    margin-top: 0 !important;
+    margin-bottom: var(--space-2) !important;
+}
+
+h1 { font-size: 1.75rem !important; }
+h2, h3 { font-size: 1.125rem !important; }
+
+p, span, div, label {
+    color: var(--text-secondary) !important;
+}
+
+[data-testid="stCaptionContainer"] {
+    color: var(--text-muted) !important;
+    font-size: 0.8125rem !important;
+}
+
+/* --- 6. 卡片與區塊（#1E1E1E + #333 邊框）--- */
+[data-testid="stExpander"],
+[data-testid="stVerticalBlock"] > [data-testid="element-container"] {
+    background-color: var(--bg-card) !important;
+    border: 1px solid var(--border-default) !important;
+    border-radius: var(--radius-md) !important;
+    box-shadow: none !important;
+}
+
+[data-testid="stExpander"] > details {
+    border: none !important;
+    border-radius: var(--radius-md) !important;
+}
+
+/* 自訂 metric 卡片（與現有 st.markdown 結構相容）*/
+.metric-card {
+    background: var(--bg-card) !important;
+    border: 1px solid var(--border-default) !important;
+    border-radius: var(--radius-lg) !important;
+    padding: var(--space-5) var(--space-4) !important;
+    margin-bottom: 0 !important;
+    box-shadow: none !important;
+    transition: border-color var(--transition), background-color var(--transition) !important;
+    position: relative !important;
+    overflow: hidden !important;
+}
+
+.metric-card:hover {
+    border-color: var(--text-muted) !important;
+}
+
+.metric-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 3px;
+    height: 100%;
+    background: var(--accent);
+    opacity: 0.9;
+}
+
+.metric-card-title {
+    font-size: 0.6875rem !important;
+    color: var(--text-muted) !important;
+    font-weight: 600 !important;
+    margin-bottom: var(--space-1) !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.08em !important;
+}
+
+.metric-card-value {
+    font-size: 1.5rem !important;
+    font-weight: 700 !important;
+    color: var(--text-primary) !important;
+    margin: 0 !important;
+}
+
+.metric-card-icon {
+    font-size: 1.25rem !important;
+    margin-bottom: var(--space-2) !important;
+    opacity: 0.9;
+}
+
+.chart-card {
+    background-color: var(--bg-card) !important;
+    border: 1px solid var(--border-default) !important;
+    border-radius: var(--radius-md) !important;
+    padding: var(--space-4) !important;
+    margin-bottom: var(--space-4) !important;
+    box-shadow: none !important;
+}
+
+/* --- 7. 數據表格：Stripe 風格（去縱線、狀態綠、金額右對齊）--- */
+[data-testid="stDataEditor"] table,
+[data-testid="stDataFrame"] table {
+    border-collapse: collapse !important;
+}
+
+[data-testid="stDataEditor"] td,
+[data-testid="stDataEditor"] th,
+[data-testid="stDataFrame"] td,
+[data-testid="stDataFrame"] th {
+    border-left: none !important;
+    border-right: none !important;
+    border-top: 1px solid var(--border-subtle) !important;
+    border-bottom: 1px solid var(--border-subtle) !important;
+}
+
+[data-testid="stDataEditor"] td.status-ok,
+[data-testid="stDataFrame"] td.status-ok {
+    background: rgba(34, 197, 94, 0.2) !important;
+    color: #22c55e !important;
+    border-radius: var(--radius-sm) !important;
+    font-weight: 500 !important;
+}
+
+[data-testid="stDataEditor"] td.amount-cell,
+[data-testid="stDataFrame"] td.amount-cell {
+    font-family: ui-monospace, "Cascadia Code", monospace !important;
+    color: var(--text-primary) !important;
+    text-align: right !important;
+}
+
+/* --- 8. 表單與輸入框 --- */
+[data-testid="stTextInput"] input,
+[data-testid="stNumberInput"] input,
+.stTextInput input,
+.stNumberInput input {
+    background-color: var(--bg-card) !important;
+    border: 1px solid var(--border-default) !important;
+    border-radius: var(--radius-md) !important;
+    color: var(--text-primary) !important;
+}
+
+[data-testid="stTextInput"] input:focus,
+[data-testid="stNumberInput"] input:focus {
+    border-color: var(--accent) !important;
+    box-shadow: 0 0 0 1px var(--accent) !important;
+}
+
+/* --- 9. 篩選區塊標籤（與現有 class 相容）--- */
+.filter-section-label {
+    color: var(--text-muted) !important;
+    font-size: 0.8125rem !important;
+    font-weight: 500 !important;
+    margin-bottom: var(--space-2) !important;
+}
+
+/* --- 10. 響應式：側邊欄與主區比例 --- */
+@media (max-width: 768px) {
+    .main .block-container,
+    .block-container {
+        padding-left: var(--space-4) !important;
+        padding-right: var(--space-4) !important;
+    }
+}

@@ -58,7 +58,14 @@ _ensure_secrets_file()
 # --- 1. 系統佈局與初始化 ---
 st.set_page_config(page_title="上班族小工具 | 發票報帳・辦公小幫手", page_icon="🧾", layout="wide")
 
-# --- 主題：已還原為 Streamlit 預設樣式（不再載入 theme_m3_responsive.css）---
+# --- 主題：Premium Dark（Google Black #0F0F0F / 卡片 #1E1E1E / 4px·8px 網格 / 導航 Hover 過渡）---
+def _inject_premium_dark_css():
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    css_path = os.path.join(base_dir, "premium_dark.css")
+    if os.path.isfile(css_path):
+        with open(css_path, "r", encoding="utf-8") as f:
+            st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
+_inject_premium_dark_css()
 
 if "db_error" not in st.session_state: st.session_state.db_error = None
 if "db_path_mode" not in st.session_state: st.session_state.db_path_mode = "💾 本地磁碟"
