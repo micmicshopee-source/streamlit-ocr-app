@@ -1989,12 +1989,19 @@ if st.session_state.get("start_ocr", False) and "upload_files" in st.session_sta
         success_count = 0
         fail_count = 0
         
-        with st.status("AI 正在分析發票中...", expanded=False) as status:
+        with st.status("AI 正在分析發票中...", expanded=True) as status:
             prog = st.progress(0)
             
             for idx, f in enumerate(files):
                 status.update(label=f"正在處理: {f.name} ({idx+1}/{len(files)})", state="running")
-                image_obj = Image.open(f)
+                try:
+                    image_obj = Image.open(f)
+                except Exception as img_err:
+                    st.error(f"❌ {f.name} 無法讀取圖片: {img_err}")
+                    st.session_state.ocr_report.append(f"{f.name}: 無法讀取圖片 {img_err}")
+                    fail_count += 1
+                    prog.progress((idx+1)/len(files))
+                    continue
                 data, err = process_ocr(image_obj, f.name, model, api_key)
                 
                 if data:
@@ -2159,6 +2166,14 @@ if st.session_state.get("start_ocr", False) and "upload_files" in st.session_sta
                 prog.progress((idx+1)/len(files))
             
             status.update(label=f"處理完成! 成功: {success_count}, 失敗: {fail_count}", state="complete", expanded=True)
+        
+        # 若有失敗，在頂部顯示明確摘要（避免「沒有任何提示」）
+        if fail_count > 0:
+            st.error(f"⚠️ 辨識失敗 {fail_count} 張。常見原因：API 金鑰錯誤或過期、網路問題、圖片不清晰。請確認 Secrets 中的 GEMINI_API_KEY 正確，或展開上方詳情查看具體錯誤。")
+            if st.session_state.get("ocr_report"):
+                with st.expander("查看失敗詳情", expanded=True):
+                    for line in st.session_state.ocr_report:
+                        st.text(line)
         
         # 簡化顯示識別結果（只顯示摘要，不顯示圖片預覽）
         if success_count > 0:
