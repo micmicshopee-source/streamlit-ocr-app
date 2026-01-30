@@ -3255,11 +3255,17 @@ with st.container():
                     continue
                 created = (b.get('created_at') or '')[:16].replace('T', ' ')
                 src = 'OCR' if (b.get('source') or '') == 'ocr' else '導入'
-                with st.expander(f"📦 {created} · {src} · {len(inv_df)} 張", expanded=False):
+                total_sum = pd.to_numeric(inv_df.get('總計', 0), errors='coerce').fillna(0).sum()
+                tax_sum = pd.to_numeric(inv_df.get('稅額', 0), errors='coerce').fillna(0).sum() if '稅額' in inv_df.columns else 0
+                with st.expander(f"📦 {created} · {src} · {len(inv_df)} 張 · 合計 ${total_sum:,.0f}", expanded=False):
+                    st.caption(f"本組總計：${total_sum:,.0f} 元　稅額：${tax_sum:,.0f} 元")
                     disp_cols = [c for c in ['日期', '發票號碼', '賣方名稱', '總計', '狀態'] if c in inv_df.columns]
                     st.dataframe(inv_df[disp_cols] if disp_cols else inv_df, use_container_width=True, hide_index=True)
             if not ungrouped_df.empty:
-                with st.expander(f"📄 未分組 ({len(ungrouped_df)} 張)", expanded=False):
+                total_ug = pd.to_numeric(ungrouped_df.get('總計', 0), errors='coerce').fillna(0).sum()
+                tax_ug = pd.to_numeric(ungrouped_df.get('稅額', 0), errors='coerce').fillna(0).sum() if '稅額' in ungrouped_df.columns else 0
+                with st.expander(f"📄 未分組 ({len(ungrouped_df)} 張) · 合計 ${total_ug:,.0f}", expanded=False):
+                    st.caption(f"本組總計：${total_ug:,.0f} 元　稅額：${tax_ug:,.0f} 元")
                     disp_cols = [c for c in ['日期', '發票號碼', '賣方名稱', '總計', '狀態'] if c in ungrouped_df.columns]
                     st.dataframe(ungrouped_df[disp_cols] if disp_cols else ungrouped_df, use_container_width=True, hide_index=True)
     else:
@@ -3640,7 +3646,8 @@ with st.container():
                 "稅額 (5%)": st.column_config.NumberColumn("稅額 (5%)", format="$%d"),
                 "總計": st.column_config.NumberColumn("總計", format="$%d"),
                 "備註": st.column_config.TextColumn("備註", width="medium"),
-                "建立時間": st.column_config.DatetimeColumn("建立時間", format="YYYY-MM-DD")
+                "建立時間": st.column_config.DatetimeColumn("建立時間", format="YYYY-MM-DD"),
+                "修改時間": st.column_config.DatetimeColumn("修改時間", format="YYYY-MM-DD HH:mm", disabled=True)
             }
         
             # 文字類欄位左對齊配置
