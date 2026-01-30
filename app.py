@@ -71,6 +71,7 @@ if "db_error" not in st.session_state: st.session_state.db_error = None
 if "db_path_mode" not in st.session_state: st.session_state.db_path_mode = "💾 本地磁碟"
 if "use_memory_mode" not in st.session_state: st.session_state.use_memory_mode = False
 if "local_invoices" not in st.session_state: st.session_state.local_invoices = []
+if "local_batches" not in st.session_state: st.session_state.local_batches = []
 if "image_storage_dir" not in st.session_state: 
     base_dir = os.path.dirname(os.path.abspath(__file__))
     st.session_state.image_storage_dir = os.path.join(base_dir, "invoice_images")
@@ -712,6 +713,26 @@ def init_db():
             except: 
                 pass
         
+        # 邏輯架構說明書：modified_at、batch_id、tax_type
+        for col, c_type in {'modified_at': "TIMESTAMP", 'batch_id': "INTEGER", 'tax_type': "TEXT DEFAULT '5%'"}.items():
+            try:
+                cursor.execute(f"ALTER TABLE invoices ADD COLUMN {col} {c_type}")
+            except:
+                pass
+        
+        # 創建 batches 表（上傳組：同一次 OCR 或導入為一組）
+        cursor.execute('''CREATE TABLE IF NOT EXISTS batches
+                        (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                         user_email TEXT NOT NULL,
+                         source TEXT NOT NULL,
+                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                         invoice_count INTEGER)''')
+        try:
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_batches_user ON batches(user_email)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_invoices_batch ON invoices(batch_id)")
+        except Exception:
+            pass
+        
         conn.commit()
         conn.close()
         return True
@@ -1169,6 +1190,32 @@ def save_invoice_image(image_obj, file_name, user_email=None):
         st.error(f"保存圖片失敗: {str(e)}")
         return None
 
+def create_batch(user_email, source):
+    """建立一筆上傳組（Batch），回傳 batch_id。source 為 'ocr' 或 'import'。"""
+    user_email = user_email or st.session_state.get('user_email', 'default_user')
+    if st.session_state.use_memory_mode:
+        batch_id = len(st.session_state.local_batches) + 1
+        st.session_state.local_batches.append({
+            'id': batch_id,
+            'user_email': user_email,
+            'source': source,
+            'created_at': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            'invoice_count': 0
+        })
+        return batch_id
+    try:
+        path = get_db_path()
+        is_uri = path.startswith("file:") and "mode=memory" in path
+        conn = sqlite3.connect(path, timeout=30, uri=is_uri, check_same_thread=False)
+        cursor = conn.cursor()
+        cursor.execute("INSERT INTO batches (user_email, source) VALUES (?, ?)", (user_email, source))
+        batch_id = cursor.lastrowid
+        conn.commit()
+        conn.close()
+        return batch_id
+    except Exception:
+        return None
+
 def check_duplicate_invoice(invoice_number, date, user_email=None):
     """檢查是否為重複發票（根據發票號碼+日期）"""
     if not invoice_number or invoice_number == "No" or invoice_number == "N/A":
@@ -1192,10 +1239,24 @@ def check_duplicate_invoice(invoice_number, date, user_email=None):
     
     return False, None
 
+
+def validate_ubn(val):
+    """台灣統編驗證：8 位數字（選填時空值視為通過）。回傳 (ok, message)。"""
+    if val is None or (isinstance(val, str) and not str(val).strip()):
+        return True, ""
+    s = str(val).strip()
+    if len(s) != 8:
+        return False, "統編應為 8 位數字"
+    if not s.isdigit():
+        return False, "統編應為 8 位數字"
+    return True, ""
+
+
 def save_edited_data(ed_df, original_df, user_email=None):
-    """自動保存編輯後的數據"""
+    """自動保存編輯後的數據；含 modified_at 更新與統編驗證提示。回傳 (saved_count, errors, warnings)。"""
     saved_count = 0
     errors = []
+    warnings = []
     
     # 將列名映射回數據庫字段名
     reverse_mapping = {"檔案名稱":"file_name","日期":"date","發票號碼":"invoice_number",
@@ -1231,6 +1292,12 @@ def save_edited_data(ed_df, original_df, user_email=None):
             if display_col in row:
                 update_data[db_col] = row[display_col]
         
+        # 統編驗證（僅提示，不阻擋儲存）
+        if "seller_ubn" in update_data and update_data["seller_ubn"]:
+            ok_ubn, msg_ubn = validate_ubn(update_data["seller_ubn"])
+            if not ok_ubn:
+                warnings.append(f"記錄 ID {record_id} 賣方統編：{msg_ubn}（已儲存，僅供參考）")
+        
         # 處理數值字段
         for num_col in ['subtotal', 'tax', 'total']:
             if num_col in update_data:
@@ -1239,6 +1306,9 @@ def save_edited_data(ed_df, original_df, user_email=None):
                     update_data[num_col] = float(val) if val else 0.0
                 except:
                     update_data[num_col] = 0.0
+        
+        # 審計：每次寫回時更新 modified_at
+        update_data["modified_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
         # 保存到數據庫或內存
         try:
@@ -1264,7 +1334,7 @@ def save_edited_data(ed_df, original_df, user_email=None):
         except Exception as e:
             errors.append(f"記錄 ID {record_id} 更新錯誤: {str(e)}")
     
-    return saved_count, errors
+    return saved_count, errors, warnings
 
 def process_ocr(image_obj, file_name, model_name, api_key_val):
     try:
@@ -1480,7 +1550,7 @@ def insert_assistant_draft(draft, user_email):
         try: return float(v)
         except: return 0.0
     try:
-        q = "INSERT INTO invoices (user_email, file_name, date, invoice_number, seller_name, seller_ubn, subtotal, tax, total, category, subject, status, note) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)"
+        q = "INSERT INTO invoices (user_email, file_name, date, invoice_number, seller_name, seller_ubn, subtotal, tax, total, category, subject, status, note, tax_type) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
         total = safe_float(draft.get("total", 0))
         tax = round(total / 1.05 * 0.05, 2) if total else 0
         subtotal = round(total - tax, 2)
@@ -1498,6 +1568,7 @@ def insert_assistant_draft(draft, user_email):
             safe_str(draft.get("subject"), "雜項"),
             "✅ 正常",
             "由 AI 報帳小助理新增",
+            "5%",
         )
         result = run_query(q, params, is_select=False)
         return bool(result), None if result else "寫入失敗"
@@ -1907,6 +1978,10 @@ with st.expander("📋 設定公司資訊（用於 PDF 導出）", expanded=Fals
     ub = st.text_input("公司統編", value=st.session_state.get("company_ubn", ""), key="company_ubn_input", placeholder="8 碼數字")
     st.session_state.company_name = cn if cn is not None else st.session_state.get("company_name", "")
     st.session_state.company_ubn = ub if ub is not None else st.session_state.get("company_ubn", "")
+    if ub and ub.strip():
+        ok_ubn, msg_ubn = validate_ubn(ub)
+        if not ok_ubn:
+            st.caption(f"⚠️ {msg_ubn}（僅供參考，不影響導出）")
     st.caption("導出 PDF 時會顯示於報表上方；可不填。")
 
 # AI 報帳小助理對話框
@@ -1998,6 +2073,9 @@ if st.session_state.get("start_ocr", False) and ("upload_file_data" in st.sessio
         success_count = 0
         fail_count = 0
         duplicate_count = 0  # 因重複而跳過，需單獨提示
+        user_email = st.session_state.get('user_email', 'default_user')
+        # 邏輯架構說明書：上傳前先建立 Batch，單張失敗不影響已寫入
+        batch_id = create_batch(user_email, 'ocr')
         
         with st.status("AI 正在分析發票中...", expanded=True) as status:
             prog = st.progress(0)
@@ -2038,8 +2116,6 @@ if st.session_state.get("start_ocr", False) and ("upload_file_data" in st.sessio
                     # 檢查重複發票（即使發票號碼為"No"也要檢查，因為可能是同一張發票重複上傳）
                     invoice_no = safe_value(data.get("invoice_no"), "No")
                     invoice_date = safe_value(data.get("date"), datetime.now().strftime("%Y/%m/%d"))
-                    # 多用戶版本：使用 user_email
-                    user_email = st.session_state.get('user_email', 'default_user')
                     
                     # 檢查重複：如果發票號碼不是"No"，使用發票號碼+日期檢查；如果是"No"，使用日期+賣方名稱檢查
                     is_duplicate = False
@@ -2082,10 +2158,10 @@ if st.session_state.get("start_ocr", False) and ("upload_file_data" in st.sessio
                     
                     # 根據存儲模式選擇不同的保存方式
                     if st.session_state.use_memory_mode:
-                        # 使用內存模式
+                        # 使用內存模式（含 batch_id、tax_type）
                         invoice_record = {
                             'id': len(st.session_state.local_invoices) + 1,
-                            'user_email': st.session_state.get('user_email', 'default_user'),
+                            'user_email': user_email,
                             'file_name': safe_value(data.get("file_name"), "未命名"),
                             'date': safe_value(data.get("date"), datetime.now().strftime("%Y/%m/%d")),
                             'invoice_number': safe_value(data.get("invoice_no"), "No"),
@@ -2099,12 +2175,14 @@ if st.session_state.get("start_ocr", False) and ("upload_file_data" in st.sessio
                             'status': "❌ 缺失" if not check_data_complete(data) else safe_value(data.get("status"), "✅ 正常"),
                             'note': safe_value(data.get("note") or data.get("備註"), ""),
                             'image_path': image_path,
-                            'created_at': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                            'created_at': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                            'batch_id': batch_id,
+                            'tax_type': '5%'
                         }
                         st.session_state.local_invoices.append(invoice_record)
                         st.session_state.data_saved = True
                     else:
-                        # 使用數據庫 - 確保數據保存
+                        # 使用數據庫 - 確保數據保存（含 batch_id、tax_type）
                         init_db()
                         
                         # 讀取圖片數據（如果圖片路徑存在）
@@ -2116,9 +2194,7 @@ if st.session_state.get("start_ocr", False) and ("upload_file_data" in st.sessio
                             except:
                                 pass
                         
-                        # 多用戶版本：使用 user_email
-                        user_email = st.session_state.get('user_email', 'default_user')
-                        q = "INSERT INTO invoices (user_email, file_name, date, invoice_number, seller_name, seller_ubn, subtotal, tax, total, category, subject, status, note, image_path, image_data) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+                        q = "INSERT INTO invoices (user_email, file_name, date, invoice_number, seller_name, seller_ubn, subtotal, tax, total, category, subject, status, note, image_path, image_data, batch_id, tax_type) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
                         insert_params = (
                             user_email, 
                             safe_value(data.get("file_name"), "未命名"),
@@ -2134,7 +2210,9 @@ if st.session_state.get("start_ocr", False) and ("upload_file_data" in st.sessio
                             "❌ 缺失" if not check_data_complete(data) else safe_value(data.get("status"), "✅ 正常"),
                             safe_value(data.get("note") or data.get("備註"), ""),
                             image_path,
-                            image_data
+                            image_data,
+                            batch_id,
+                            '5%'
                         )
                         
                         result = run_query(q, insert_params, is_select=False)
@@ -2161,7 +2239,9 @@ if st.session_state.get("start_ocr", False) and ("upload_file_data" in st.sessio
                                 'note': safe_value(data.get("note") or data.get("備註"), ""),
                                 'status': "❌ 缺失" if not check_data_complete(data) else safe_value(data.get("status"), "✅ 正常"),
                                 'image_path': image_path,
-                                'created_at': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                                'created_at': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                                'batch_id': batch_id,
+                                'tax_type': '5%'
                             }
                             st.session_state.local_invoices.append(invoice_record)
                             st.session_state.use_memory_mode = True
@@ -2251,7 +2331,9 @@ if st.session_state.get("start_import", False) and "import_file" in st.session_s
             if missing_fields:
                 st.error(f"缺少必填字段: {', '.join(missing_fields)}")
             else:
-                # 開始導入
+                # 開始導入（邏輯架構說明書：上傳前先建立 Batch）
+                user_email = st.session_state.get('user_email', 'default_user')
+                batch_id = create_batch(user_email, 'import')
                 imported_count = 0
                 duplicate_count = 0
                 error_count = 0
@@ -2262,8 +2344,6 @@ if st.session_state.get("start_import", False) and "import_file" in st.session_s
                             # 檢查重複
                             invoice_no = str(row.get("發票號碼", "No"))
                             invoice_date = str(row.get("日期", ""))
-                            # 多用戶版本：使用 user_email
-                            user_email = st.session_state.get('user_email', 'default_user')
                             is_dup, _ = check_duplicate_invoice(invoice_no, invoice_date, user_email)
                             
                             if is_dup:
@@ -2281,7 +2361,7 @@ if st.session_state.get("start_import", False) and "import_file" in st.session_s
                                 val_str = str(val) if not pd.isna(val) else ""
                                 return val_str if val_str.strip() else default
                             
-                            # 保存數據（多用戶版本：使用 user_email）
+                            # 保存數據（含 batch_id、tax_type）
                             if st.session_state.use_memory_mode:
                                 invoice_record = {
                                     'id': len(st.session_state.local_invoices) + 1,
@@ -2299,14 +2379,15 @@ if st.session_state.get("start_import", False) and "import_file" in st.session_s
                                     'status': "✅ 正常",
                                     'note': safe_str(row.get("備註"), ""),
                                     'image_path': None,
-                                    'created_at': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                                    'created_at': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                                    'batch_id': batch_id,
+                                    'tax_type': '5%'
                                 }
                                 st.session_state.local_invoices.append(invoice_record)
                                 imported_count += 1
                             else:
                                 init_db()
-                                # 多用戶版本：使用 user_email
-                                q = "INSERT INTO invoices (user_email, file_name, date, invoice_number, seller_name, seller_ubn, subtotal, tax, total, category, subject, status, note) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)"
+                                q = "INSERT INTO invoices (user_email, file_name, date, invoice_number, seller_name, seller_ubn, subtotal, tax, total, category, subject, status, note, batch_id, tax_type) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
                                 params = (
                                     user_email,
                                     safe_str(row.get("檔案名稱"), "導入數據"),
@@ -2320,7 +2401,9 @@ if st.session_state.get("start_import", False) and "import_file" in st.session_s
                                     safe_str(row.get("類型"), "其他"),
                                     safe_str(row.get("會計科目"), "雜項"),
                                     "✅ 正常",
-                                    safe_str(row.get("備註"), "")
+                                    safe_str(row.get("備註"), ""),
+                                    batch_id,
+                                    '5%'
                                 )
                                 if run_query(q, params, is_select=False):
                                     imported_count += 1
@@ -2553,7 +2636,9 @@ with st.container():
                 "subject":"會計科目",
                 "status":"狀態",
                 "note":"備註",
-                "created_at":"建立時間"
+                "created_at":"建立時間",
+                "tax_type":"稅率類型",
+                "modified_at":"修改時間"
             }
             df = df.rename(columns=mapping)
             # 同時重命名df_with_id的列（如果存在）
@@ -2675,16 +2760,19 @@ with st.container():
                 if export_df.empty:
                     return b""
 
-                # 構建符合國稅局欄位結構的表格
-                # 優先使用現有「銷售額」「稅額」「總計」，若缺失則由總計推算
+                # 構建符合國稅局欄位結構的表格；審計：依稅率類型支援 0%/免稅
                 total_series = pd.to_numeric(export_df.get('總計', 0), errors='coerce').fillna(0)
                 subtotal_series = pd.to_numeric(export_df.get('銷售額', 0), errors='coerce').fillna(0)
                 tax_series = pd.to_numeric(export_df.get('稅額', 0), errors='coerce').fillna(0)
+                tax_type_col = export_df.get('稅率類型')
+                if tax_type_col is None:
+                    tax_type_col = pd.Series('5%', index=export_df.index)
+                tax_type_str = tax_type_col.fillna('5%').astype(str).str.strip().str.lower()
+                is_zero_or_exempt = tax_type_str.isin(['0%', 'exempt', '零稅率', '免稅'])
 
-                # 如果「銷售額」或「稅額」為 0，依據總計自動計算
                 need_recalc = ((subtotal_series == 0) | (tax_series == 0)) & (total_series > 0)
                 if need_recalc.any():
-                    calc_tax = (total_series - (total_series / 1.05)).round(0)
+                    calc_tax = pd.Series(0.0, index=export_df.index).where(is_zero_or_exempt, (total_series - (total_series / 1.05)).round(0))
                     calc_subtotal = (total_series - calc_tax).round(0)
                     tax_series = tax_series.where(~need_recalc, calc_tax)
                     subtotal_series = subtotal_series.where(~need_recalc, calc_subtotal)
@@ -2891,9 +2979,13 @@ with st.container():
 
                         if (pd.isna(subtotal_val) or subtotal_val == 0) or (pd.isna(tax_val) or tax_val == 0):
                             if total_val > 0:
-                                # 依據總計反推稅額與未稅金額（預設稅率 5%）
-                                tax_val = round(total_val - (total_val / 1.05))
-                                subtotal_val = total_val - tax_val
+                                tax_type_val = str(row.get('稅率類型', row.get('tax_type', '5%')) or '5%').strip().lower()
+                                if tax_type_val in ('0%', 'exempt', '零稅率', '免稅'):
+                                    tax_val = 0
+                                    subtotal_val = total_val
+                                else:
+                                    tax_val = round(total_val - (total_val / 1.05))
+                                    subtotal_val = total_val - tax_val
                             else:
                                 subtotal_val = 0
                                 tax_val = 0
@@ -2986,14 +3078,22 @@ with st.container():
     df_before_filter = len(df) if not df.empty else 0
     
     if not df.empty:
-        # 1. 搜尋發票號碼 / 賣方名稱 / 檔名（主搜尋框）
+        # 1. 搜尋發票號碼 / 賣方名稱 / 檔名（主搜尋框）；審計：None/NaN 正規化為空字串，避免 "no" 匹配到 str(None)
         if search:
             df_before_search = len(df)
             search_term = search.strip().lower()
+            def _safe_search_val(val):
+                if val is None:
+                    return ""
+                try:
+                    if pd.isna(val):
+                        return ""
+                except Exception:
+                    pass
+                return str(val).strip()
             def match_row(row):
-                text = " ".join([
-                    str(row.get(col, "")) for col in ["發票號碼", "賣方名稱", "檔案名稱"]
-                ]).lower()
+                parts = [_safe_search_val(row.get(col, "")) for col in ["發票號碼", "賣方名稱", "檔案名稱"]]
+                text = " ".join(parts).lower()
                 return search_term in text
             df = df[df.apply(match_row, axis=1)]
             if len(df) == 0 and df_before_search > 0:
@@ -3158,25 +3258,23 @@ with st.container():
             if col in df.columns:
                 df = df.drop(columns=[col])
         
-        # 自動計算「未稅金額」與「稅額 (5%)」
+        # 自動計算「未稅金額」與「稅額 (5%)」；審計：依稅率類型支援 5%/0%/免稅
         if "總計" in df.columns:
-            # 將總計轉換為數值
             total_series = pd.to_numeric(df["總計"], errors="coerce").fillna(0)
+            tax_type_col = df.get("稅率類型")
+            if tax_type_col is None:
+                tax_type_col = pd.Series("5%", index=df.index)
+            tax_type_str = tax_type_col.fillna("5%").astype(str).str.strip().str.lower()
+            is_zero_or_exempt = tax_type_str.isin(["0%", "exempt", "零稅率", "免稅"])
             
-            # 計算稅額 (5%)：如果已有稅額欄位且不為0，使用現有值；否則從總計反推
             if "稅額" in df.columns:
                 existing_tax = pd.to_numeric(df["稅額"], errors="coerce").fillna(0)
-                # 如果稅額為0但總計不為0，則計算稅額
-                tax_series = existing_tax.where((existing_tax > 0) | (total_series == 0), 
-                                                (total_series - (total_series / 1.05)).round(0))
+                calc_tax = pd.Series(0.0, index=df.index).where(is_zero_or_exempt, (total_series - (total_series / 1.05)).round(0))
+                tax_series = existing_tax.where((existing_tax > 0) | (total_series == 0), calc_tax)
             else:
-                # 沒有稅額欄位，從總計反推
-                tax_series = (total_series - (total_series / 1.05)).round(0)
+                tax_series = pd.Series(0.0, index=df.index).where(is_zero_or_exempt, (total_series - (total_series / 1.05)).round(0))
             
-            # 計算未稅金額 = 總計 - 稅額
             subtotal_series = (total_series - tax_series).round(0)
-            
-            # 添加到 DataFrame（保持為數值，以便在 column_config 中使用 NumberColumn）
             df["未稅金額"] = subtotal_series
             df["稅額 (5%)"] = tax_series
             
@@ -3846,9 +3944,19 @@ with st.container():
                 # 有變更，自動保存
                 # 多用戶版本：使用 user_email
                 user_email = st.session_state.get('user_email', 'default_user')
-                saved_count, errors = save_edited_data(ed_df, original_df_copy, user_email)
+                saved_count, errors, warnings = save_edited_data(ed_df, original_df_copy, user_email)
                 if saved_count > 0:
                     st.success(f"✅ 已自動保存 {saved_count} 筆數據變更")
+                    # 統編驗證提示（僅提示，不阻擋）
+                    if warnings:
+                        st.warning("⚠️ 部分賣方統編非 8 位數字，已儲存僅供參考。")
+                        if len(warnings) <= 3:
+                            for w in warnings:
+                                st.caption(w)
+                        else:
+                            with st.expander("查看統編提示", expanded=False):
+                                for w in warnings:
+                                    st.caption(w)
                     # 修復 Bug #4: 改進錯誤顯示，使用 expander 顯示所有錯誤
                     if errors:
                         if len(errors) > 3:
