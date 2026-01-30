@@ -3340,6 +3340,7 @@ with st.container():
     
     # ========== 2. 發票明細與編輯 ==========
     st.subheader("📋 發票明細與編輯")
+    st.caption("按組可檢視批次摘要與導出全部；按單張可篩選、勾選刪除與直接編輯欄位。")
     _user_email = st.session_state.get('user_email', 'default_user')
     
     if is_group_view:
@@ -3375,7 +3376,14 @@ with st.container():
                 total_sum = pd.to_numeric(inv_df.get('總計', 0), errors='coerce').fillna(0).sum()
                 tax_sum = pd.to_numeric(inv_df.get('稅額', 0), errors='coerce').fillna(0).sum() if '稅額' in inv_df.columns else 0
                 with st.expander(f"📦 {created} · {src} · {len(inv_df)} 張 · 合計 ${total_sum:,.0f}", expanded=False):
-                    st.caption(f"本組總計：${total_sum:,.0f} 元　稅額：${tax_sum:,.0f} 元")
+                    # 本組摘要：總計 | 稅額 | 張數（4px/8px 網格）
+                    sum_col1, sum_col2, sum_col3 = st.columns(3)
+                    with sum_col1:
+                        st.markdown('<div class="batch-summary-item"><span class="batch-summary-label">總計</span><span class="batch-summary-value">${:,.0f}</span></div>'.format(total_sum), unsafe_allow_html=True)
+                    with sum_col2:
+                        st.markdown('<div class="batch-summary-item"><span class="batch-summary-label">稅額</span><span class="batch-summary-value">${:,.0f}</span></div>'.format(tax_sum), unsafe_allow_html=True)
+                    with sum_col3:
+                        st.markdown('<div class="batch-summary-item"><span class="batch-summary-label">張數</span><span class="batch-summary-value">{}</span></div>'.format(len(inv_df)), unsafe_allow_html=True)
                     disp_cols = [c for c in ['日期', '發票號碼', '賣方名稱', '總計', '狀態'] if c in inv_df.columns]
                     st.dataframe(inv_df[disp_cols] if disp_cols else inv_df, use_container_width=True, hide_index=True)
                     if st.button("🗑️ 刪除此組", key=f"del_batch_{b['id']}", type="secondary"):
@@ -3385,7 +3393,13 @@ with st.container():
                 total_ug = pd.to_numeric(ungrouped_df.get('總計', 0), errors='coerce').fillna(0).sum()
                 tax_ug = pd.to_numeric(ungrouped_df.get('稅額', 0), errors='coerce').fillna(0).sum() if '稅額' in ungrouped_df.columns else 0
                 with st.expander(f"📄 未分組 ({len(ungrouped_df)} 張) · 合計 ${total_ug:,.0f}", expanded=False):
-                    st.caption(f"本組總計：${total_ug:,.0f} 元　稅額：${tax_ug:,.0f} 元")
+                    sum_col1, sum_col2, sum_col3 = st.columns(3)
+                    with sum_col1:
+                        st.markdown('<div class="batch-summary-item"><span class="batch-summary-label">總計</span><span class="batch-summary-value">${:,.0f}</span></div>'.format(total_ug), unsafe_allow_html=True)
+                    with sum_col2:
+                        st.markdown('<div class="batch-summary-item"><span class="batch-summary-label">稅額</span><span class="batch-summary-value">${:,.0f}</span></div>'.format(tax_ug), unsafe_allow_html=True)
+                    with sum_col3:
+                        st.markdown('<div class="batch-summary-item"><span class="batch-summary-label">張數</span><span class="batch-summary-value">{}</span></div>'.format(len(ungrouped_df)), unsafe_allow_html=True)
                     disp_cols = [c for c in ['日期', '發票號碼', '賣方名稱', '總計', '狀態'] if c in ungrouped_df.columns]
                     st.dataframe(ungrouped_df[disp_cols] if disp_cols else ungrouped_df, use_container_width=True, hide_index=True)
             # 刪除 Batch 確認：使用 dialog，避免置頂混淆
@@ -3848,6 +3862,15 @@ with st.container():
                     column_config["建立時間"] = st.column_config.TextColumn("建立時間", width="medium")
                     df_for_editor["建立時間"] = df["建立時間"]
         
+            # 明細一覽說明與欄位顯示切換（核心欄位優先，進階欄位可展開）
+            st.caption(f"共 **{len(df_for_editor)}** 筆。勾選「選取」可批次刪除；直接於表格內編輯後點「儲存變更」。")
+            show_all_cols = st.checkbox(
+                "顯示全部欄位（會計科目、稅額、備註等）",
+                value=st.session_state.get("invoice_show_all_columns", False),
+                key="invoice_show_all_columns"
+            )
+            st.session_state.invoice_show_all_columns = show_all_cols
+
             # 添加 JavaScript 來高亮問題行並設置列對齊（在表格渲染後執行）
             st.markdown("""
             <script>
@@ -3977,9 +4000,15 @@ with st.container():
                                 new_cols.append(col)
                         df_for_editor.columns = new_cols
                 
-                    # 使用 column_order 隱藏 id 欄位，但在返回的資料中仍保留 id（供後端更新使用）
-                    visible_columns = [c for c in df_for_editor.columns if c != "id"]
-                
+                    # 核心欄位優先顯示，進階欄位依「顯示全部欄位」切換
+                    core_columns = [c for c in ["選取", "日期", "發票號碼", "賣方名稱", "總計", "狀態"] if c in df_for_editor.columns]
+                    secondary_order = ["會計科目", "類型", "賣方統編", "銷售額", "稅額", "未稅金額", "稅額 (5%)", "稅率類型", "備註", "建立時間", "修改時間"]
+                    other_cols_ordered = [c for c in secondary_order if c in df_for_editor.columns]
+                    rest = [c for c in df_for_editor.columns if c not in core_columns and c not in other_cols_ordered and c not in ("id", "_original_index")]
+                    other_columns = other_cols_ordered + rest
+                    show_all = st.session_state.get("invoice_show_all_columns", False)
+                    visible_columns = (core_columns + other_columns) if show_all else core_columns
+
                     # 驗證列名：確保沒有 None、空字符串或無效字符
                     def is_valid_column_name(name):
                         """檢查列名是否有效"""
@@ -3990,7 +4019,7 @@ with st.container():
                         if name.strip() == "":
                             return False
                         return True
-                
+
                     visible_columns = [c for c in visible_columns if is_valid_column_name(c)]
                     visible_columns = list(dict.fromkeys(visible_columns))  # 移除重複，保持順序
                 

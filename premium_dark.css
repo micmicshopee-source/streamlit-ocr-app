@@ -349,6 +349,30 @@ p, span, div, label {
     box-shadow: none !important;
 }
 
+/* 按組明細：本組摘要（總計 | 稅額 | 張數）*/
+.batch-summary-item {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: var(--space-1) !important;
+    padding: var(--space-2) var(--space-3) !important;
+    background: var(--border-subtle) !important;
+    border-radius: var(--radius-md) !important;
+    margin-bottom: var(--space-3) !important;
+}
+.batch-summary-label {
+    font-size: 0.6875rem !important;
+    color: var(--text-muted) !important;
+    font-weight: 500 !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.05em !important;
+}
+.batch-summary-value {
+    font-size: 1.125rem !important;
+    font-weight: 600 !important;
+    color: var(--text-primary) !important;
+    font-variant-numeric: tabular-nums !important;
+}
+
 /* --- 7. 數據表格：Stripe 風格（去縱線、階層、間距、Hover）--- */
 [data-testid="stDataEditor"],
 [data-testid="stDataFrame"] {
