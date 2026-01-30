@@ -1240,6 +1240,95 @@ def check_duplicate_invoice(invoice_number, date, user_email=None):
     return False, None
 
 
+def get_batches_for_user(user_email=None):
+    """取得當前用戶的 Batch 列表（說明書 § 三：按組顯示用）。回傳 list of dict: id, user_email, source, created_at, invoice_count。"""
+    user_email = user_email or st.session_state.get('user_email', 'default_user')
+    if st.session_state.use_memory_mode:
+        batches = [b for b in st.session_state.local_batches if b.get('user_email') == user_email]
+        for b in batches:
+            b['invoice_count'] = len([inv for inv in st.session_state.local_invoices 
+                                      if inv.get('batch_id') == b.get('id') and inv.get('user_email', inv.get('user_id', '')) == user_email])
+        batches.sort(key=lambda x: x.get('created_at', ''), reverse=True)
+        return batches
+    try:
+        path = get_db_path()
+        is_uri = path.startswith("file:") and "mode=memory" in path
+        conn = sqlite3.connect(path, timeout=30, uri=is_uri, check_same_thread=False)
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT b.id, b.user_email, b.source, b.created_at,
+                   (SELECT COUNT(*) FROM invoices i WHERE i.batch_id = b.id AND i.user_email = b.user_email) AS invoice_count
+            FROM batches b WHERE b.user_email = ? ORDER BY b.created_at DESC
+        """, (user_email,))
+        rows = cursor.fetchall()
+        conn.close()
+        return [{'id': r[0], 'user_email': r[1], 'source': r[2], 'created_at': r[3], 'invoice_count': r[4] or 0} for r in rows]
+    except Exception:
+        return []
+
+
+def get_invoices_by_batch(batch_id, user_email=None):
+    """取得指定 Batch 下的發票（說明書 § 三：按組顯示用）。回傳已重命名欄位的 DataFrame。"""
+    user_email = user_email or st.session_state.get('user_email', 'default_user')
+    mapping = {"file_name":"檔案名稱","date":"日期","invoice_number":"發票號碼","seller_name":"賣方名稱","seller_ubn":"賣方統編",
+               "subtotal":"銷售額","tax":"稅額","total":"總計","category":"類型","subject":"會計科目","status":"狀態","note":"備註","created_at":"建立時間"}
+    if st.session_state.use_memory_mode:
+        rows = [inv for inv in st.session_state.local_invoices 
+                if inv.get('batch_id') == batch_id and inv.get('user_email', inv.get('user_id', '')) == user_email]
+        if not rows:
+            return pd.DataFrame()
+        df = pd.DataFrame(rows)
+        df = df.rename(columns=mapping)
+        return df
+    try:
+        path = get_db_path()
+        is_uri = path.startswith("file:") and "mode=memory" in path
+        conn = sqlite3.connect(path, timeout=30, uri=is_uri, check_same_thread=False)
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM invoices WHERE batch_id = ? AND user_email = ? ORDER BY id", (batch_id, user_email))
+        cols = [d[0] for d in cursor.description]
+        rows = cursor.fetchall()
+        conn.close()
+        if not rows:
+            return pd.DataFrame()
+        df = pd.DataFrame(rows, columns=cols)
+        df = df.rename(columns=mapping)
+        return df
+    except Exception:
+        return pd.DataFrame()
+
+
+def get_ungrouped_invoices(user_email=None):
+    """取得未分組發票（batch_id 為 NULL）。回傳已重命名欄位的 DataFrame。"""
+    user_email = user_email or st.session_state.get('user_email', 'default_user')
+    mapping = {"file_name":"檔案名稱","date":"日期","invoice_number":"發票號碼","seller_name":"賣方名稱","seller_ubn":"賣方統編",
+               "subtotal":"銷售額","tax":"稅額","total":"總計","category":"類型","subject":"會計科目","status":"狀態","note":"備註","created_at":"建立時間"}
+    if st.session_state.use_memory_mode:
+        rows = [inv for inv in st.session_state.local_invoices 
+                if (inv.get('batch_id') is None or inv.get('batch_id') == '') and inv.get('user_email', inv.get('user_id', '')) == user_email]
+        if not rows:
+            return pd.DataFrame()
+        df = pd.DataFrame(rows)
+        df = df.rename(columns=mapping)
+        return df
+    try:
+        path = get_db_path()
+        is_uri = path.startswith("file:") and "mode=memory" in path
+        conn = sqlite3.connect(path, timeout=30, uri=is_uri, check_same_thread=False)
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM invoices WHERE (batch_id IS NULL OR batch_id = '') AND user_email = ? ORDER BY id", (user_email,))
+        cols = [d[0] for d in cursor.description]
+        rows = cursor.fetchall()
+        conn.close()
+        if not rows:
+            return pd.DataFrame()
+        df = pd.DataFrame(rows, columns=cols)
+        df = df.rename(columns=mapping)
+        return df
+    except Exception:
+        return pd.DataFrame()
+
+
 def validate_ubn(val):
     """台灣統編驗證：8 位數字（選填時空值視為通過）。回傳 (ok, message)。"""
     if val is None or (isinstance(val, str) and not str(val).strip()):
@@ -3079,6 +3168,7 @@ with st.container():
     
     if not df.empty:
         # 1. 搜尋發票號碼 / 賣方名稱 / 檔名（主搜尋框）；審計：None/NaN 正規化為空字串，避免 "no" 匹配到 str(None)
+        # 說明書 § 三：有搜尋關鍵字時才套用篩選（按單張模式）；無關鍵字時為按組顯示，不篩選 df
         if search:
             df_before_search = len(df)
             search_term = search.strip().lower()
@@ -3098,892 +3188,906 @@ with st.container():
             df = df[df.apply(match_row, axis=1)]
             if len(df) == 0 and df_before_search > 0:
                 st.info(f"💡 搜尋「{search}」沒有匹配到任何數據（已過濾 {df_before_search} 筆）")
-        
-        # 2. 狀態標籤過濾（正常 / 缺失）
-        status_filter = st.session_state.get("status_filter_pills", "全部")
-        if status_filter != "全部" and "狀態" in df.columns:
-            if status_filter == "正常":
-                # 過濾出狀態為「正常」的發票（包含 ✅ 正常）
-                df = df[df["狀態"].astype(str).str.contains("正常", na=False)]
-            elif status_filter == "缺失":
-                # 過濾出狀態為「缺失」的發票（包含 ❌ 缺失、缺漏等）
-                df = df[df["狀態"].astype(str).str.contains("缺失|缺漏|❌", na=False, regex=True)]
-        
-        # 3. 日期區間過濾（依 date_range_start / date_range_end；兩者皆空為「全部」）
-        date_start = st.session_state.get("date_range_start")
-        date_end = st.session_state.get("date_range_end")
-        if date_start is not None and date_end is not None and "日期" in df.columns:
-            date_col = "日期"
-            try:
-                # 將日期列轉換為日期格式進行比較
-                df[date_col] = pd.to_datetime(df[date_col], errors='coerce', format='%Y/%m/%d')
-                valid_dates_mask = df[date_col].notna()
-                date_filter_mask = (df[date_col].dt.date >= date_start) & (df[date_col].dt.date <= date_end)
-                df = df[valid_dates_mask & date_filter_mask]
-            except Exception:
+            
+            # 2–6. 僅在按單張模式套用其餘篩選
+            status_filter = st.session_state.get("status_filter_pills", "全部")
+            if status_filter != "全部" and "狀態" in df.columns:
+                if status_filter == "正常":
+                    df = df[df["狀態"].astype(str).str.contains("正常", na=False)]
+                elif status_filter == "缺失":
+                    df = df[df["狀態"].astype(str).str.contains("缺失|缺漏|❌", na=False, regex=True)]
+            
+            date_start = st.session_state.get("date_range_start")
+            date_end = st.session_state.get("date_range_end")
+            if date_start is not None and date_end is not None and "日期" in df.columns:
+                date_col = "日期"
                 try:
-                    date_start_str = date_start.strftime("%Y/%m/%d")
-                    date_end_str = date_end.strftime("%Y/%m/%d")
-                    def date_in_range(date_str):
-                        try:
-                            date_val = datetime.strptime(str(date_str), "%Y/%m/%d").date()
-                            return date_start <= date_val <= date_end
-                        except Exception:
-                            return False
-                    df = df[df[date_col].astype(str).apply(date_in_range)]
+                    df[date_col] = pd.to_datetime(df[date_col], errors='coerce', format='%Y/%m/%d')
+                    valid_dates_mask = df[date_col].notna()
+                    date_filter_mask = (df[date_col].dt.date >= date_start) & (df[date_col].dt.date <= date_end)
+                    df = df[valid_dates_mask & date_filter_mask]
                 except Exception:
-                    pass
-
-        # 4. 會計科目篩選
-        filter_subjects = st.session_state.get("filter_subjects", [])
-        if filter_subjects and "會計科目" in df.columns:
-            df = df[df["會計科目"].astype(str).isin(filter_subjects)]
-
-        # 5. 類型篩選
-        filter_categories = st.session_state.get("filter_categories", [])
-        if filter_categories and "類型" in df.columns:
-            df = df[df["類型"].astype(str).isin(filter_categories)]
-
-        # 6. 金額範圍篩選
-        if "總計" in df.columns:
-            total_num = pd.to_numeric(df["總計"].astype(str).str.replace(",", ""), errors="coerce").fillna(0)
-            amount_min = st.session_state.get("filter_amount_min", 0) or 0
-            amount_max = st.session_state.get("filter_amount_max", 0) or 0
-            mask = pd.Series(True, index=df.index)
-            if amount_min > 0:
-                mask = mask & (total_num >= amount_min)
-            if amount_max > 0:
-                mask = mask & (total_num <= amount_max)
-            df = df[mask]
-    
-    # ========== 2. 發票明細與編輯 ==========
-    st.subheader("📋 發票明細與編輯")
-    # 數據表格顯示（df已經重命名過，直接使用）
-    # 篩選後無結果時顯示友善提示（不使用調試文案）
-    if df.empty:
-        if not df_raw.empty:
-            # 有原始數據但篩選後為空：使用者導向提示
-            with st.expander("📋 目前篩選結果為 0 筆", expanded=True):
-                st.write("**目前篩選條件：**")
-                st.write(f"- 關鍵字搜尋: {search if search else '無'}")
-                date_start = st.session_state.get("date_range_start")
-                date_end = st.session_state.get("date_range_end")
-                if date_start and date_end:
-                    st.write(f"- 日期範圍: {date_start} ~ {date_end}")
-                else:
-                    st.write("- 時間範圍: 全部")
-                st.write(f"- 狀態: {st.session_state.get('status_filter_pills', '全部')}")
-                st.caption("若需顯示更多資料，可放寬條件或清除篩選。")
-                if st.button("🔄 清除所有篩選條件", use_container_width=True, key="clear_filters_empty"):
-                    if "time_filter_last_preset" in st.session_state:
-                        st.session_state["time_filter_last_preset"] = "全部"
-                    if "date_range_start" in st.session_state:
-                        st.session_state.date_range_start = None
-                    if "date_range_end" in st.session_state:
-                        st.session_state.date_range_end = None
-                    st.rerun()
-        elif df_raw.empty:
-            st.info("📊 目前沒有數據，請上傳發票圖片或導入CSV數據")
-        else:
-            st.info("📊 目前沒有數據，請上傳發票圖片或導入CSV數據")
-    else:
-        # 處理空值：用"No"替換
-        def fill_empty(val):
-            if pd.isna(val) or val == '' or val == 'N/A' or str(val).strip() == '':
-                return 'No'
-            return str(val)
-        
-        # 對所有列應用空值處理（除了狀態列，狀態列需要特殊處理）
-        for col in df.columns:
-            if col not in ['選取', '狀態']:  # 跳過選取和狀態列
-                df[col] = df[col].apply(fill_empty)
-        
-        # 處理狀態列：檢查是否有缺失數據，如果有則顯示"缺失"
-        if "狀態" in df.columns:
-            def check_status(row):
-                # 先檢查關鍵字段是否為空或"No"（優先級最高）
-                key_fields = ['日期', '發票號碼', '賣方名稱', '總計']
-                has_missing = False
-                for field in key_fields:
-                    if field in row:
-                        val = str(row[field]).strip()
-                        if pd.isna(row[field]) or val == '' or val == 'N/A' or val == 'No' or val == '未填':
-                            has_missing = True
-                            break
-                
-                # 如果有缺失，直接返回"缺失"（不考慮原始狀態）
-                if has_missing:
-                    return '❌ 缺失'
-                
-                # 如果沒有缺失，再檢查原始狀態
-                original_status = str(row.get('狀態', '')).strip()
-                
-                # 如果原本的狀態已經是錯誤狀態，保持原樣（但確保有紅色X）
-                if '缺漏' in original_status or '缺失' in original_status or '錯誤' in original_status:
-                    # 如果已經有❌，保持原樣；如果沒有，添加❌
-                    if '❌' not in original_status and '⚠️' not in original_status:
-                        return f'❌ {original_status}'
-                    return original_status
-                
-                # 如果沒有缺失且原始狀態正常，返回"正常"
-                if original_status and ('正常' in original_status or '✅' in original_status):
-                    return '✅ 正常'
-                
-                # 如果原始狀態為空，返回"正常"
-                return '✅ 正常'
-            
-            df['狀態'] = df.apply(check_status, axis=1)
-        
-        # 再次確保移除image相關的列
-        columns_to_drop = ['image_data', 'imageData', 'image_path']
-        for col in columns_to_drop:
-            if col in df.columns:
-                df = df.drop(columns=[col])
-        
-        # 確保ID列保留在df中（用於刪除功能），但不在顯示中顯示
-        # 從df_with_id中獲取id列（如果存在）
-        if df_with_id is not None and 'id' in df_with_id.columns:
-            # 確保df中有id列（用於刪除功能）
-            if 'id' not in df.columns:
-                # 通過索引匹配，將id從df_with_id複製到df
-                df = df.copy()
-                df['id'] = None
-                for idx in df.index:
-                    if idx in df_with_id.index:
-                        df.loc[idx, 'id'] = df_with_id.loc[idx, 'id']
-        
-        # 移除其他不需要顯示的列（保留「總計」供前端表格使用）
-        columns_to_hide = ['user_id', 'user_email', '檔案名稱']
-        for col in columns_to_hide:
-            if col in df.columns:
-                df = df.drop(columns=[col])
-        
-        # 自動計算「未稅金額」與「稅額 (5%)」；審計：依稅率類型支援 5%/0%/免稅
-        if "總計" in df.columns:
-            total_series = pd.to_numeric(df["總計"], errors="coerce").fillna(0)
-            tax_type_col = df.get("稅率類型")
-            if tax_type_col is None:
-                tax_type_col = pd.Series("5%", index=df.index)
-            tax_type_str = tax_type_col.fillna("5%").astype(str).str.strip().str.lower()
-            is_zero_or_exempt = tax_type_str.isin(["0%", "exempt", "零稅率", "免稅"])
-            
-            if "稅額" in df.columns:
-                existing_tax = pd.to_numeric(df["稅額"], errors="coerce").fillna(0)
-                calc_tax = pd.Series(0.0, index=df.index).where(is_zero_or_exempt, (total_series - (total_series / 1.05)).round(0))
-                tax_series = existing_tax.where((existing_tax > 0) | (total_series == 0), calc_tax)
-            else:
-                tax_series = pd.Series(0.0, index=df.index).where(is_zero_or_exempt, (total_series - (total_series / 1.05)).round(0))
-            
-            subtotal_series = (total_series - tax_series).round(0)
-            df["未稅金額"] = subtotal_series
-            df["稅額 (5%)"] = tax_series
-            
-        # 為問題行添加警示圖示（發票號碼為 "No" 或狀態為 "缺失"）
-        if "發票號碼" in df.columns:
-            def add_warning_icon(invoice_no, status):
-                """為問題行添加警示圖示"""
-                invoice_str = str(invoice_no).strip() if pd.notna(invoice_no) else ""
-                status_str = str(status).strip() if pd.notna(status) else ""
-                
-                is_problem = (invoice_str == "No" or invoice_str == "" or 
-                             "缺失" in status_str or "❌" in status_str or "缺漏" in status_str)
-                
-                if is_problem:
-                    return "⚠️ " + str(invoice_no) if invoice_str != "No" else "⚠️ No"
-                return str(invoice_no)
-            
-            df["發票號碼"] = df.apply(
-                lambda row: add_warning_icon(row.get("發票號碼", ""), row.get("狀態", "")), 
-                axis=1
-            )
-        
-        # 調整列順序：選取 -> 狀態 -> 其他列（id列保留但不顯示）
-        if "選取" not in df.columns: 
-            df.insert(0, "選取", False)
-        
-        # 將狀態列移到選取列之後
-        if "狀態" in df.columns:
-            cols = df.columns.tolist()
-            cols.remove("狀態")
-            if "選取" in cols:
-                select_idx = cols.index("選取")
-                cols.insert(select_idx + 1, "狀態")
-            else:
-                cols.insert(0, "狀態")
-            df = df[cols]
-        
-        # 調整金額相關欄位的順序：銷售額 -> 未稅金額 -> 稅額 -> 稅額 (5%) -> 總計
-        if "未稅金額" in df.columns and "稅額 (5%)" in df.columns:
-            cols = df.columns.tolist()
-            # 移除這些欄位
-            for col in ["銷售額", "未稅金額", "稅額", "稅額 (5%)", "總計"]:
-                if col in cols:
-                    cols.remove(col)
-            
-            # 找到合適的位置插入（在「狀態」之後，其他欄位之前）
-            try:
-                status_idx = cols.index("狀態")
-                insert_pos = status_idx + 1
-            except:
-                insert_pos = 1
-            
-            # 按順序插入金額欄位（包含總計變化）
-            amount_cols = ["銷售額", "未稅金額", "稅額", "稅額 (5%)", "總計"]
-            for i, col in enumerate(amount_cols):
-                if col in df.columns:
-                    cols.insert(insert_pos + i, col)
-            
-            df = df[cols]
-        
-        # 在刪除功能使用後，移除 _original_index 列（如果存在）
-        if '_original_index' in df.columns:
-            df = df.drop(columns=['_original_index'])
-        
-        # 不再顯示標題和選中數量
-        if st.session_state.get("show_delete_confirm", False):
-            delete_records = st.session_state.get("delete_records", [])
-            delete_count = st.session_state.get("delete_count", 0)
-            
-            # 使用裝飾器方式定義刪除確認對話框
-            @st.dialog("⚠️ 確認刪除")
-            def delete_confirm_dialog():
-                st.warning(f"確定要刪除選中的 {delete_count} 條數據嗎？")
-                st.error("⚠️ 此操作不可恢復！")
-                
-                # 顯示要刪除的記錄預覽（顯示id、發票號碼和日期）
-                if delete_records:
-                    with st.expander("查看要刪除的記錄", expanded=False):
-                        # 準備預覽數據，將id、發票號碼、日期格式化顯示
-                        preview_data = []
-                        for rec in delete_records:
-                            preview_row = {}
-                            if 'id' in rec and rec['id'] is not None:
-                                preview_row['ID'] = rec['id']
-                            if 'invoice_number' in rec and rec.get('invoice_number'):
-                                preview_row['發票號碼'] = rec['invoice_number']
-                            else:
-                                preview_row['發票號碼'] = '(空)'
-                            if 'date' in rec and rec.get('date'):
-                                preview_row['日期'] = rec['date']
-                            else:
-                                preview_row['日期'] = '(空)'
-                            preview_data.append(preview_row)
-                        
-                        if preview_data:
-                            preview_df = pd.DataFrame(preview_data)
-                            st.dataframe(preview_df, use_container_width=True, hide_index=True)
-                        else:
-                            st.info("無法顯示記錄詳情")
-                
-                col1, col2 = st.columns(2)
-                with col1:
-                    if st.button("✅ 確認刪除", type="primary", use_container_width=True):
-                        # 執行刪除：使用發票號碼+日期+用戶郵箱組合刪除（最可靠的方式）
-                        user_email = st.session_state.get('user_email', 'default_user')
-                        deleted_count = 0
-                        errors = []
-                        
-                        if st.session_state.use_memory_mode:
-                            # 內存模式：從列表中刪除（優先使用id，否則使用發票號碼+日期）
-                            original_count = len(st.session_state.local_invoices)
-                            
-                            def should_delete_invoice(inv):
-                                """判斷是否應該刪除此發票"""
-                                for rec in delete_records:
-                                    # 優先使用id匹配
-                                    if 'id' in rec and rec['id'] is not None:
-                                        if inv.get('id') == rec['id'] and inv.get('user_email', inv.get('user_id', 'default_user')) == user_email:
-                                            return True
-                                    # 如果沒有id，使用發票號碼+日期組合
-                                    elif 'invoice_number' in rec and 'date' in rec:
-                                        inv_num = str(inv.get('invoice_number', '')).strip()
-                                        inv_date = str(inv.get('date', '')).strip()
-                                        rec_num = str(rec.get('invoice_number', '')).strip()
-                                        rec_date = str(rec.get('date', '')).strip()
-                                        
-                                        if (inv_num == rec_num or (not inv_num and not rec_num)) and \
-                                           (inv_date == rec_date or (not inv_date and not rec_date)) and \
-                                           inv.get('user_email', inv.get('user_id', 'default_user')) == user_email:
-                                            return True
-                                    # 如果只有發票號碼（數據不完整）
-                                    elif 'invoice_number' in rec and rec.get('invoice_number'):
-                                        inv_num = str(inv.get('invoice_number', '')).strip()
-                                        rec_num = str(rec.get('invoice_number', '')).strip()
-                                        inv_date = str(inv.get('date', '')).strip()
-                                        
-                                        if inv_num == rec_num and (not inv_date or inv_date in ['', 'No', 'N/A']) and \
-                                           inv.get('user_email', inv.get('user_id', 'default_user')) == user_email:
-                                            return True
-                                    # 如果只有日期（數據不完整）
-                                    elif 'date' in rec and rec.get('date'):
-                                        inv_date = str(inv.get('date', '')).strip()
-                                        rec_date = str(rec.get('date', '')).strip()
-                                        inv_num = str(inv.get('invoice_number', '')).strip()
-                                        
-                                        if inv_date == rec_date and (not inv_num or inv_num in ['', 'No', 'N/A']) and \
-                                           inv.get('user_email', inv.get('user_id', 'default_user')) == user_email:
-                                            return True
-                                return False
-                            
-                            st.session_state.local_invoices = [
-                                inv for inv in st.session_state.local_invoices 
-                                if not should_delete_invoice(inv)
-                            ]
-                            deleted_count = original_count - len(st.session_state.local_invoices)
-                        else:
-                            # 數據庫模式：優先使用id刪除（支持數據不完整），否則使用發票號碼+日期+用戶郵箱組合
+                    try:
+                        def date_in_range(date_str):
                             try:
-                                path = get_db_path()
-                                is_uri = path.startswith("file:") and "mode=memory" in path
-                                conn = sqlite3.connect(path, timeout=30, uri=is_uri, check_same_thread=False)
-                                cursor = conn.cursor()
-                                
-                                # 逐條刪除
-                                for rec in delete_records:
-                                    try:
-                                        # 優先使用id刪除（最可靠，支持數據不完整）
+                                date_val = datetime.strptime(str(date_str), "%Y/%m/%d").date()
+                                return date_start <= date_val <= date_end
+                            except Exception:
+                                return False
+                        df = df[df[date_col].astype(str).apply(date_in_range)]
+                    except Exception:
+                        pass
+
+            filter_subjects = st.session_state.get("filter_subjects", [])
+            if filter_subjects and "會計科目" in df.columns:
+                df = df[df["會計科目"].astype(str).isin(filter_subjects)]
+
+            filter_categories = st.session_state.get("filter_categories", [])
+            if filter_categories and "類型" in df.columns:
+                df = df[df["類型"].astype(str).isin(filter_categories)]
+
+            if "總計" in df.columns:
+                total_num = pd.to_numeric(df["總計"].astype(str).str.replace(",", ""), errors="coerce").fillna(0)
+                amount_min = st.session_state.get("filter_amount_min", 0) or 0
+                amount_max = st.session_state.get("filter_amount_max", 0) or 0
+                mask = pd.Series(True, index=df.index)
+                if amount_min > 0:
+                    mask = mask & (total_num >= amount_min)
+                if amount_max > 0:
+                    mask = mask & (total_num <= amount_max)
+                df = df[mask]
+    
+    # ========== 2. 發票明細與編輯（說明書 § 三：搜尋為空 → 按組顯示；有字 → 按單張顯示）==========
+    st.subheader("📋 發票明細與編輯")
+    _user_email = st.session_state.get('user_email', 'default_user')
+    
+    # 搜尋為空 → 按組顯示（一組一卡、可展開）
+    if not (search and search.strip()):
+        st.caption("💡 **按組顯示**：輸入搜尋關鍵字可切換為「按單張」表格。")
+        batches_list = get_batches_for_user(_user_email)
+        ungrouped_df = get_ungrouped_invoices(_user_email)
+        if not batches_list and ungrouped_df.empty:
+            st.info("📊 目前沒有數據，請上傳發票圖片或導入 CSV 數據。")
+        else:
+            for b in batches_list:
+                inv_df = get_invoices_by_batch(b['id'], _user_email)
+                if inv_df.empty:
+                    continue
+                created = (b.get('created_at') or '')[:16].replace('T', ' ')
+                src = 'OCR' if (b.get('source') or '') == 'ocr' else '導入'
+                with st.expander(f"📦 {created} · {src} · {len(inv_df)} 張", expanded=False):
+                    disp_cols = [c for c in ['日期', '發票號碼', '賣方名稱', '總計', '狀態'] if c in inv_df.columns]
+                    st.dataframe(inv_df[disp_cols] if disp_cols else inv_df, use_container_width=True, hide_index=True)
+            if not ungrouped_df.empty:
+                with st.expander(f"📄 未分組 ({len(ungrouped_df)} 張)", expanded=False):
+                    disp_cols = [c for c in ['日期', '發票號碼', '賣方名稱', '總計', '狀態'] if c in ungrouped_df.columns]
+                    st.dataframe(ungrouped_df[disp_cols] if disp_cols else ungrouped_df, use_container_width=True, hide_index=True)
+    else:
+        # 搜尋有字 → 按單張顯示（現有表格 + 篩選）
+        if df.empty:
+            if not df_raw.empty:
+                # 有原始數據但篩選後為空：使用者導向提示
+                with st.expander("📋 目前篩選結果為 0 筆", expanded=True):
+                    st.write("**目前篩選條件：**")
+                    st.write(f"- 關鍵字搜尋: {search if search else '無'}")
+                    date_start = st.session_state.get("date_range_start")
+                    date_end = st.session_state.get("date_range_end")
+                    if date_start and date_end:
+                        st.write(f"- 日期範圍: {date_start} ~ {date_end}")
+                    else:
+                        st.write("- 時間範圍: 全部")
+                    st.write(f"- 狀態: {st.session_state.get('status_filter_pills', '全部')}")
+                    st.caption("若需顯示更多資料，可放寬條件或清除篩選。")
+                    if st.button("🔄 清除所有篩選條件", use_container_width=True, key="clear_filters_empty"):
+                        if "time_filter_last_preset" in st.session_state:
+                            st.session_state["time_filter_last_preset"] = "全部"
+                        if "date_range_start" in st.session_state:
+                            st.session_state.date_range_start = None
+                        if "date_range_end" in st.session_state:
+                            st.session_state.date_range_end = None
+                        st.rerun()
+            elif df_raw.empty:
+                st.info("📊 目前沒有數據，請上傳發票圖片或導入CSV數據")
+            else:
+                st.info("📊 目前沒有數據，請上傳發票圖片或導入CSV數據")
+        else:
+            # 處理空值：用"No"替換
+            def fill_empty(val):
+                if pd.isna(val) or val == '' or val == 'N/A' or str(val).strip() == '':
+                    return 'No'
+                return str(val)
+            
+            # 對所有列應用空值處理（除了狀態列，狀態列需要特殊處理）
+            for col in df.columns:
+                if col not in ['選取', '狀態']:  # 跳過選取和狀態列
+                    df[col] = df[col].apply(fill_empty)
+            
+            # 處理狀態列：檢查是否有缺失數據，如果有則顯示"缺失"
+            if "狀態" in df.columns:
+                def check_status(row):
+                    # 先檢查關鍵字段是否為空或"No"（優先級最高）
+                    key_fields = ['日期', '發票號碼', '賣方名稱', '總計']
+                    has_missing = False
+                    for field in key_fields:
+                        if field in row:
+                            val = str(row[field]).strip()
+                            if pd.isna(row[field]) or val == '' or val == 'N/A' or val == 'No' or val == '未填':
+                                has_missing = True
+                                break
+                    
+                    # 如果有缺失，直接返回"缺失"（不考慮原始狀態）
+                    if has_missing:
+                        return '❌ 缺失'
+                    
+                    # 如果沒有缺失，再檢查原始狀態
+                    original_status = str(row.get('狀態', '')).strip()
+                    
+                    # 如果原本的狀態已經是錯誤狀態，保持原樣（但確保有紅色X）
+                    if '缺漏' in original_status or '缺失' in original_status or '錯誤' in original_status:
+                        # 如果已經有❌，保持原樣；如果沒有，添加❌
+                        if '❌' not in original_status and '⚠️' not in original_status:
+                            return f'❌ {original_status}'
+                        return original_status
+                    
+                    # 如果沒有缺失且原始狀態正常，返回"正常"
+                    if original_status and ('正常' in original_status or '✅' in original_status):
+                        return '✅ 正常'
+                    
+                    # 如果原始狀態為空，返回"正常"
+                    return '✅ 正常'
+            
+                df['狀態'] = df.apply(check_status, axis=1)
+            
+            # 再次確保移除image相關的列
+            columns_to_drop = ['image_data', 'imageData', 'image_path']
+            for col in columns_to_drop:
+                if col in df.columns:
+                    df = df.drop(columns=[col])
+            
+            # 確保ID列保留在df中（用於刪除功能），但不在顯示中顯示
+            # 從df_with_id中獲取id列（如果存在）
+            if df_with_id is not None and 'id' in df_with_id.columns:
+                # 確保df中有id列（用於刪除功能）
+                if 'id' not in df.columns:
+                    # 通過索引匹配，將id從df_with_id複製到df
+                    df = df.copy()
+                    df['id'] = None
+                    for idx in df.index:
+                        if idx in df_with_id.index:
+                            df.loc[idx, 'id'] = df_with_id.loc[idx, 'id']
+            
+            # 移除其他不需要顯示的列（保留「總計」供前端表格使用）
+            columns_to_hide = ['user_id', 'user_email', '檔案名稱']
+            for col in columns_to_hide:
+                if col in df.columns:
+                    df = df.drop(columns=[col])
+            
+            # 自動計算「未稅金額」與「稅額 (5%)」；審計：依稅率類型支援 5%/0%/免稅
+            if "總計" in df.columns:
+                total_series = pd.to_numeric(df["總計"], errors="coerce").fillna(0)
+                tax_type_col = df.get("稅率類型")
+                if tax_type_col is None:
+                    tax_type_col = pd.Series("5%", index=df.index)
+                tax_type_str = tax_type_col.fillna("5%").astype(str).str.strip().str.lower()
+                is_zero_or_exempt = tax_type_str.isin(["0%", "exempt", "零稅率", "免稅"])
+                
+                if "稅額" in df.columns:
+                    existing_tax = pd.to_numeric(df["稅額"], errors="coerce").fillna(0)
+                    calc_tax = pd.Series(0.0, index=df.index).where(is_zero_or_exempt, (total_series - (total_series / 1.05)).round(0))
+                    tax_series = existing_tax.where((existing_tax > 0) | (total_series == 0), calc_tax)
+                else:
+                    tax_series = pd.Series(0.0, index=df.index).where(is_zero_or_exempt, (total_series - (total_series / 1.05)).round(0))
+                
+                subtotal_series = (total_series - tax_series).round(0)
+                df["未稅金額"] = subtotal_series
+                df["稅額 (5%)"] = tax_series
+            
+            # 為問題行添加警示圖示（發票號碼為 "No" 或狀態為 "缺失"）
+            if "發票號碼" in df.columns:
+                def add_warning_icon(invoice_no, status):
+                    """為問題行添加警示圖示"""
+                    invoice_str = str(invoice_no).strip() if pd.notna(invoice_no) else ""
+                    status_str = str(status).strip() if pd.notna(status) else ""
+                    
+                    is_problem = (invoice_str == "No" or invoice_str == "" or 
+                                 "缺失" in status_str or "❌" in status_str or "缺漏" in status_str)
+                    
+                    if is_problem:
+                        return "⚠️ " + str(invoice_no) if invoice_str != "No" else "⚠️ No"
+                    return str(invoice_no)
+                
+                df["發票號碼"] = df.apply(
+                    lambda row: add_warning_icon(row.get("發票號碼", ""), row.get("狀態", "")), 
+                    axis=1
+                )
+            
+            # 調整列順序：選取 -> 狀態 -> 其他列（id列保留但不顯示）
+            if "選取" not in df.columns: 
+                df.insert(0, "選取", False)
+            
+            # 將狀態列移到選取列之後
+            if "狀態" in df.columns:
+                cols = df.columns.tolist()
+                cols.remove("狀態")
+                if "選取" in cols:
+                    select_idx = cols.index("選取")
+                    cols.insert(select_idx + 1, "狀態")
+                else:
+                    cols.insert(0, "狀態")
+                df = df[cols]
+        
+            # 調整金額相關欄位的順序：銷售額 -> 未稅金額 -> 稅額 -> 稅額 (5%) -> 總計
+            if "未稅金額" in df.columns and "稅額 (5%)" in df.columns:
+                cols = df.columns.tolist()
+                # 移除這些欄位
+                for col in ["銷售額", "未稅金額", "稅額", "稅額 (5%)", "總計"]:
+                    if col in cols:
+                        cols.remove(col)
+            
+                # 找到合適的位置插入（在「狀態」之後，其他欄位之前）
+                try:
+                    status_idx = cols.index("狀態")
+                    insert_pos = status_idx + 1
+                except:
+                    insert_pos = 1
+            
+                # 按順序插入金額欄位（包含總計變化）
+                amount_cols = ["銷售額", "未稅金額", "稅額", "稅額 (5%)", "總計"]
+                for i, col in enumerate(amount_cols):
+                    if col in df.columns:
+                        cols.insert(insert_pos + i, col)
+            
+                df = df[cols]
+        
+            # 在刪除功能使用後，移除 _original_index 列（如果存在）
+            if '_original_index' in df.columns:
+                df = df.drop(columns=['_original_index'])
+        
+            # 不再顯示標題和選中數量
+            if st.session_state.get("show_delete_confirm", False):
+                delete_records = st.session_state.get("delete_records", [])
+                delete_count = st.session_state.get("delete_count", 0)
+            
+                # 使用裝飾器方式定義刪除確認對話框
+                @st.dialog("⚠️ 確認刪除")
+                def delete_confirm_dialog():
+                    st.warning(f"確定要刪除選中的 {delete_count} 條數據嗎？")
+                    st.error("⚠️ 此操作不可恢復！")
+                
+                    # 顯示要刪除的記錄預覽（顯示id、發票號碼和日期）
+                    if delete_records:
+                        with st.expander("查看要刪除的記錄", expanded=False):
+                            # 準備預覽數據，將id、發票號碼、日期格式化顯示
+                            preview_data = []
+                            for rec in delete_records:
+                                preview_row = {}
+                                if 'id' in rec and rec['id'] is not None:
+                                    preview_row['ID'] = rec['id']
+                                if 'invoice_number' in rec and rec.get('invoice_number'):
+                                    preview_row['發票號碼'] = rec['invoice_number']
+                                else:
+                                    preview_row['發票號碼'] = '(空)'
+                                if 'date' in rec and rec.get('date'):
+                                    preview_row['日期'] = rec['date']
+                                else:
+                                    preview_row['日期'] = '(空)'
+                                preview_data.append(preview_row)
+                        
+                            if preview_data:
+                                preview_df = pd.DataFrame(preview_data)
+                                st.dataframe(preview_df, use_container_width=True, hide_index=True)
+                            else:
+                                st.info("無法顯示記錄詳情")
+                
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        if st.button("✅ 確認刪除", type="primary", use_container_width=True):
+                            # 執行刪除：使用發票號碼+日期+用戶郵箱組合刪除（最可靠的方式）
+                            user_email = st.session_state.get('user_email', 'default_user')
+                            deleted_count = 0
+                            errors = []
+                        
+                            if st.session_state.use_memory_mode:
+                                # 內存模式：從列表中刪除（優先使用id，否則使用發票號碼+日期）
+                                original_count = len(st.session_state.local_invoices)
+                            
+                                def should_delete_invoice(inv):
+                                    """判斷是否應該刪除此發票"""
+                                    for rec in delete_records:
+                                        # 優先使用id匹配
                                         if 'id' in rec and rec['id'] is not None:
-                                            cursor.execute(
-                                                "DELETE FROM invoices WHERE id=? AND user_email=?",
-                                                (rec['id'], user_email)
-                                            )
-                                        # 如果沒有id，使用發票號碼+日期+用戶郵箱組合
-                                        elif 'invoice_number' in rec and 'date' in rec and rec.get('invoice_number') and rec.get('date'):
-                                            cursor.execute(
-                                                "DELETE FROM invoices WHERE user_email=? AND invoice_number=? AND date=?",
-                                                (user_email, rec['invoice_number'], rec['date'])
-                                            )
+                                            if inv.get('id') == rec['id'] and inv.get('user_email', inv.get('user_id', 'default_user')) == user_email:
+                                                return True
+                                        # 如果沒有id，使用發票號碼+日期組合
+                                        elif 'invoice_number' in rec and 'date' in rec:
+                                            inv_num = str(inv.get('invoice_number', '')).strip()
+                                            inv_date = str(inv.get('date', '')).strip()
+                                            rec_num = str(rec.get('invoice_number', '')).strip()
+                                            rec_date = str(rec.get('date', '')).strip()
+                                        
+                                            if (inv_num == rec_num or (not inv_num and not rec_num)) and \
+                                               (inv_date == rec_date or (not inv_date and not rec_date)) and \
+                                               inv.get('user_email', inv.get('user_id', 'default_user')) == user_email:
+                                                return True
                                         # 如果只有發票號碼（數據不完整）
                                         elif 'invoice_number' in rec and rec.get('invoice_number'):
-                                            cursor.execute(
-                                                "DELETE FROM invoices WHERE user_email=? AND invoice_number=? AND (date IS NULL OR date='' OR date='No')",
-                                                (user_email, rec['invoice_number'])
-                                            )
+                                            inv_num = str(inv.get('invoice_number', '')).strip()
+                                            rec_num = str(rec.get('invoice_number', '')).strip()
+                                            inv_date = str(inv.get('date', '')).strip()
+                                        
+                                            if inv_num == rec_num and (not inv_date or inv_date in ['', 'No', 'N/A']) and \
+                                               inv.get('user_email', inv.get('user_id', 'default_user')) == user_email:
+                                                return True
                                         # 如果只有日期（數據不完整）
                                         elif 'date' in rec and rec.get('date'):
-                                            cursor.execute(
-                                                "DELETE FROM invoices WHERE user_email=? AND date=? AND (invoice_number IS NULL OR invoice_number='' OR invoice_number='No')",
-                                                (user_email, rec['date'])
-                                            )
-                                        else:
-                                            errors.append("無法確定要刪除的記錄（缺少必要的標識信息）")
-                                            continue
+                                            inv_date = str(inv.get('date', '')).strip()
+                                            rec_date = str(rec.get('date', '')).strip()
+                                            inv_num = str(inv.get('invoice_number', '')).strip()
                                         
-                                        if cursor.rowcount > 0:
-                                            deleted_count += cursor.rowcount
-                                        else:
-                                            # 記錄未找到的記錄信息
+                                            if inv_date == rec_date and (not inv_num or inv_num in ['', 'No', 'N/A']) and \
+                                               inv.get('user_email', inv.get('user_id', 'default_user')) == user_email:
+                                                return True
+                                    return False
+                            
+                                st.session_state.local_invoices = [
+                                    inv for inv in st.session_state.local_invoices 
+                                    if not should_delete_invoice(inv)
+                                ]
+                                deleted_count = original_count - len(st.session_state.local_invoices)
+                            else:
+                                # 數據庫模式：優先使用id刪除（支持數據不完整），否則使用發票號碼+日期+用戶郵箱組合
+                                try:
+                                    path = get_db_path()
+                                    is_uri = path.startswith("file:") and "mode=memory" in path
+                                    conn = sqlite3.connect(path, timeout=30, uri=is_uri, check_same_thread=False)
+                                    cursor = conn.cursor()
+                                
+                                    # 逐條刪除
+                                    for rec in delete_records:
+                                        try:
+                                            # 優先使用id刪除（最可靠，支持數據不完整）
+                                            if 'id' in rec and rec['id'] is not None:
+                                                cursor.execute(
+                                                    "DELETE FROM invoices WHERE id=? AND user_email=?",
+                                                    (rec['id'], user_email)
+                                                )
+                                            # 如果沒有id，使用發票號碼+日期+用戶郵箱組合
+                                            elif 'invoice_number' in rec and 'date' in rec and rec.get('invoice_number') and rec.get('date'):
+                                                cursor.execute(
+                                                    "DELETE FROM invoices WHERE user_email=? AND invoice_number=? AND date=?",
+                                                    (user_email, rec['invoice_number'], rec['date'])
+                                                )
+                                            # 如果只有發票號碼（數據不完整）
+                                            elif 'invoice_number' in rec and rec.get('invoice_number'):
+                                                cursor.execute(
+                                                    "DELETE FROM invoices WHERE user_email=? AND invoice_number=? AND (date IS NULL OR date='' OR date='No')",
+                                                    (user_email, rec['invoice_number'])
+                                                )
+                                            # 如果只有日期（數據不完整）
+                                            elif 'date' in rec and rec.get('date'):
+                                                cursor.execute(
+                                                    "DELETE FROM invoices WHERE user_email=? AND date=? AND (invoice_number IS NULL OR invoice_number='' OR invoice_number='No')",
+                                                    (user_email, rec['date'])
+                                                )
+                                            else:
+                                                errors.append("無法確定要刪除的記錄（缺少必要的標識信息）")
+                                                continue
+                                        
+                                            if cursor.rowcount > 0:
+                                                deleted_count += cursor.rowcount
+                                            else:
+                                                # 記錄未找到的記錄信息
+                                                rec_info = f"ID: {rec.get('id', 'N/A')}, 發票號碼: {rec.get('invoice_number', 'N/A')}, 日期: {rec.get('date', 'N/A')}"
+                                                errors.append(f"未找到記錄: {rec_info}")
+                                        except Exception as e:
                                             rec_info = f"ID: {rec.get('id', 'N/A')}, 發票號碼: {rec.get('invoice_number', 'N/A')}, 日期: {rec.get('date', 'N/A')}"
-                                            errors.append(f"未找到記錄: {rec_info}")
-                                    except Exception as e:
-                                        rec_info = f"ID: {rec.get('id', 'N/A')}, 發票號碼: {rec.get('invoice_number', 'N/A')}, 日期: {rec.get('date', 'N/A')}"
-                                        errors.append(f"刪除失敗（{rec_info}）: {str(e)}")
+                                            errors.append(f"刪除失敗（{rec_info}）: {str(e)}")
                                 
-                                conn.commit()
-                                conn.close()
+                                    conn.commit()
+                                    conn.close()
                                 
-                                if deleted_count == 0 and not errors:
-                                    errors.append("未找到要刪除的記錄，可能已被刪除或數據不匹配")
+                                    if deleted_count == 0 and not errors:
+                                        errors.append("未找到要刪除的記錄，可能已被刪除或數據不匹配")
                                     
-                            except Exception as e:
-                                errors.append(f"刪除失敗: {str(e)}")
+                                except Exception as e:
+                                    errors.append(f"刪除失敗: {str(e)}")
                         
-                        # 清理狀態
-                        st.session_state.show_delete_confirm = False
-                        if "delete_records" in st.session_state:
-                            del st.session_state.delete_records
-                        if "delete_count" in st.session_state:
-                            del st.session_state.delete_count
+                            # 清理狀態
+                            st.session_state.show_delete_confirm = False
+                            if "delete_records" in st.session_state:
+                                del st.session_state.delete_records
+                            if "delete_count" in st.session_state:
+                                del st.session_state.delete_count
                         
-                        if deleted_count > 0:
-                            st.success(f"✅ 已刪除 {deleted_count} 條數據")
-                        else:
-                            st.warning("⚠️ 未找到要刪除的記錄，可能已被刪除或數據不匹配")
+                            if deleted_count > 0:
+                                st.success(f"✅ 已刪除 {deleted_count} 條數據")
+                            else:
+                                st.warning("⚠️ 未找到要刪除的記錄，可能已被刪除或數據不匹配")
                         
-                        if errors:
-                            for err in errors:
-                                st.error(err)
+                            if errors:
+                                for err in errors:
+                                    st.error(err)
                         
-                        time.sleep(0.5)
-                        st.rerun()
+                            time.sleep(0.5)
+                            st.rerun()
                 
-                with col2:
-                    if st.button("❌ 取消", use_container_width=True):
-                        # 取消刪除，清理狀態
-                        st.session_state.show_delete_confirm = False
-                        if "delete_records" in st.session_state:
-                            del st.session_state.delete_records
-                        if "delete_count" in st.session_state:
-                            del st.session_state.delete_count
-                        st.rerun()
+                    with col2:
+                        if st.button("❌ 取消", use_container_width=True):
+                            # 取消刪除，清理狀態
+                            st.session_state.show_delete_confirm = False
+                            if "delete_records" in st.session_state:
+                                del st.session_state.delete_records
+                            if "delete_count" in st.session_state:
+                                del st.session_state.delete_count
+                            st.rerun()
             
-            # 調用對話框函數
-            delete_confirm_dialog()
+                # 調用對話框函數
+                delete_confirm_dialog()
         
-        # 保存原始數據的副本用於比較（不包含ID列）
-        original_df_copy = df.copy()
+            # 保存原始數據的副本用於比較（不包含ID列）
+            original_df_copy = df.copy()
         
-        # 處理日期列：嘗試轉換為日期類型（先創建 df_for_editor）
-        df_for_editor = df.copy()
+            # 處理日期列：嘗試轉換為日期類型（先創建 df_for_editor）
+            df_for_editor = df.copy()
         
-        # 準備列配置（不包含ID列、user_id列、檔案名稱列）
-        # 金額類數字右對齊，文字類左對齊
-        column_config = { 
-            "選取": st.column_config.CheckboxColumn("選取", default=False),
-            "銷售額": st.column_config.NumberColumn("銷售額", format="$%d"),
-            "稅額": st.column_config.NumberColumn("稅額", format="$%d"),
-            "未稅金額": st.column_config.NumberColumn("未稅金額", format="$%d"),
-            "稅額 (5%)": st.column_config.NumberColumn("稅額 (5%)", format="$%d"),
-            "總計": st.column_config.NumberColumn("總計", format="$%d"),
-            "備註": st.column_config.TextColumn("備註", width="medium"),
-            "建立時間": st.column_config.DatetimeColumn("建立時間", format="YYYY-MM-DD")
-        }
+            # 準備列配置（不包含ID列、user_id列、檔案名稱列）
+            # 金額類數字右對齊，文字類左對齊
+            column_config = { 
+                "選取": st.column_config.CheckboxColumn("選取", default=False),
+                "銷售額": st.column_config.NumberColumn("銷售額", format="$%d"),
+                "稅額": st.column_config.NumberColumn("稅額", format="$%d"),
+                "未稅金額": st.column_config.NumberColumn("未稅金額", format="$%d"),
+                "稅額 (5%)": st.column_config.NumberColumn("稅額 (5%)", format="$%d"),
+                "總計": st.column_config.NumberColumn("總計", format="$%d"),
+                "備註": st.column_config.TextColumn("備註", width="medium"),
+                "建立時間": st.column_config.DatetimeColumn("建立時間", format="YYYY-MM-DD")
+            }
         
-        # 文字類欄位左對齊配置
-        text_columns = ["賣方名稱", "發票號碼", "賣方統編", "類型", "會計科目", "狀態", "備註"]
-        for col in text_columns:
-            if col in df_for_editor.columns and col not in column_config:
-                column_config[col] = st.column_config.TextColumn(col, width="medium")
+            # 文字類欄位左對齊配置
+            text_columns = ["賣方名稱", "發票號碼", "賣方統編", "類型", "會計科目", "狀態", "備註"]
+            for col in text_columns:
+                if col in df_for_editor.columns and col not in column_config:
+                    column_config[col] = st.column_config.TextColumn(col, width="medium")
         
-        # 確保id列在df_for_editor中（用於刪除功能），但不在column_config中配置（隱藏顯示）
-        # 注意：如果列不在column_config中，Streamlit會自動隱藏它
-        # 但為了確保ID列可用於刪除功能，我們需要確保它在df_for_editor中
-        if "id" in df_for_editor.columns:
-            # id列保留但不配置，這樣它會隱藏顯示但仍然可用於刪除功能
-            # 不添加id到column_config，這樣它會被隱藏
-            pass
+            # 確保id列在df_for_editor中（用於刪除功能），但不在column_config中配置（隱藏顯示）
+            # 注意：如果列不在column_config中，Streamlit會自動隱藏它
+            # 但為了確保ID列可用於刪除功能，我們需要確保它在df_for_editor中
+            if "id" in df_for_editor.columns:
+                # id列保留但不配置，這樣它會隱藏顯示但仍然可用於刪除功能
+                # 不添加id到column_config，這樣它會被隱藏
+                pass
         
-        if "日期" in df_for_editor.columns:
-            try:
-                # 嘗試將日期字符串轉換為日期類型
-                df_for_editor["日期"] = pd.to_datetime(df_for_editor["日期"], errors='coerce', format='%Y/%m/%d')
-                # 如果轉換成功（沒有全部為NaT），使用DateColumn
-                if not df_for_editor["日期"].isna().all():
-                    column_config["日期"] = st.column_config.DateColumn("日期", format="YYYY-MM-DD")
-                else:
+            if "日期" in df_for_editor.columns:
+                try:
+                    # 嘗試將日期字符串轉換為日期類型
+                    df_for_editor["日期"] = pd.to_datetime(df_for_editor["日期"], errors='coerce', format='%Y/%m/%d')
+                    # 如果轉換成功（沒有全部為NaT），使用DateColumn
+                    if not df_for_editor["日期"].isna().all():
+                        column_config["日期"] = st.column_config.DateColumn("日期", format="YYYY-MM-DD")
+                    else:
+                        # 轉換失敗，使用TextColumn
+                        column_config["日期"] = st.column_config.TextColumn("日期", width="medium")
+                        df_for_editor["日期"] = df["日期"]  # 恢復原始字符串
+                except:
                     # 轉換失敗，使用TextColumn
                     column_config["日期"] = st.column_config.TextColumn("日期", width="medium")
-                    df_for_editor["日期"] = df["日期"]  # 恢復原始字符串
-            except:
-                # 轉換失敗，使用TextColumn
-                column_config["日期"] = st.column_config.TextColumn("日期", width="medium")
-                df_for_editor["日期"] = df["日期"]  # 確保使用原始字符串
+                    df_for_editor["日期"] = df["日期"]  # 確保使用原始字符串
         
-        # 處理建立時間列（created_at）
-        if "建立時間" in df_for_editor.columns:
-            try:
-                # 嘗試將建立時間轉換為日期時間類型
-                df_for_editor["建立時間"] = pd.to_datetime(df_for_editor["建立時間"], errors='coerce')
-                if not df_for_editor["建立時間"].isna().all():
-                    column_config["建立時間"] = st.column_config.DatetimeColumn("建立時間", format="YYYY-MM-DD")
-                else:
+            # 處理建立時間列（created_at）
+            if "建立時間" in df_for_editor.columns:
+                try:
+                    # 嘗試將建立時間轉換為日期時間類型
+                    df_for_editor["建立時間"] = pd.to_datetime(df_for_editor["建立時間"], errors='coerce')
+                    if not df_for_editor["建立時間"].isna().all():
+                        column_config["建立時間"] = st.column_config.DatetimeColumn("建立時間", format="YYYY-MM-DD")
+                    else:
+                        column_config["建立時間"] = st.column_config.TextColumn("建立時間", width="medium")
+                        df_for_editor["建立時間"] = df["建立時間"]
+                except:
                     column_config["建立時間"] = st.column_config.TextColumn("建立時間", width="medium")
                     df_for_editor["建立時間"] = df["建立時間"]
-            except:
-                column_config["建立時間"] = st.column_config.TextColumn("建立時間", width="medium")
-                df_for_editor["建立時間"] = df["建立時間"]
         
-        # 添加 JavaScript 來高亮問題行並設置列對齊（在表格渲染後執行）
-        st.markdown("""
-        <script>
-        (function() {
-            function formatTable() {
-                const editor = document.querySelector('[data-testid="stDataEditor"]');
-                if (editor) {
-                    const rows = editor.querySelectorAll('tbody tr');
-                    const headerRow = editor.querySelector('thead tr');
+            # 添加 JavaScript 來高亮問題行並設置列對齊（在表格渲染後執行）
+            st.markdown("""
+            <script>
+            (function() {
+                function formatTable() {
+                    const editor = document.querySelector('[data-testid="stDataEditor"]');
+                    if (editor) {
+                        const rows = editor.querySelectorAll('tbody tr');
+                        const headerRow = editor.querySelector('thead tr');
                     
-                    // 獲取表頭列名，用於確定列索引
-                    const headers = [];
-                    if (headerRow) {
-                        headerRow.querySelectorAll('th').forEach(function(th) {
-                            headers.push(th.textContent.trim());
-                        });
-                    }
-                    
-                    // 定義金額類欄位（需要右對齊）
-                    const amountColumns = ['銷售額', '稅額', '未稅金額', '稅額 (5%)', '總計'];
-                    // 定義變化百分比欄位（需要居中對齊）
-                    const changeColumns = [];
-                    
-                    rows.forEach(function(row) {
-                        const cells = row.querySelectorAll('td');
-                        let isWarning = false;
-                        
-                        cells.forEach(function(cell, index) {
-                            const text = cell.textContent || cell.innerText || '';
-                            
-                            // 檢查是否為問題行
-                            if (text.includes('⚠️') || text.includes('❌ 缺失') || text.includes('❌ 缺漏')) {
-                                isWarning = true;
-                            }
-                            
-                            // 設置列對齊與樣式 class（Stripe 風格：狀態綠標籤、金額等寬右對齊）
-                            const columnName = headers[index] || '';
-                            
-                            if (columnName === '狀態' && (text.indexOf('正常') !== -1 || text.indexOf('✅') !== -1)) {
-                                cell.classList.add('status-ok');
-                            }
-                            if (amountColumns.includes(columnName)) {
-                                cell.classList.add('amount-cell');
-                                cell.style.textAlign = 'right';
-                            }
-                            else if (changeColumns.includes(columnName)) {
-                                cell.style.textAlign = 'center';
-                                cell.style.fontSize = '13px';
-                            }
-                            else {
-                                cell.style.textAlign = 'left';
-                            }
-                        });
-                        
-                        // 高亮問題行
-                        if (isWarning) {
-                            row.style.backgroundColor = 'rgba(234, 67, 53, 0.15)';
-                            row.style.borderLeft = '4px solid #EA4335';
-                            row.addEventListener('mouseenter', function() {
-                                this.style.backgroundColor = 'rgba(234, 67, 53, 0.25)';
-                            });
-                            row.addEventListener('mouseleave', function() {
-                                this.style.backgroundColor = 'rgba(234, 67, 53, 0.15)';
+                        // 獲取表頭列名，用於確定列索引
+                        const headers = [];
+                        if (headerRow) {
+                            headerRow.querySelectorAll('th').forEach(function(th) {
+                                headers.push(th.textContent.trim());
                             });
                         }
-                    });
+                    
+                        // 定義金額類欄位（需要右對齊）
+                        const amountColumns = ['銷售額', '稅額', '未稅金額', '稅額 (5%)', '總計'];
+                        // 定義變化百分比欄位（需要居中對齊）
+                        const changeColumns = [];
+                    
+                        rows.forEach(function(row) {
+                            const cells = row.querySelectorAll('td');
+                            let isWarning = false;
+                        
+                            cells.forEach(function(cell, index) {
+                                const text = cell.textContent || cell.innerText || '';
+                            
+                                // 檢查是否為問題行
+                                if (text.includes('⚠️') || text.includes('❌ 缺失') || text.includes('❌ 缺漏')) {
+                                    isWarning = true;
+                                }
+                            
+                                // 設置列對齊與樣式 class（Stripe 風格：狀態綠標籤、金額等寬右對齊）
+                                const columnName = headers[index] || '';
+                            
+                                if (columnName === '狀態' && (text.indexOf('正常') !== -1 || text.indexOf('✅') !== -1)) {
+                                    cell.classList.add('status-ok');
+                                }
+                                if (amountColumns.includes(columnName)) {
+                                    cell.classList.add('amount-cell');
+                                    cell.style.textAlign = 'right';
+                                }
+                                else if (changeColumns.includes(columnName)) {
+                                    cell.style.textAlign = 'center';
+                                    cell.style.fontSize = '13px';
+                                }
+                                else {
+                                    cell.style.textAlign = 'left';
+                                }
+                            });
+                        
+                            // 高亮問題行
+                            if (isWarning) {
+                                row.style.backgroundColor = 'rgba(234, 67, 53, 0.15)';
+                                row.style.borderLeft = '4px solid #EA4335';
+                                row.addEventListener('mouseenter', function() {
+                                    this.style.backgroundColor = 'rgba(234, 67, 53, 0.25)';
+                                });
+                                row.addEventListener('mouseleave', function() {
+                                    this.style.backgroundColor = 'rgba(234, 67, 53, 0.15)';
+                                });
+                            }
+                        });
+                    }
                 }
-            }
             
-            // 等待表格渲染完成後執行
-            setTimeout(formatTable, 500);
-            // 監聽表格更新
-            const observer = new MutationObserver(formatTable);
-            const targetNode = document.querySelector('[data-testid="stDataEditor"]');
-            if (targetNode) {
-                observer.observe(targetNode, { childList: true, subtree: true });
-            }
-        })();
-        </script>
-        """, unsafe_allow_html=True)
+                // 等待表格渲染完成後執行
+                setTimeout(formatTable, 500);
+                // 監聽表格更新
+                const observer = new MutationObserver(formatTable);
+                const targetNode = document.querySelector('[data-testid="stDataEditor"]');
+                if (targetNode) {
+                    observer.observe(targetNode, { childList: true, subtree: true });
+                }
+            })();
+            </script>
+            """, unsafe_allow_html=True)
         
-        # 檢查並清理 DataFrame 的列名（確保沒有重複或無效列名）
-        try:
-            if df_for_editor.empty:
-                # 如果 DataFrame 為空，顯示提示信息
-                st.info("📊 目前沒有數據可顯示")
-                ed_df = pd.DataFrame()
-            else:
-                # 檢查並修復重複的列名
-                if df_for_editor.columns.duplicated().any():
-                    # 如果有重複的列名，重命名它們
-                    cols = pd.Series(df_for_editor.columns)
-                    for dup in cols[cols.duplicated()].unique():
-                        cols[cols[cols == dup].index.values.tolist()] = [dup if i == 0 else f"{dup}_{i}" 
-                                                                         for i in range(sum(cols == dup))]
-                    df_for_editor.columns = cols
-                
-                # 清理列名：移除 None、空字符串或無效字符
-                def clean_column_name(name):
-                    """清理列名"""
-                    if name is None:
-                        return "unnamed"
-                    if not isinstance(name, str):
-                        name = str(name)
-                    name = name.strip()
-                    if name == "":
-                        return "unnamed"
-                    # 移除可能導致問題的特殊字符
-                    name = name.replace('\x00', '').replace('\n', ' ').replace('\r', ' ')
-                    return name
-                
-                # 清理所有列名
-                df_for_editor.columns = [clean_column_name(col) for col in df_for_editor.columns]
-                
-                # 確保沒有重複（再次檢查）
-                if df_for_editor.columns.duplicated().any():
-                    # 手動處理重複列名
-                    cols = list(df_for_editor.columns)
-                    seen = {}
-                    new_cols = []
-                    for col in cols:
-                        if col in seen:
-                            seen[col] += 1
-                            new_cols.append(f"{col}_{seen[col]}")
-                        else:
-                            seen[col] = 0
-                            new_cols.append(col)
-                    df_for_editor.columns = new_cols
-                
-                # 使用 column_order 隱藏 id 欄位，但在返回的資料中仍保留 id（供後端更新使用）
-                visible_columns = [c for c in df_for_editor.columns if c != "id"]
-                
-                # 驗證列名：確保沒有 None、空字符串或無效字符
-                def is_valid_column_name(name):
-                    """檢查列名是否有效"""
-                    if name is None:
-                        return False
-                    if not isinstance(name, str):
-                        return False
-                    if name.strip() == "":
-                        return False
-                    return True
-                
-                visible_columns = [c for c in visible_columns if is_valid_column_name(c)]
-                visible_columns = list(dict.fromkeys(visible_columns))  # 移除重複，保持順序
-                
-                # 確保 column_config 中的列也在 df_for_editor 中存在，且列名有效
-                valid_column_config = {}
-                for k, v in column_config.items():
-                    cleaned_key = clean_column_name(k)
-                    if cleaned_key in df_for_editor.columns and is_valid_column_name(cleaned_key):
-                        valid_column_config[cleaned_key] = v
-                
-                # 如果沒有有效的列，使用默認行為（不傳 column_order）
-                try:
-                    ed_df = st.data_editor(
-                        df_for_editor,
-                        use_container_width=True,
-                        hide_index=True,
-                        height=500,
-                        column_config=valid_column_config if valid_column_config else None,
-                        column_order=visible_columns if visible_columns else None,
-                        key="data_editor"
-                    )
-                except Exception as e:
-                    # 如果 st.data_editor 出錯，嘗試使用簡化版本
-                    st.error(f"表格顯示錯誤: {str(e)}")
-                    st.warning("嘗試使用簡化表格顯示...")
-                    # 顯示調試信息
-                    with st.expander("🔍 調試信息", expanded=False):
-                        st.write(f"DataFrame 形狀: {df_for_editor.shape}")
-                        st.write(f"列名: {list(df_for_editor.columns)}")
-                        st.write(f"是否有重複列名: {df_for_editor.columns.duplicated().any()}")
-                        st.write(f"有效列配置: {list(valid_column_config.keys())}")
-                        st.write(f"可見列: {visible_columns}")
-                    # 使用 st.dataframe 作為備選（注意：st.dataframe 返回 None，所以使用原始 df_for_editor）
-                    st.dataframe(df_for_editor, use_container_width=True, height=500)
-                    ed_df = df_for_editor.copy()
-        except Exception as e:
-            st.error(f"數據處理錯誤: {str(e)}")
-            import traceback
-            with st.expander("🔍 詳細錯誤信息", expanded=False):
-                st.code(traceback.format_exc())
-            ed_df = pd.DataFrame()
-        
-        # 如果日期被轉換為日期類型，需要轉回字符串格式以便保存
-        if not ed_df.empty and "日期" in ed_df.columns and ed_df["日期"].dtype != object:
-            ed_df["日期"] = ed_df["日期"].dt.strftime("%Y/%m/%d").fillna(df["日期"] if not df.empty else "")
-        
-        # 處理選取列（如果存在）
-        if not ed_df.empty and "選取" in ed_df.columns:
-            if "選取" in df.columns:
-                df["選取"] = ed_df["選取"]
-        elif "選取" not in df.columns:
-            df["選取"] = False
-        
-        # 檢查是否有選中的行
-        selected_count = ed_df["選取"].sum() if not ed_df.empty and "選取" in ed_df.columns else 0
-        # 保存到session_state，用於下次顯示（不自動觸發rerun，避免頻繁刷新）
-        current_selected = st.session_state.get("preview_selected_count", 0)
-        if current_selected != selected_count:
-            st.session_state.preview_selected_count = int(selected_count)
-            # 只在用戶明確點擊刪除按鈕時才觸發rerun，不自動刷新
-            # 移除自動 rerun，避免數據報表快速消失
-        
-        # 統一處理刪除邏輯（使用當前的選中數量）
-        delete_button = delete_button_top
-        
-        if selected_count > 0 and delete_button:
-            selected_rows = ed_df[ed_df["選取"]==True]
-            # 收集要刪除的記錄信息（使用發票號碼+日期）
-            records_to_delete = []
-            user_email = st.session_state.get('user_email', 'default_user')
-            
-            for idx, row in selected_rows.iterrows():
-                # 優先從df_with_id獲取原始數據（未經過fill_empty處理，避免"No"值）
-                record_id = None
-                invoice_number = None
-                date = None
-                
-                # 方法1: 優先從df_with_id獲取id（最可靠的方式，支持數據不完整的記錄）
-                if df_with_id is not None and idx in df_with_id.index:
-                    # 優先獲取id字段（如果存在）
-                    if 'id' in df_with_id.columns:
-                        record_id = df_with_id.loc[idx, 'id']
-                        if pd.isna(record_id):
-                            record_id = None
-                        else:
-                            record_id = int(record_id) if record_id else None
-                    
-                    # 同時獲取發票號碼和日期（用於備選刪除方式）
-                    if 'invoice_number' in df_with_id.columns:
-                        invoice_number = df_with_id.loc[idx, 'invoice_number']
-                    elif '發票號碼' in df_with_id.columns:
-                        invoice_number = df_with_id.loc[idx, '發票號碼']
-                    
-                    if 'date' in df_with_id.columns:
-                        date = df_with_id.loc[idx, 'date']
-                    elif '日期' in df_with_id.columns:
-                        date = df_with_id.loc[idx, '日期']
-                
-                # 方法2: 如果df_with_id中沒有，從df獲取（df已經重命名為中文列名）
-                if record_id is None and df_with_id is not None and idx in df_with_id.index:
-                    # 嘗試從df獲取id（如果df中有id列）
-                    if 'id' in df.columns and idx in df.index:
-                        record_id = df.loc[idx, 'id']
-                        if pd.isna(record_id):
-                            record_id = None
-                        else:
-                            record_id = int(record_id) if record_id else None
-                
-                if (not invoice_number or pd.isna(invoice_number) or str(invoice_number).strip() in ['', 'No', 'N/A', 'nan', 'None']):
-                    if idx in df.index and '發票號碼' in df.columns:
-                        invoice_number = df.loc[idx, '發票號碼']
-                
-                if (not date or pd.isna(date) or str(date).strip() in ['', 'No', 'N/A', 'nan', 'None']):
-                    if idx in df.index and '日期' in df.columns:
-                        date = df.loc[idx, '日期']
-                
-                # 方法3: 如果還是沒有，從ed_df獲取（最後備選）
-                if (not invoice_number or pd.isna(invoice_number) or str(invoice_number).strip() in ['', 'No', 'N/A', 'nan', 'None']):
-                    if '發票號碼' in row.index:
-                        invoice_number = row.get('發票號碼')
-                
-                if (not date or pd.isna(date) or str(date).strip() in ['', 'No', 'N/A', 'nan', 'None']):
-                    if '日期' in row.index:
-                        date = row.get('日期')
-                
-                # 轉換為字符串並清理
-                if invoice_number is not None and not pd.isna(invoice_number):
-                    invoice_number = str(invoice_number).strip()
-                    invoice_number = invoice_number.replace('No', '').replace('N/A', '').replace('nan', '').replace('None', '').strip()
-                else:
-                    invoice_number = ''
-                
-                if date is not None and not pd.isna(date):
-                    # 如果日期是日期類型，轉換為字符串
-                    if isinstance(date, pd.Timestamp) or hasattr(date, 'strftime'):
-                        try:
-                            date = date.strftime("%Y/%m/%d")
-                        except:
-                            date = str(date).strip()
-                    else:
-                        date = str(date).strip()
-                    date = date.replace('No', '').replace('N/A', '').replace('nan', '').replace('None', '').strip()
-                else:
-                    date = ''
-                
-                # 允許刪除數據不完整的記錄：優先使用id，如果沒有id則使用發票號碼+日期組合
-                # 如果都沒有，仍然嘗試添加（使用空值），讓刪除邏輯處理
-                delete_record = {}
-                if record_id is not None:
-                    delete_record['id'] = record_id
-                if invoice_number:
-                    delete_record['invoice_number'] = invoice_number
-                if date:
-                    delete_record['date'] = date
-                
-                # 只要有任何一個標識符（id、發票號碼+日期、或至少一個字段），就允許刪除
-                if delete_record:
-                    records_to_delete.append(delete_record)
-            
-            if records_to_delete:
-                # 顯示刪除確認對話框
-                st.session_state.show_delete_confirm = True
-                st.session_state.delete_records = records_to_delete
-                st.session_state.delete_count = len(records_to_delete)
-                st.rerun()
-            else:
-                st.warning("⚠️ 無法確定要刪除的記錄。請確保數據已正確加載。")
-                # 調試信息
-                with st.expander("🔍 調試信息", expanded=False):
-                    st.write("**選中的行數:**", len(selected_rows))
-                    st.write("**ed_df的列名:**", list(ed_df.columns))
-                    st.write("**df的列名:**", list(df.columns) if 'df' in locals() else 'df未定義')
-                    st.write("**df_with_id的列名:**", list(df_with_id.columns) if df_with_id is not None and not df_with_id.empty else 'df_with_id為None或空')
-                    st.write("**選中的行數據（前3行）:**")
-                    if not selected_rows.empty:
-                        # 只顯示前3行，避免過多數據
-                        display_cols = ['發票號碼', '日期'] if '發票號碼' in selected_rows.columns and '日期' in selected_rows.columns else list(selected_rows.columns)[:5]
-                        st.dataframe(selected_rows[display_cols].head(3))
-                    st.write("**提示:** 現在支持刪除數據不完整的記錄（即使發票號碼或日期為空）。如果仍然無法刪除，請檢查調試信息。")
-        
-        # 檢測是否有變更並自動保存（比較關鍵字段）
-        # 使用 session_state 來追蹤是否已經檢查過變更，避免無限循環
-        if "data_editor_checked" not in st.session_state:
-            st.session_state.data_editor_checked = False
-        
-        # 只在第一次加載或明確需要檢查時才檢測變更
-        if not st.session_state.data_editor_checked:
-            has_changes = False
+            # 檢查並清理 DataFrame 的列名（確保沒有重複或無效列名）
             try:
-                # 比較關鍵字段是否有變化（不包含ID和選取列）
-                # 只比較實際的數據列，跳過計算列
-                comparison_cols = [col for col in ed_df.columns 
-                                  if col not in ['選取'] 
-                                  and col in original_df_copy.columns]
+                if df_for_editor.empty:
+                    # 如果 DataFrame 為空，顯示提示信息
+                    st.info("📊 目前沒有數據可顯示")
+                    ed_df = pd.DataFrame()
+                else:
+                    # 檢查並修復重複的列名
+                    if df_for_editor.columns.duplicated().any():
+                        # 如果有重複的列名，重命名它們
+                        cols = pd.Series(df_for_editor.columns)
+                        for dup in cols[cols.duplicated()].unique():
+                            cols[cols[cols == dup].index.values.tolist()] = [dup if i == 0 else f"{dup}_{i}" 
+                                                                             for i in range(sum(cols == dup))]
+                        df_for_editor.columns = cols
                 
-                for col in comparison_cols:
+                    # 清理列名：移除 None、空字符串或無效字符
+                    def clean_column_name(name):
+                        """清理列名"""
+                        if name is None:
+                            return "unnamed"
+                        if not isinstance(name, str):
+                            name = str(name)
+                        name = name.strip()
+                        if name == "":
+                            return "unnamed"
+                        # 移除可能導致問題的特殊字符
+                        name = name.replace('\x00', '').replace('\n', ' ').replace('\r', ' ')
+                        return name
+                
+                    # 清理所有列名
+                    df_for_editor.columns = [clean_column_name(col) for col in df_for_editor.columns]
+                
+                    # 確保沒有重複（再次檢查）
+                    if df_for_editor.columns.duplicated().any():
+                        # 手動處理重複列名
+                        cols = list(df_for_editor.columns)
+                        seen = {}
+                        new_cols = []
+                        for col in cols:
+                            if col in seen:
+                                seen[col] += 1
+                                new_cols.append(f"{col}_{seen[col]}")
+                            else:
+                                seen[col] = 0
+                                new_cols.append(col)
+                        df_for_editor.columns = new_cols
+                
+                    # 使用 column_order 隱藏 id 欄位，但在返回的資料中仍保留 id（供後端更新使用）
+                    visible_columns = [c for c in df_for_editor.columns if c != "id"]
+                
+                    # 驗證列名：確保沒有 None、空字符串或無效字符
+                    def is_valid_column_name(name):
+                        """檢查列名是否有效"""
+                        if name is None:
+                            return False
+                        if not isinstance(name, str):
+                            return False
+                        if name.strip() == "":
+                            return False
+                        return True
+                
+                    visible_columns = [c for c in visible_columns if is_valid_column_name(c)]
+                    visible_columns = list(dict.fromkeys(visible_columns))  # 移除重複，保持順序
+                
+                    # 確保 column_config 中的列也在 df_for_editor 中存在，且列名有效
+                    valid_column_config = {}
+                    for k, v in column_config.items():
+                        cleaned_key = clean_column_name(k)
+                        if cleaned_key in df_for_editor.columns and is_valid_column_name(cleaned_key):
+                            valid_column_config[cleaned_key] = v
+                
+                    # 如果沒有有效的列，使用默認行為（不傳 column_order）
                     try:
-                        # 使用更寬鬆的比較，忽略數據類型差異
-                        ed_series = ed_df[col].astype(str).fillna('')
-                        orig_series = original_df_copy[col].astype(str).fillna('')
-                        if not ed_series.equals(orig_series):
-                            has_changes = True
-                            break
-                    except:
-                        # 如果比較失敗，跳過這一列
-                        continue
-            except:
-                # 如果比較失敗，不進行自動保存
-                has_changes = False
-            
-            # 標記為已檢查，避免重複檢查
-            st.session_state.data_editor_checked = True
-            
-            # 只在確實有變更時才保存（且不是第一次加載）
-            if has_changes and st.session_state.get("data_editor_initialized", False):
-                # 有變更，自動保存
-                # 多用戶版本：使用 user_email
+                        ed_df = st.data_editor(
+                            df_for_editor,
+                            use_container_width=True,
+                            hide_index=True,
+                            height=500,
+                            column_config=valid_column_config if valid_column_config else None,
+                            column_order=visible_columns if visible_columns else None,
+                            key="data_editor"
+                        )
+                    except Exception as e:
+                        # 如果 st.data_editor 出錯，嘗試使用簡化版本
+                        st.error(f"表格顯示錯誤: {str(e)}")
+                        st.warning("嘗試使用簡化表格顯示...")
+                        # 顯示調試信息
+                        with st.expander("🔍 調試信息", expanded=False):
+                            st.write(f"DataFrame 形狀: {df_for_editor.shape}")
+                            st.write(f"列名: {list(df_for_editor.columns)}")
+                            st.write(f"是否有重複列名: {df_for_editor.columns.duplicated().any()}")
+                            st.write(f"有效列配置: {list(valid_column_config.keys())}")
+                            st.write(f"可見列: {visible_columns}")
+                        # 使用 st.dataframe 作為備選（注意：st.dataframe 返回 None，所以使用原始 df_for_editor）
+                        st.dataframe(df_for_editor, use_container_width=True, height=500)
+                        ed_df = df_for_editor.copy()
+            except Exception as e:
+                st.error(f"數據處理錯誤: {str(e)}")
+                import traceback
+                with st.expander("🔍 詳細錯誤信息", expanded=False):
+                    st.code(traceback.format_exc())
+                ed_df = pd.DataFrame()
+        
+            # 如果日期被轉換為日期類型，需要轉回字符串格式以便保存
+            if not ed_df.empty and "日期" in ed_df.columns and ed_df["日期"].dtype != object:
+                ed_df["日期"] = ed_df["日期"].dt.strftime("%Y/%m/%d").fillna(df["日期"] if not df.empty else "")
+        
+            # 處理選取列（如果存在）
+            if not ed_df.empty and "選取" in ed_df.columns:
+                if "選取" in df.columns:
+                    df["選取"] = ed_df["選取"]
+            elif "選取" not in df.columns:
+                df["選取"] = False
+        
+            # 檢查是否有選中的行
+            selected_count = ed_df["選取"].sum() if not ed_df.empty and "選取" in ed_df.columns else 0
+            # 保存到session_state，用於下次顯示（不自動觸發rerun，避免頻繁刷新）
+            current_selected = st.session_state.get("preview_selected_count", 0)
+            if current_selected != selected_count:
+                st.session_state.preview_selected_count = int(selected_count)
+                # 只在用戶明確點擊刪除按鈕時才觸發rerun，不自動刷新
+                # 移除自動 rerun，避免數據報表快速消失
+        
+            # 統一處理刪除邏輯（使用當前的選中數量）
+            delete_button = delete_button_top
+        
+            if selected_count > 0 and delete_button:
+                selected_rows = ed_df[ed_df["選取"]==True]
+                # 收集要刪除的記錄信息（使用發票號碼+日期）
+                records_to_delete = []
                 user_email = st.session_state.get('user_email', 'default_user')
-                saved_count, errors, warnings = save_edited_data(ed_df, original_df_copy, user_email)
-                if saved_count > 0:
-                    st.success(f"✅ 已自動保存 {saved_count} 筆數據變更")
-                    # 統編驗證提示（僅提示，不阻擋）
-                    if warnings:
-                        st.warning("⚠️ 部分賣方統編非 8 位數字，已儲存僅供參考。")
-                        if len(warnings) <= 3:
-                            for w in warnings:
-                                st.caption(w)
+            
+                for idx, row in selected_rows.iterrows():
+                    # 優先從df_with_id獲取原始數據（未經過fill_empty處理，避免"No"值）
+                    record_id = None
+                    invoice_number = None
+                    date = None
+                
+                    # 方法1: 優先從df_with_id獲取id（最可靠的方式，支持數據不完整的記錄）
+                    if df_with_id is not None and idx in df_with_id.index:
+                        # 優先獲取id字段（如果存在）
+                        if 'id' in df_with_id.columns:
+                            record_id = df_with_id.loc[idx, 'id']
+                            if pd.isna(record_id):
+                                record_id = None
+                            else:
+                                record_id = int(record_id) if record_id else None
+                    
+                        # 同時獲取發票號碼和日期（用於備選刪除方式）
+                        if 'invoice_number' in df_with_id.columns:
+                            invoice_number = df_with_id.loc[idx, 'invoice_number']
+                        elif '發票號碼' in df_with_id.columns:
+                            invoice_number = df_with_id.loc[idx, '發票號碼']
+                    
+                        if 'date' in df_with_id.columns:
+                            date = df_with_id.loc[idx, 'date']
+                        elif '日期' in df_with_id.columns:
+                            date = df_with_id.loc[idx, '日期']
+                
+                    # 方法2: 如果df_with_id中沒有，從df獲取（df已經重命名為中文列名）
+                    if record_id is None and df_with_id is not None and idx in df_with_id.index:
+                        # 嘗試從df獲取id（如果df中有id列）
+                        if 'id' in df.columns and idx in df.index:
+                            record_id = df.loc[idx, 'id']
+                            if pd.isna(record_id):
+                                record_id = None
+                            else:
+                                record_id = int(record_id) if record_id else None
+                
+                    if (not invoice_number or pd.isna(invoice_number) or str(invoice_number).strip() in ['', 'No', 'N/A', 'nan', 'None']):
+                        if idx in df.index and '發票號碼' in df.columns:
+                            invoice_number = df.loc[idx, '發票號碼']
+                
+                    if (not date or pd.isna(date) or str(date).strip() in ['', 'No', 'N/A', 'nan', 'None']):
+                        if idx in df.index and '日期' in df.columns:
+                            date = df.loc[idx, '日期']
+                
+                    # 方法3: 如果還是沒有，從ed_df獲取（最後備選）
+                    if (not invoice_number or pd.isna(invoice_number) or str(invoice_number).strip() in ['', 'No', 'N/A', 'nan', 'None']):
+                        if '發票號碼' in row.index:
+                            invoice_number = row.get('發票號碼')
+                
+                    if (not date or pd.isna(date) or str(date).strip() in ['', 'No', 'N/A', 'nan', 'None']):
+                        if '日期' in row.index:
+                            date = row.get('日期')
+                
+                    # 轉換為字符串並清理
+                    if invoice_number is not None and not pd.isna(invoice_number):
+                        invoice_number = str(invoice_number).strip()
+                        invoice_number = invoice_number.replace('No', '').replace('N/A', '').replace('nan', '').replace('None', '').strip()
+                    else:
+                        invoice_number = ''
+                
+                    if date is not None and not pd.isna(date):
+                        # 如果日期是日期類型，轉換為字符串
+                        if isinstance(date, pd.Timestamp) or hasattr(date, 'strftime'):
+                            try:
+                                date = date.strftime("%Y/%m/%d")
+                            except:
+                                date = str(date).strip()
                         else:
-                            with st.expander("查看統編提示", expanded=False):
+                            date = str(date).strip()
+                        date = date.replace('No', '').replace('N/A', '').replace('nan', '').replace('None', '').strip()
+                    else:
+                        date = ''
+                
+                    # 允許刪除數據不完整的記錄：優先使用id，如果沒有id則使用發票號碼+日期組合
+                    # 如果都沒有，仍然嘗試添加（使用空值），讓刪除邏輯處理
+                    delete_record = {}
+                    if record_id is not None:
+                        delete_record['id'] = record_id
+                    if invoice_number:
+                        delete_record['invoice_number'] = invoice_number
+                    if date:
+                        delete_record['date'] = date
+                
+                    # 只要有任何一個標識符（id、發票號碼+日期、或至少一個字段），就允許刪除
+                    if delete_record:
+                        records_to_delete.append(delete_record)
+            
+                if records_to_delete:
+                    # 顯示刪除確認對話框
+                    st.session_state.show_delete_confirm = True
+                    st.session_state.delete_records = records_to_delete
+                    st.session_state.delete_count = len(records_to_delete)
+                    st.rerun()
+                else:
+                    st.warning("⚠️ 無法確定要刪除的記錄。請確保數據已正確加載。")
+                    # 調試信息
+                    with st.expander("🔍 調試信息", expanded=False):
+                        st.write("**選中的行數:**", len(selected_rows))
+                        st.write("**ed_df的列名:**", list(ed_df.columns))
+                        st.write("**df的列名:**", list(df.columns) if 'df' in locals() else 'df未定義')
+                        st.write("**df_with_id的列名:**", list(df_with_id.columns) if df_with_id is not None and not df_with_id.empty else 'df_with_id為None或空')
+                        st.write("**選中的行數據（前3行）:**")
+                        if not selected_rows.empty:
+                            # 只顯示前3行，避免過多數據
+                            display_cols = ['發票號碼', '日期'] if '發票號碼' in selected_rows.columns and '日期' in selected_rows.columns else list(selected_rows.columns)[:5]
+                            st.dataframe(selected_rows[display_cols].head(3))
+                        st.write("**提示:** 現在支持刪除數據不完整的記錄（即使發票號碼或日期為空）。如果仍然無法刪除，請檢查調試信息。")
+        
+            # 檢測是否有變更並自動保存（比較關鍵字段）
+            # 使用 session_state 來追蹤是否已經檢查過變更，避免無限循環
+            if "data_editor_checked" not in st.session_state:
+                st.session_state.data_editor_checked = False
+        
+            # 只在第一次加載或明確需要檢查時才檢測變更
+            if not st.session_state.data_editor_checked:
+                has_changes = False
+                try:
+                    # 比較關鍵字段是否有變化（不包含ID和選取列）
+                    # 只比較實際的數據列，跳過計算列
+                    comparison_cols = [col for col in ed_df.columns 
+                                      if col not in ['選取'] 
+                                      and col in original_df_copy.columns]
+                
+                    for col in comparison_cols:
+                        try:
+                            # 使用更寬鬆的比較，忽略數據類型差異
+                            ed_series = ed_df[col].astype(str).fillna('')
+                            orig_series = original_df_copy[col].astype(str).fillna('')
+                            if not ed_series.equals(orig_series):
+                                has_changes = True
+                                break
+                        except:
+                            # 如果比較失敗，跳過這一列
+                            continue
+                except:
+                    # 如果比較失敗，不進行自動保存
+                    has_changes = False
+            
+                # 標記為已檢查，避免重複檢查
+                st.session_state.data_editor_checked = True
+            
+                # 只在確實有變更時才保存（且不是第一次加載）
+                if has_changes and st.session_state.get("data_editor_initialized", False):
+                    # 有變更，自動保存
+                    # 多用戶版本：使用 user_email
+                    user_email = st.session_state.get('user_email', 'default_user')
+                    saved_count, errors, warnings = save_edited_data(ed_df, original_df_copy, user_email)
+                    if saved_count > 0:
+                        st.success(f"✅ 已自動保存 {saved_count} 筆數據變更")
+                        # 統編驗證提示（僅提示，不阻擋）
+                        if warnings:
+                            st.warning("⚠️ 部分賣方統編非 8 位數字，已儲存僅供參考。")
+                            if len(warnings) <= 3:
                                 for w in warnings:
                                     st.caption(w)
-                    # 修復 Bug #4: 改進錯誤顯示，使用 expander 顯示所有錯誤
-                    if errors:
+                            else:
+                                with st.expander("查看統編提示", expanded=False):
+                                    for w in warnings:
+                                        st.caption(w)
+                        # 修復 Bug #4: 改進錯誤顯示，使用 expander 顯示所有錯誤
+                        if errors:
+                            if len(errors) > 3:
+                                with st.expander(f"⚠️ 發現 {len(errors)} 個錯誤（點擊查看詳情）", expanded=False):
+                                    for err in errors:
+                                        st.error(err)
+                            else:
+                                for err in errors:
+                                    st.error(err)
+                        # 重置檢查標誌，允許下次檢查
+                        st.session_state.data_editor_checked = False
+                        time.sleep(0.5)
+                        st.rerun()
+                    elif errors:
+                        # 如果全部失敗，顯示所有錯誤
                         if len(errors) > 3:
-                            with st.expander(f"⚠️ 發現 {len(errors)} 個錯誤（點擊查看詳情）", expanded=False):
+                            st.error(f"保存失敗: {errors[0]}")
+                            with st.expander(f"查看所有 {len(errors)} 個錯誤", expanded=False):
                                 for err in errors:
                                     st.error(err)
                         else:
                             for err in errors:
-                                st.error(err)
-                    # 重置檢查標誌，允許下次檢查
-                    st.session_state.data_editor_checked = False
-                    time.sleep(0.5)
-                    st.rerun()
-                elif errors:
-                    # 如果全部失敗，顯示所有錯誤
-                    if len(errors) > 3:
-                        st.error(f"保存失敗: {errors[0]}")
-                        with st.expander(f"查看所有 {len(errors)} 個錯誤", expanded=False):
-                            for err in errors:
-                                st.error(err)
-                    else:
-                        for err in errors:
-                            st.error(f"保存失敗: {err}")
-                    # 重置檢查標誌
-                    st.session_state.data_editor_checked = False
-            else:
-                # 第一次加載，標記為已初始化
-                if not st.session_state.get("data_editor_initialized", False):
-                    st.session_state.data_editor_initialized = True
+                                st.error(f"保存失敗: {err}")
+                        # 重置檢查標誌
+                        st.session_state.data_editor_checked = False
+                else:
+                    # 第一次加載，標記為已初始化
+                    if not st.session_state.get("data_editor_initialized", False):
+                        st.session_state.data_editor_initialized = True
 
