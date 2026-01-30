@@ -1,4 +1,0 @@
-# 雲端建置時若需編譯 C 擴展（如 bcrypt），需安裝以下套件
-# 若僅使用預編譯輪子則可留空或刪除此檔
-build-essential
-python3-dev
