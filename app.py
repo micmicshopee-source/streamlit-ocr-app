@@ -1325,6 +1325,72 @@ def delete_batch_cascade(batch_id, user_email=None):
         return False, 0, str(e)
 
 
+def load_test_data(user_email=None):
+    """載入測試數據：2 個 Batch（OCR 4 張 + 導入 3 張）+ 2 張未分組發票。回傳 (成功筆數, 錯誤訊息)。"""
+    user_email = user_email or st.session_state.get('user_email', 'default_user')
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    test_invoices = [
+        # Batch 1 (OCR) - 4 張
+        {"file_name": "發票1.jpg", "date": "2026/01/15", "invoice_number": "AB-12345678", "seller_name": "全家便利商店", "seller_ubn": "12345678", "subtotal": 95.24, "tax": 4.76, "total": 100, "category": "餐飲", "subject": "餐飲費", "status": "✅ 正常", "note": "", "tax_type": "5%"},
+        {"file_name": "發票2.jpg", "date": "2026/01/16", "invoice_number": "AB-12345679", "seller_name": "統一超商", "seller_ubn": "87654321", "subtotal": 190.48, "tax": 9.52, "total": 200, "category": "餐飲", "subject": "餐飲費", "status": "✅ 正常", "note": "", "tax_type": "5%"},
+        {"file_name": "發票3.jpg", "date": "2026/01/17", "invoice_number": "AB-12345680", "seller_name": "星巴克", "seller_ubn": "11112222", "subtotal": 142.86, "tax": 7.14, "total": 150, "category": "餐飲", "subject": "餐飲費", "status": "✅ 正常", "note": "咖啡", "tax_type": "5%"},
+        {"file_name": "發票4.jpg", "date": "2026/01/18", "invoice_number": "AB-12345681", "seller_name": "麥當勞", "seller_ubn": "22223333", "subtotal": 380.95, "tax": 19.05, "total": 400, "category": "餐飲", "subject": "餐飲費", "status": "✅ 正常", "note": "會議餐", "tax_type": "5%"},
+        # Batch 2 (import) - 3 張（含 5% 與 零稅率）
+        {"file_name": "導入數據", "date": "2026/01/20", "invoice_number": "CD-88880001", "seller_name": "文具王", "seller_ubn": "33334444", "subtotal": 476.19, "tax": 23.81, "total": 500, "category": "辦公用品", "subject": "辦公用品", "status": "✅ 正常", "note": "影印紙", "tax_type": "5%"},
+        {"file_name": "導入數據", "date": "2026/01/21", "invoice_number": "CD-88880002", "seller_name": "台灣大車隊", "seller_ubn": "55556666", "subtotal": 285.71, "tax": 14.29, "total": 300, "category": "交通", "subject": "交通費", "status": "✅ 正常", "note": "計程車", "tax_type": "5%"},
+        {"file_name": "導入數據", "date": "2026/01/22", "invoice_number": "CD-88880003", "seller_name": "出口供應商", "seller_ubn": "66667777", "subtotal": 1000, "tax": 0, "total": 1000, "category": "其他", "subject": "採購", "status": "✅ 正常", "note": "零稅率", "tax_type": "零稅率"},
+        # 未分組 - 2 張（免稅 / 0%）
+        {"file_name": "舊資料", "date": "2026/01/10", "invoice_number": "EF-00000001", "seller_name": "免稅店", "seller_ubn": "77778888", "subtotal": 100, "tax": 0, "total": 100, "category": "其他", "subject": "雜項", "status": "✅ 正常", "note": "未分組", "tax_type": "免稅"},
+        {"file_name": "舊資料", "date": "2026/01/11", "invoice_number": "EF-00000002", "seller_name": "零稅率供應商", "seller_ubn": "99990000", "subtotal": 200, "tax": 0, "total": 200, "category": "其他", "subject": "雜項", "status": "✅ 正常", "note": "未分組", "tax_type": "0%"},
+    ]
+    batch_sources = ["ocr", "ocr", "ocr", "ocr", "import", "import", "import", None, None]  # 前 4 屬 batch1, 5-7 屬 batch2, 8-9 未分組
+
+    if st.session_state.use_memory_mode:
+        bid_ocr = len(st.session_state.local_batches) + 1
+        st.session_state.local_batches.append({"id": bid_ocr, "user_email": user_email, "source": "ocr", "created_at": now, "invoice_count": 4})
+        bid_import = len(st.session_state.local_batches) + 1
+        st.session_state.local_batches.append({"id": bid_import, "user_email": user_email, "source": "import", "created_at": now, "invoice_count": 3})
+        base_id = len(st.session_state.local_invoices)
+        for i, inv in enumerate(test_invoices):
+            rec = dict(inv)
+            rec["id"] = base_id + i + 1
+            rec["user_email"] = user_email
+            rec["image_path"] = None
+            rec["created_at"] = now
+            rec["modified_at"] = None
+            rec["batch_id"] = bid_ocr if batch_sources[i] == "ocr" else (bid_import if batch_sources[i] == "import" else None)
+            st.session_state.local_invoices.append(rec)
+        return len(test_invoices), None
+
+    try:
+        path = get_db_path()
+        is_uri = path.startswith("file:") and "mode=memory" in path
+        conn = sqlite3.connect(path, timeout=30, uri=is_uri, check_same_thread=False)
+        cursor = conn.cursor()
+        cursor.execute("INSERT INTO batches (user_email, source) VALUES (?, 'ocr')", (user_email,))
+        bid_ocr = cursor.lastrowid
+        cursor.execute("INSERT INTO batches (user_email, source) VALUES (?, 'import')", (user_email,))
+        bid_import = cursor.lastrowid
+        for i, inv in enumerate(test_invoices):
+            batch_id = None
+            if batch_sources[i] == "ocr":
+                batch_id = bid_ocr
+            elif batch_sources[i] == "import":
+                batch_id = bid_import
+            cursor.execute("""
+                INSERT INTO invoices (user_email, file_name, date, invoice_number, seller_name, seller_ubn, subtotal, tax, total, category, subject, status, note, batch_id, tax_type)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """, (
+                user_email, inv["file_name"], inv["date"], inv["invoice_number"], inv["seller_name"], inv["seller_ubn"],
+                inv["subtotal"], inv["tax"], inv["total"], inv["category"], inv["subject"], inv["status"], inv["note"], batch_id, inv["tax_type"]
+            ))
+        conn.commit()
+        conn.close()
+        return len(test_invoices), None
+    except Exception as e:
+        return 0, str(e)
+
+
 def get_ungrouped_invoices(user_email=None):
     """取得未分組發票（batch_id 為 NULL）。回傳已重命名欄位的 DataFrame。"""
     user_email = user_email or st.session_state.get('user_email', 'default_user')
@@ -1783,6 +1849,17 @@ with st.sidebar:
         )
         st.session_state.gemini_api_key = _safe_secrets_get("GEMINI_API_KEY")
         st.session_state.gemini_model = model
+    
+    if st.session_state.current_tool == "invoice":
+        with st.expander("🧪 測試數據", expanded=False):
+            if st.button("📋 載入測試數據", use_container_width=True, key="load_test_data_btn"):
+                n, err = load_test_data(st.session_state.get("user_email", "default_user"))
+                if err:
+                    st.error(f"載入失敗：{err}")
+                else:
+                    st.success(f"已載入 {n} 筆測試發票（2 組 Batch：OCR 4 張 + 導入 3 張，未分組 2 張）")
+                    time.sleep(0.5)
+                    st.rerun()
     
     st.session_state.use_memory_mode = False
 
@@ -2787,6 +2864,8 @@ with st.container():
     df_opt = df_raw.rename(columns=mapping_opt) if not df_raw.empty else pd.DataFrame()
     subjects = sorted([x for x in df_opt["會計科目"].dropna().astype(str).unique().tolist() if x and str(x).strip() and str(x) != "No"]) if not df_opt.empty and "會計科目" in df_opt.columns else []
     categories = sorted([x for x in df_opt["類型"].dropna().astype(str).unique().tolist() if x and str(x).strip() and str(x) != "No"]) if not df_opt.empty and "類型" in df_opt.columns else []
+    subject_options = sorted(set(list(subjects) + ["雜項", "餐飲費", "交通費", "辦公用品", "差旅費"]))
+    category_options = sorted(set(list(categories) + ["其他", "餐飲", "交通", "辦公用品"]))
 
     filter_row1, filter_row2, filter_row3 = st.columns([2, 1, 1])
     with filter_row1:
@@ -2839,6 +2918,8 @@ with st.container():
     with adv4:
         filter_amount_max = st.number_input("最大金額", min_value=0, value=int(st.session_state.get("filter_amount_max", 0)), step=100, key="filter_amount_max")
 
+    if not (search and search.strip()) and not df_raw.empty:
+        st.caption("💡 **按組顯示**：導出 CSV／Excel／PDF 為全部發票資料；輸入搜尋關鍵字可切換為按單張表格。")
     st.markdown('<p class="filter-section-label">操作</p>', unsafe_allow_html=True)
     act_col1, act_col2, act_col3, act_col4 = st.columns(4)
     with act_col1:
@@ -3704,9 +3785,11 @@ with st.container():
                 "修改時間": st.column_config.DatetimeColumn("修改時間", format="YYYY-MM-DD HH:mm", disabled=True),
                 "稅率類型": st.column_config.SelectboxColumn("稅率類型", options=["5%", "0%", "免稅", "零稅率"], required=False)
             }
+            column_config["會計科目"] = st.column_config.SelectboxColumn("會計科目", options=subject_options, required=False)
+            column_config["類型"] = st.column_config.SelectboxColumn("類型", options=category_options, required=False)
         
-            # 文字類欄位左對齊配置
-            text_columns = ["賣方名稱", "發票號碼", "賣方統編", "類型", "會計科目", "狀態", "備註"]
+            # 文字類欄位左對齊配置（會計科目、類型已用 SelectboxColumn）
+            text_columns = ["賣方名稱", "發票號碼", "賣方統編", "狀態", "備註"]
             for col in text_columns:
                 if col in df_for_editor.columns and col not in column_config:
                     column_config[col] = st.column_config.TextColumn(col, width="medium")
