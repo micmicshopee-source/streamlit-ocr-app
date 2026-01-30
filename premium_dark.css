@@ -6,11 +6,12 @@
 
 /* --- 1. 設計變數（Design Tokens）--- */
 :root {
-    /* 深色模式美學 */
-    --bg-base: #0F0F0F;
-    --bg-card: #1E1E1E;
-    --border-default: #333333;
+    /* 深色模式美學（Slate 風格：參考 Tailwind detail screens）*/
+    --bg-base: #0F172A;
+    --bg-card: #1E293B;
+    --border-default: #334155;
     --border-subtle: rgba(255, 255, 255, 0.08);
+    --font-mono: ui-monospace, "Cascadia Code", "SF Mono", Consolas, monospace;
     
     /* 視覺階層：主次分明 */
     --text-primary: #FFFFFF;
@@ -371,6 +372,85 @@ p, span, div, label {
     font-weight: 600 !important;
     color: var(--text-primary) !important;
     font-variant-numeric: tabular-nums !important;
+}
+
+/* --- 主列表 + 詳情抽屜（Slate #0F172A / #334155）--- */
+.master-list-header-cell {
+    font-size: 0.75rem !important;
+    font-weight: 600 !important;
+    color: var(--text-muted) !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.05em !important;
+    padding: var(--space-2) 0 !important;
+    border-bottom: 1px solid var(--border-default) !important;
+    margin-bottom: var(--space-1) !important;
+}
+.master-list-header-cell.text-right {
+    text-align: right !important;
+}
+.master-list-cell {
+    font-size: 0.875rem !important;
+    color: var(--text-secondary) !important;
+    min-height: 32px !important;
+    display: flex !important;
+    align-items: center !important;
+    padding: var(--space-2) 0 !important;
+    border-bottom: 1px solid var(--border-subtle) !important;
+}
+.master-list-header .master-list-cell {
+    border-bottom: none !important;
+}
+.master-list-cell.col-amount,
+.amount-monospace {
+    font-family: var(--font-mono) !important;
+    text-align: right !important;
+    font-variant-numeric: tabular-nums !important;
+}
+.detail-amount {
+    font-size: 1.75rem !important;
+    font-weight: 700 !important;
+    color: var(--text-primary) !important;
+    font-family: var(--font-mono) !important;
+    font-variant-numeric: tabular-nums !important;
+    margin-bottom: var(--space-3) !important;
+}
+.detail-status {
+    display: inline-block !important;
+    padding: var(--space-1) var(--space-3) !important;
+    border-radius: 9999px !important;
+    font-size: 0.8125rem !important;
+    font-weight: 500 !important;
+    margin-bottom: var(--space-4) !important;
+}
+.detail-status-ok {
+    background: rgba(34, 197, 94, 0.2) !important;
+    color: #22c55e !important;
+}
+.detail-status-warn {
+    background: rgba(234, 67, 53, 0.2) !important;
+    color: #f87171 !important;
+}
+.detail-amount-table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    font-size: 0.875rem !important;
+    margin-top: var(--space-2) !important;
+}
+.detail-amount-table th,
+.detail-amount-table td {
+    padding: var(--space-2) var(--space-3) !important;
+    border-bottom: 1px solid var(--border-subtle) !important;
+    color: var(--text-secondary) !important;
+}
+.detail-amount-table th {
+    font-weight: 500 !important;
+    color: var(--text-muted) !important;
+    text-align: left !important;
+}
+.detail-amount-table .text-right {
+    text-align: right !important;
+    font-family: var(--font-mono) !important;
+    color: var(--text-primary) !important;
 }
 
 /* --- 7. 數據表格：Stripe 風格（去縱線、階層、間距、Hover）--- */
