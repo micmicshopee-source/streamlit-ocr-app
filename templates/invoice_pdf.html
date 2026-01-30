@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <title>發票 (Invoice)</title>
+  <style type="text/css">
+    @font-face {
+      font-family: "NotoSansTC";
+      src: url("NotoSansTC-Regular.ttf") format("truetype");
+    }
+    @page { margin: 20mm; }
+    * { box-sizing: border-box; }
+    body {
+      font-family: "NotoSansTC", "Microsoft JhengHei", "微軟正黑體", "PingFang TC", sans-serif;
+      font-size: 11pt;
+      color: #222;
+      line-height: 1.4;
+    }
+    .header {
+      text-align: right;
+      margin-bottom: 24px;
+    }
+    .header h1 {
+      font-size: 28pt;
+      font-weight: bold;
+      margin: 0 0 8px 0;
+      color: #111;
+    }
+    .header .meta {
+      font-size: 10pt;
+      color: #555;
+    }
+    .header .meta span { display: block; }
+    .two-cols {
+      width: 100%;
+      margin-bottom: 28px;
+    }
+    .two-cols td {
+      width: 50%;
+      vertical-align: top;
+      padding: 0 12px 0 0;
+    }
+    .two-cols td:last-child { padding: 0 0 0 12px; }
+    .block-title {
+      font-size: 10pt;
+      font-weight: bold;
+      color: #333;
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .block-content { font-size: 10pt; color: #444; }
+    .block-content div { margin-bottom: 2px; }
+    table.data-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 24px;
+    }
+    table.data-table th {
+      background-color: #e8f5e9;
+      color: #1b5e20;
+      font-weight: bold;
+      text-align: left;
+      padding: 10px 12px;
+      font-size: 10pt;
+      border: 1px solid #c8e6c9;
+    }
+    table.data-table th.num,
+    table.data-table td.num { text-align: right; }
+    table.data-table td {
+      padding: 8px 12px;
+      border: 1px solid #e0e0e0;
+      font-size: 10pt;
+    }
+    table.data-table tbody tr:nth-child(even) { background-color: #f5f5f5; }
+    table.data-table tbody tr:nth-child(odd) { background-color: #fff; }
+    .totals {
+      text-align: right;
+      width: 100%;
+      max-width: 320px;
+      margin-left: auto;
+    }
+    .totals table { width: 100%; border: none; }
+    .totals td {
+      padding: 6px 12px;
+      border: none;
+      font-size: 10pt;
+    }
+    .totals td:first-child { text-align: right; color: #555; }
+    .totals td:last-child { text-align: right; }
+    .totals .total-row td { font-weight: bold; font-size: 12pt; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>發票 (Invoice)</h1>
+    <div class="meta">
+      <span>發票編號 Invoice No.: {{INVOICE_NUMBER}}</span>
+      <span>日期 Date: {{DATE}}</span>
+      <span>到期日 Due: {{DUE_DATE}}</span>
+    </div>
+  </div>
+  <table class="two-cols">
+    <tr>
+      <td>
+        <div class="block-title">發行方 Issuer</div>
+        <div class="block-content">{{ISSUER_HTML}}</div>
+      </td>
+      <td>
+        <div class="block-title">接收方 Bill To</div>
+        <div class="block-content">{{RECEIVER_HTML}}</div>
+      </td>
+    </tr>
+  </table>
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>描述 Description</th>
+        <th class="num">數量 Qty</th>
+        <th class="num">單價 Unit Price</th>
+        <th class="num">總計 Amount</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{TABLE_ROWS}}
+    </tbody>
+  </table>
+  <div class="totals">
+    <table>
+      <tr><td>小計 Subtotal</td><td>{{SUBTOTAL}}</td></tr>
+      <tr><td>營業稅 VAT 5%</td><td>{{VAT}}</td></tr>
+      <tr class="total-row"><td>總計 Total</td><td>{{TOTAL}}</td></tr>
+    </table>
+  </div>
+</body>
+</html>

@@ -18,6 +18,8 @@ openpyxl>=3.1.0
 
 # PDF 導出功能
 fpdf2>=2.7.0
+# 專業發票 PDF（HTML 模板 + 中文）
+xhtml2pdf>=0.2.13
 
 # 圖表生成
 altair>=5.0.0
