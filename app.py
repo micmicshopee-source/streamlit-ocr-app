@@ -3771,34 +3771,30 @@ with st.container():
                 st.session_state.invoice_master_page = list_page
             df_page = df.iloc[list_page * MASTER_PAGE_SIZE : (list_page + 1) * MASTER_PAGE_SIZE]
 
-            # 由網址 ?detail=i 打開詳情（點「查看詳情」連結時）；關閉後本輪不依 URL 再打開
-            if st.session_state.get("detail_close_requested"):
-                st.session_state.detail_invoice_index = None
-                st.session_state._skip_query_detail = True
-                del st.session_state.detail_close_requested
-            try:
-                if not st.session_state.get("_skip_query_detail"):
-                    q = st.query_params.get("detail")
-                    if q is not None and str(q).isdigit():
-                        i = int(q)
-                        if 0 <= i < len(df_page):
-                            st.session_state.detail_invoice_index = df_page.index[i]
-                if "_skip_query_detail" in st.session_state:
-                    del st.session_state._skip_query_detail
-            except Exception:
-                pass
             detail_idx = st.session_state.get("detail_invoice_index")
 
             # 主列表區標題（參考 Latest activity）
             st.markdown('<p class="report-section-title">發票明細</p>', unsafe_allow_html=True)
-            # 主列表：單一表格（表頭 + 橫向一列一列，嚴格控制高度與分隔線）
+            # 主列表：表頭（HTML）+ 每列橫向一行，嚴格控制高度；最右列 st.button("查看詳情")
             def _esc(s):
                 if s is None or (isinstance(s, float) and pd.isna(s)):
                     return ""
                 return str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")[:50]
 
-            rows_html = []
-            for row_i, (idx, row) in enumerate(df_page.iterrows()):
+            st.markdown(
+                '<div class="master-list-table-wrap">'
+                '<table class="master-list-table">'
+                '<thead><tr>'
+                '<th class="master-list-th col-date">日期</th>'
+                '<th class="master-list-th col-num">號碼</th>'
+                '<th class="master-list-th col-vendor">廠商</th>'
+                '<th class="master-list-th col-amount">總計</th>'
+                '<th class="master-list-th col-status">狀態</th>'
+                '<th class="master-list-th col-action">操作</th>'
+                '</tr></thead></table></div>',
+                unsafe_allow_html=True,
+            )
+            for idx, row in df_page.iterrows():
                 date_val = _esc(row.get("日期"))
                 if len(date_val) > 10:
                     date_val = date_val[:10]
@@ -3812,29 +3808,21 @@ with st.container():
                 status_val = _esc(row.get("狀態", ""))
                 status_dot = "status-ok" if ("正常" in status_val or "✅" in status_val) else "status-warn"
                 status_cell = f'<span class="status-dot {status_dot}"></span><span class="status-text">{status_val}</span>'
-                link = f'<a href="?detail={row_i}" class="detail-link">查看詳情</a>'
-                rows_html.append(
-                    f'<tr class="master-list-tr">'
-                    f'<td class="master-list-td col-date">{date_val}</td>'
-                    f'<td class="master-list-td col-num">{num_val}</td>'
-                    f'<td class="master-list-td col-vendor">{vendor_val}</td>'
-                    f'<td class="master-list-td col-amount amount-monospace">{total_fmt}</td>'
-                    f'<td class="master-list-td col-status">{status_cell}</td>'
-                    f'<td class="master-list-td col-action">{link}</td></tr>'
-                )
-            table_html = (
-                '<div class="master-list-table-wrap">'
-                '<table class="master-list-table">'
-                '<thead><tr>'
-                '<th class="master-list-th col-date">日期</th>'
-                '<th class="master-list-th col-num">號碼</th>'
-                '<th class="master-list-th col-vendor">廠商</th>'
-                '<th class="master-list-th col-amount">總計</th>'
-                '<th class="master-list-th col-status">狀態</th>'
-                '<th class="master-list-th col-action">操作</th>'
-                '</tr></thead><tbody>' + "".join(rows_html) + "</tbody></table></div>"
-            )
-            st.markdown(table_html, unsafe_allow_html=True)
+                c0, c1, c2, c3, c4, c5 = st.columns([1, 1.2, 2, 1, 1.2, 0.8])
+                with c0:
+                    st.markdown(f'<div class="master-list-row-cell">{date_val}</div>', unsafe_allow_html=True)
+                with c1:
+                    st.markdown(f'<div class="master-list-row-cell">{num_val}</div>', unsafe_allow_html=True)
+                with c2:
+                    st.markdown(f'<div class="master-list-row-cell">{vendor_val}</div>', unsafe_allow_html=True)
+                with c3:
+                    st.markdown(f'<div class="master-list-row-cell amount-monospace">{total_fmt}</div>', unsafe_allow_html=True)
+                with c4:
+                    st.markdown(f'<div class="master-list-row-cell master-list-status">{status_cell}</div>', unsafe_allow_html=True)
+                with c5:
+                    if st.button("查看詳情", key=f"detail_btn_{idx}", type="secondary"):
+                        st.session_state.detail_invoice_index = idx
+                        st.rerun()
 
             # 分頁
             if total_pages > 1:
@@ -3946,7 +3934,6 @@ with st.container():
                     st.markdown(tl, unsafe_allow_html=True)
                     if st.button("關閉詳情", key="close_detail"):
                         st.session_state.detail_invoice_index = None
-                        st.session_state.detail_close_requested = True
                         st.rerun()
 
             st.markdown("---")

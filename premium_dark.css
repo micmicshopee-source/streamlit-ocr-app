@@ -513,6 +513,26 @@ p, span, div, label {
     text-align: right !important;
     font-variant-numeric: tabular-nums !important;
 }
+/* 主列表每列（columns 渲染時與表頭對齊）*/
+.master-list-row-cell {
+    font-size: 0.875rem !important;
+    color: var(--text-secondary) !important;
+    min-height: 32px !important;
+    padding: var(--space-2) 0 !important;
+    border-bottom: 1px solid var(--border-subtle) !important;
+    display: flex !important;
+    align-items: center !important;
+}
+.master-list-row-cell.amount-monospace {
+    font-family: var(--font-mono) !important;
+    text-align: right !important;
+    justify-content: flex-end !important;
+}
+.master-list-row-cell.master-list-status {
+    display: flex !important;
+    align-items: center !important;
+    gap: var(--space-2) !important;
+}
 .detail-link {
     color: var(--accent) !important;
     text-decoration: none !important;
