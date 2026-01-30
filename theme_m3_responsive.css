@@ -2,6 +2,7 @@
    Material Design 3 深色主題 + 響應式
    統一設計系統，不影響功能
    ============================================ */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
 
 /* --- 1. 基礎與變數（專業 SaaS 風格）--- */
 :root {
@@ -34,20 +35,43 @@
     color: var(--md-on-surface) !important;
 }
 
-/* --- 側邊欄：依參考圖文字大小與排版 --- */
+/* --- 全域：移除頂部空白、Card 圓角與細邊框 --- */
+.block-container,
+.main .block-container {
+    padding-top: 1rem !important;
+}
+[data-testid="stVerticalBlock"] > [data-testid="element-container"],
+[data-testid="stExpander"],
+.stMetric,
+[data-testid="stHorizontalBlock"] {
+    border-radius: 4px !important;
+    border: 1px solid rgba(255,255,255,0.08) !important;
+}
+[data-testid="stExpander"] > details {
+    border-radius: 4px !important;
+    border: 1px solid rgba(255,255,255,0.08) !important;
+}
+
+/* --- 側邊欄：Google AI Studio 風格 (#111111 / Inter / 14px / #9CA3AF) --- */
 [data-testid="stSidebar"] {
-    background-color: #1e1e1e !important;
+    background-color: #111111 !important;
     overflow-y: auto !important;
     overflow-x: hidden !important;
     border-right: 1px solid rgba(255,255,255,0.06) !important;
-    color: #b0b0b0 !important;
-    font-family: "Microsoft JhengHei", "Segoe UI", sans-serif !important;
+    color: #9CA3AF !important;
+    font-family: Inter, "Segoe UI", "Microsoft JhengHei", sans-serif !important;
+    font-size: 14px !important;
+}
+[data-testid="stSidebar"] > div {
+    padding-left: 12px !important;
+    padding-right: 12px !important;
 }
 
 [data-testid="stSidebar"] .stMarkdown,
 [data-testid="stSidebar"] p,
 [data-testid="stSidebar"] label {
-    color: #b0b0b0 !important;
+    color: #9CA3AF !important;
+    font-size: 14px !important;
 }
 
 /* 頂部標題：參考圖大字、白字 */
@@ -71,7 +95,7 @@
 /* 主導航：參考圖字級與間距，單項約 10px 上下 padding */
 [data-testid="stSidebar"] [data-testid="stRadio"] label,
 [data-testid="stSidebar"] .stRadio label {
-    color: #b0b0b0 !important;
+    color: #9CA3AF !important;
     font-size: 0.9375rem !important;
     padding: 10px 12px !important;
     margin-bottom: 2px !important;
@@ -94,12 +118,12 @@
 /* 底部區：設定 / 下雪 / 按鈕 — 參考圖字級 */
 [data-testid="stSidebar"] .stExpander label,
 [data-testid="stSidebar"] [data-testid="stExpander"] label {
-    color: #b0b0b0 !important;
-    font-size: 0.875rem !important;
+    color: #9CA3AF !important;
+    font-size: 14px !important;
 }
 
 [data-testid="stSidebar"] [data-testid="stToggle"] label {
-    color: #b0b0b0 !important;
+    color: #9CA3AF !important;
     font-size: 0.875rem !important;
 }
 
@@ -113,7 +137,7 @@
     border: none !important;
     box-shadow: none !important;
     background: transparent !important;
-    color: #b0b0b0 !important;
+    color: #9CA3AF !important;
     font-size: 0.875rem !important;
     padding: 8px 12px !important;
 }
@@ -149,16 +173,52 @@
     display: flex;
     align-items: center;
     margin-bottom: 10px;
-    color: #b0b0b0;
-    font-size: 0.8125rem;
+    color: #9CA3AF;
+    font-size: 14px;
 }
 
 .sidebar-email {
-    color: #b0b0b0;
-    font-size: 0.8125rem;
+    color: #9CA3AF;
+    font-size: 14px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+/* 側邊欄底部用戶欄：固定在底部 */
+.sidebar-bottom-fixed {
+    margin-top: auto !important;
+    padding-top: 12px !important;
+}
+
+/* --- 數據報表：Stripe 風格（黑主題、去縱線、狀態綠標籤、金額等寬右對齊）--- */
+[data-testid="stDataEditor"] table,
+[data-testid="stDataFrame"] table {
+    border-collapse: collapse !important;
+}
+[data-testid="stDataEditor"] td,
+[data-testid="stDataEditor"] th,
+[data-testid="stDataFrame"] td,
+[data-testid="stDataFrame"] th {
+    border-left: none !important;
+    border-right: none !important;
+    border-top: 1px solid rgba(255,255,255,0.08) !important;
+    border-bottom: 1px solid rgba(255,255,255,0.08) !important;
+}
+/* 狀態欄：正常 = 綠色圓角標籤 */
+[data-testid="stDataEditor"] td.status-ok,
+[data-testid="stDataFrame"] td.status-ok {
+    background: rgba(34, 197, 94, 0.2) !important;
+    color: #22c55e !important;
+    border-radius: 4px !important;
+    font-weight: 500 !important;
+}
+/* 金額欄：等寬字型、白色、右對齊 */
+[data-testid="stDataEditor"] td.amount-cell,
+[data-testid="stDataFrame"] td.amount-cell {
+    font-family: ui-monospace, "Cascadia Code", monospace !important;
+    color: #fff !important;
+    text-align: right !important;
 }
 
 .main {

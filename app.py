@@ -1578,44 +1578,45 @@ with st.sidebar:
     )
     st.session_state.current_tool = next(k for k, label in tool_options if label == choice)
     
-    # --- 底部固定區（分隔線 + 設定 / 趣味開關 / 用戶 / 登出）---
+    # --- 底部固定區：設定、趣味開關、用戶頭像+Email、登出（st.sidebar.container 固定於底部）---
     st.markdown("<div class='sidebar-spacer'></div>", unsafe_allow_html=True)
     st.markdown("---")
     
-    # 設定（僅辨識模型；API 金鑰由 Secrets 提供，不展示給用戶）
-    with st.expander("⚙️ 設定", expanded=False):
-        model = st.selectbox(
-            "辨識模型",
-            ["gemini-2.0-flash", "gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro"],
-            key="sidebar_model",
+    with st.container():
+        # 設定（僅辨識模型；API 金鑰由 Secrets 提供，不展示給用戶）
+        with st.expander("⚙️ 設定", expanded=False):
+            model = st.selectbox(
+                "辨識模型",
+                ["gemini-2.0-flash", "gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro"],
+                key="sidebar_model",
+            )
+            st.session_state.gemini_api_key = _safe_secrets_get("GEMINI_API_KEY")
+            st.session_state.gemini_model = model
+        
+        # 趣味開關
+        if "snow_toggle" not in st.session_state:
+            st.session_state.snow_toggle = False
+        st.session_state.snow_toggle = st.toggle("下雪吧 ❄️", value=st.session_state.snow_toggle, key="sidebar_snow_toggle")
+        
+        # 用戶頭像（圓形首字）+ Email 截斷
+        user_email = st.session_state.get("user_email", "未登入")
+        avatar_letter = (user_email[0] if user_email and user_email != "未登入" else "?").upper()
+        email_short = (user_email[:20] + "…") if user_email and len(user_email) > 20 else (user_email or "未登入")
+        st.markdown(
+            f"""
+            <div class="sidebar-user-row">
+                <span class="sidebar-avatar" aria-hidden="true">{avatar_letter}</span>
+                <span class="sidebar-email">{email_short}</span>
+            </div>
+            """,
+            unsafe_allow_html=True,
         )
-        st.session_state.gemini_api_key = _safe_secrets_get("GEMINI_API_KEY")
-        st.session_state.gemini_model = model
-    
-    # 趣味開關
-    if "snow_toggle" not in st.session_state:
-        st.session_state.snow_toggle = False
-    st.session_state.snow_toggle = st.toggle("下雪吧 ❄️", value=st.session_state.snow_toggle, key="sidebar_snow_toggle")
-    
-    # 用戶頭像（圓形首字）+ Email 截斷
-    user_email = st.session_state.get("user_email", "未登入")
-    avatar_letter = (user_email[0] if user_email and user_email != "未登入" else "?").upper()
-    email_short = (user_email[:20] + "…") if user_email and len(user_email) > 20 else (user_email or "未登入")
-    st.markdown(
-        f"""
-        <div class="sidebar-user-row">
-            <span class="sidebar-avatar" aria-hidden="true">{avatar_letter}</span>
-            <span class="sidebar-email">{email_short}</span>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    
-    if st.button("🚪 登出", use_container_width=True, key="sidebar_logout"):
-        st.session_state.authenticated = False
-        st.session_state.user_email = None
-        st.session_state.login_at = None
-        st.rerun()
+        
+        if st.button("🚪 登出", use_container_width=True, key="sidebar_logout"):
+            st.session_state.authenticated = False
+            st.session_state.user_email = None
+            st.session_state.login_at = None
+            st.rerun()
     
     st.session_state.use_memory_mode = False
 
@@ -3462,7 +3463,7 @@ with st.container():
             "稅額 (5%)": st.column_config.NumberColumn("稅額 (5%)", format="$%d"),
             "總計": st.column_config.NumberColumn("總計", format="$%d"),
             "備註": st.column_config.TextColumn("備註", width="medium"),
-            "建立時間": st.column_config.DatetimeColumn("建立時間", format="YYYY/MM/DD HH:mm")
+            "建立時間": st.column_config.DatetimeColumn("建立時間", format="YYYY-MM-DD")
         }
         
         # 文字類欄位左對齊配置
@@ -3485,7 +3486,7 @@ with st.container():
                 df_for_editor["日期"] = pd.to_datetime(df_for_editor["日期"], errors='coerce', format='%Y/%m/%d')
                 # 如果轉換成功（沒有全部為NaT），使用DateColumn
                 if not df_for_editor["日期"].isna().all():
-                    column_config["日期"] = st.column_config.DateColumn("日期", format="YYYY/MM/DD")
+                    column_config["日期"] = st.column_config.DateColumn("日期", format="YYYY-MM-DD")
                 else:
                     # 轉換失敗，使用TextColumn
                     column_config["日期"] = st.column_config.TextColumn("日期", width="medium")
@@ -3501,7 +3502,7 @@ with st.container():
                 # 嘗試將建立時間轉換為日期時間類型
                 df_for_editor["建立時間"] = pd.to_datetime(df_for_editor["建立時間"], errors='coerce')
                 if not df_for_editor["建立時間"].isna().all():
-                    column_config["建立時間"] = st.column_config.DatetimeColumn("建立時間", format="YYYY/MM/DD HH:mm")
+                    column_config["建立時間"] = st.column_config.DatetimeColumn("建立時間", format="YYYY-MM-DD")
                 else:
                     column_config["建立時間"] = st.column_config.TextColumn("建立時間", width="medium")
                     df_for_editor["建立時間"] = df["建立時間"]
@@ -3544,19 +3545,20 @@ with st.container():
                                 isWarning = true;
                             }
                             
-                            // 設置列對齊
+                            // 設置列對齊與樣式 class（Stripe 風格：狀態綠標籤、金額等寬右對齊）
                             const columnName = headers[index] || '';
                             
-                            // 金額類欄位右對齊
+                            if (columnName === '狀態' && (text.indexOf('正常') !== -1 || text.indexOf('✅') !== -1)) {
+                                cell.classList.add('status-ok');
+                            }
                             if (amountColumns.includes(columnName)) {
+                                cell.classList.add('amount-cell');
                                 cell.style.textAlign = 'right';
                             }
-                            // 變化百分比欄位居中對齊
                             else if (changeColumns.includes(columnName)) {
                                 cell.style.textAlign = 'center';
                                 cell.style.fontSize = '13px';
                             }
-                            // 文字類欄位左對齊（默認）
                             else {
                                 cell.style.textAlign = 'left';
                             }
