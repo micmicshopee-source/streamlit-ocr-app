@@ -1962,8 +1962,7 @@ with st.container():
 user_email = st.session_state.get('user_email', 'default_user')
 df_raw = run_query("SELECT * FROM invoices WHERE user_email = ? ORDER BY id DESC", (user_email,))
 
-# ========== 1. 統計指標區（本期數據總覽）==========
-st.subheader("📊 本期數據總覽")
+# ========== 1. 統計指標區（報表標題 + KPI，參考 Planetaria 排版）==========
 with st.container():
     df_stats = df_raw.copy()
     if not df_stats.empty:
@@ -1999,85 +1998,50 @@ with st.container():
             month_invoice_count = len(df_month) if not df_month.empty else 0
             month_missing_count = len(df_month[df_month['狀態'].astype(str).str.contains('缺失', na=False)]) if not df_month.empty and '狀態' in df_month.columns else 0
             
-            # 四個數據卡片（並排顯示）
+            # 報表標題區（參考 Planetaria：左 標題+說明，右 pill）
+            st.markdown(
+                '<div class="report-header">'
+                '<div class="report-header-left">'
+                '<p class="report-header-title"><span class="report-header-dot"></span> 發票報帳</p>'
+                '<p class="report-header-desc">來自上傳與導入的發票明細</p>'
+                '</div>'
+                '<div class="report-header-right"><span class="report-pill">本月份</span></div>'
+                '</div>',
+                unsafe_allow_html=True,
+            )
+            # 四個 KPI 卡片（標籤在上、大數字在下，無邊框卡片）
             stat_col1, stat_col2, stat_col3, stat_col4 = st.columns(4)
-            
-            # 卡片 1: 本月總計
             with stat_col1:
-                st.markdown(f"""
-                <div class="metric-card">
-                    <div class="metric-card-icon">💰</div>
-                    <div class="metric-card-title">本月總計</div>
-                    <div class="metric-card-value">${month_total:,.0f}</div>
-                </div>
-                """, unsafe_allow_html=True)
-            
-            # 卡片 2: 預計稅額
+                st.markdown(f'<div class="kpi-card"><span class="kpi-label">本月總計</span><span class="kpi-value">${month_total:,.0f}</span></div>', unsafe_allow_html=True)
             with stat_col2:
-                st.markdown(f"""
-                <div class="metric-card">
-                    <div class="metric-card-icon">📊</div>
-                    <div class="metric-card-title">預計稅額</div>
-                    <div class="metric-card-value">${month_tax:,.0f}</div>
-                </div>
-                """, unsafe_allow_html=True)
-            
-            # 卡片 3: 發票總數
+                st.markdown(f'<div class="kpi-card"><span class="kpi-label">預計稅額</span><span class="kpi-value">${month_tax:,.0f}</span></div>', unsafe_allow_html=True)
             with stat_col3:
-                st.markdown(f"""
-                <div class="metric-card">
-                    <div class="metric-card-icon">📄</div>
-                    <div class="metric-card-title">發票總數</div>
-                    <div class="metric-card-value">{month_invoice_count:,} 筆</div>
-                </div>
-                """, unsafe_allow_html=True)
-            
-            # 卡片 4: 缺失件數
+                st.markdown(f'<div class="kpi-card"><span class="kpi-label">發票總數</span><span class="kpi-value">{month_invoice_count:,} 筆</span></div>', unsafe_allow_html=True)
             with stat_col4:
-                st.markdown(f"""
-                <div class="metric-card">
-                    <div class="metric-card-icon">⚠️</div>
-                    <div class="metric-card-title">缺失件數</div>
-                    <div class="metric-card-value">{month_missing_count:,} 筆</div>
-                </div>
-                """, unsafe_allow_html=True)
+                st.markdown(f'<div class="kpi-card"><span class="kpi-label">缺失件數</span><span class="kpi-value">{month_missing_count:,} 筆</span></div>', unsafe_allow_html=True)
             if month_invoice_count == 0:
                 st.caption("尚無本月發票，請先上傳或導入。")
     else:
-        # 無數據時顯示空卡片
+        # 無數據時：報表標題 + 空 KPI 卡片
+        st.markdown(
+            '<div class="report-header">'
+            '<div class="report-header-left">'
+            '<p class="report-header-title"><span class="report-header-dot"></span> 發票報帳</p>'
+            '<p class="report-header-desc">來自上傳與導入的發票明細</p>'
+            '</div>'
+            '<div class="report-header-right"><span class="report-pill">本月份</span></div>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
         stat_col1, stat_col2, stat_col3, stat_col4 = st.columns(4)
         with stat_col1:
-            st.markdown("""
-            <div class="metric-card">
-                <div class="metric-card-icon">💰</div>
-                <div class="metric-card-title">本月總計</div>
-                <div class="metric-card-value">$0</div>
-            </div>
-            """, unsafe_allow_html=True)
+            st.markdown('<div class="kpi-card"><span class="kpi-label">本月總計</span><span class="kpi-value">$0</span></div>', unsafe_allow_html=True)
         with stat_col2:
-            st.markdown("""
-            <div class="metric-card">
-                <div class="metric-card-icon">📊</div>
-                <div class="metric-card-title">預計稅額</div>
-                <div class="metric-card-value">$0</div>
-            </div>
-            """, unsafe_allow_html=True)
+            st.markdown('<div class="kpi-card"><span class="kpi-label">預計稅額</span><span class="kpi-value">$0</span></div>', unsafe_allow_html=True)
         with stat_col3:
-            st.markdown("""
-            <div class="metric-card">
-                <div class="metric-card-icon">📄</div>
-                <div class="metric-card-title">發票總數</div>
-                <div class="metric-card-value">0 筆</div>
-            </div>
-            """, unsafe_allow_html=True)
+            st.markdown('<div class="kpi-card"><span class="kpi-label">發票總數</span><span class="kpi-value">0 筆</span></div>', unsafe_allow_html=True)
         with stat_col4:
-            st.markdown("""
-            <div class="metric-card">
-                <div class="metric-card-icon">⚠️</div>
-                <div class="metric-card-title">缺失件數</div>
-                <div class="metric-card-value">0 筆</div>
-            </div>
-            """, unsafe_allow_html=True)
+            st.markdown('<div class="kpi-card"><span class="kpi-label">缺失件數</span><span class="kpi-value">0 筆</span></div>', unsafe_allow_html=True)
 
 # 初始化 dialog 狀態
 if "show_upload_dialog" not in st.session_state:
@@ -3825,6 +3789,8 @@ with st.container():
                 pass
             detail_idx = st.session_state.get("detail_invoice_index")
 
+            # 主列表區標題（參考 Latest activity）
+            st.markdown('<p class="report-section-title">發票明細</p>', unsafe_allow_html=True)
             # 主列表：單一表格（表頭 + 橫向一列一列，嚴格控制高度與分隔線）
             def _esc(s):
                 if s is None or (isinstance(s, float) and pd.isna(s)):
@@ -3844,6 +3810,8 @@ with st.container():
                 except Exception:
                     total_fmt = "0"
                 status_val = _esc(row.get("狀態", ""))
+                status_dot = "status-ok" if ("正常" in status_val or "✅" in status_val) else "status-warn"
+                status_cell = f'<span class="status-dot {status_dot}"></span><span class="status-text">{status_val}</span>'
                 link = f'<a href="?detail={row_i}" class="detail-link">查看詳情</a>'
                 rows_html.append(
                     f'<tr class="master-list-tr">'
@@ -3851,7 +3819,7 @@ with st.container():
                     f'<td class="master-list-td col-num">{num_val}</td>'
                     f'<td class="master-list-td col-vendor">{vendor_val}</td>'
                     f'<td class="master-list-td col-amount amount-monospace">{total_fmt}</td>'
-                    f'<td class="master-list-td col-status">{status_val}</td>'
+                    f'<td class="master-list-td col-status">{status_cell}</td>'
                     f'<td class="master-list-td col-action">{link}</td></tr>'
                 )
             table_html = (

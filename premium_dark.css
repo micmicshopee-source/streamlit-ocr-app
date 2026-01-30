@@ -333,13 +333,105 @@ p, span, div, label {
 }
 
 /* 統計卡片列：4px/8px 網格間距 + 與下方區塊留白 */
-.main [data-testid="stHorizontalBlock"]:has(.metric-card) {
+.main [data-testid="stHorizontalBlock"]:has(.metric-card),
+.main [data-testid="stHorizontalBlock"]:has(.kpi-card) {
     gap: var(--space-3) !important;
     margin-bottom: var(--space-5) !important;
 }
-.main .metric-card {
+.main .metric-card,
+.main .kpi-card {
     margin-bottom: 0 !important;
 }
+
+/* --- 報表區：參考 Planetaria 排版（標題 + KPI + 表格）--- */
+.report-header {
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: flex-start !important;
+    margin-bottom: var(--space-5) !important;
+    flex-wrap: wrap !important;
+    gap: var(--space-3) !important;
+}
+.report-header-left { flex: 1 !important; min-width: 0 !important; }
+.report-header-title {
+    font-size: 1rem !important;
+    font-weight: 600 !important;
+    color: var(--text-primary) !important;
+    margin: 0 0 var(--space-1) 0 !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: var(--space-2) !important;
+}
+.report-header-dot {
+    display: inline-block !important;
+    width: 8px !important;
+    height: 8px !important;
+    border-radius: 50% !important;
+    background: #22c55e !important;
+    flex-shrink: 0 !important;
+}
+.report-header-desc {
+    font-size: 0.875rem !important;
+    color: var(--text-muted) !important;
+    margin: 0 !important;
+}
+.report-header-right { flex-shrink: 0 !important; }
+.report-pill {
+    display: inline-block !important;
+    padding: var(--space-1) var(--space-3) !important;
+    border-radius: 9999px !important;
+    font-size: 0.75rem !important;
+    font-weight: 500 !important;
+    background: rgba(139, 92, 246, 0.25) !important;
+    color: #a78bfa !important;
+}
+/* KPI 卡片：標籤在上、大數字在下（無邊框、簡潔）*/
+.kpi-card {
+    padding: var(--space-4) var(--space-4) !important;
+    margin-bottom: 0 !important;
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    display: flex !important;
+    flex-direction: column !important;
+    gap: var(--space-2) !important;
+}
+.kpi-label {
+    font-size: 0.75rem !important;
+    font-weight: 500 !important;
+    color: var(--text-muted) !important;
+    text-transform: none !important;
+    letter-spacing: 0 !important;
+}
+.kpi-value {
+    font-size: 1.5rem !important;
+    font-weight: 700 !important;
+    color: var(--text-primary) !important;
+    font-variant-numeric: tabular-nums !important;
+    font-family: var(--font-mono) !important;
+}
+.report-section-title {
+    font-size: 1rem !important;
+    font-weight: 600 !important;
+    color: var(--text-primary) !important;
+    margin: 0 0 var(--space-3) 0 !important;
+}
+/* 表格狀態列：色點 + 文字（參考 Completed / Error）*/
+.master-list-td.col-status {
+    display: flex !important;
+    align-items: center !important;
+    gap: var(--space-2) !important;
+}
+.status-dot {
+    display: inline-block !important;
+    width: 8px !important;
+    height: 8px !important;
+    border-radius: 50% !important;
+    flex-shrink: 0 !important;
+}
+.status-dot.status-ok { background: #22c55e !important; }
+.status-dot.status-warn { background: #ef4444 !important; }
+.status-text { font-size: inherit !important; color: inherit !important; }
 
 .chart-card {
     background-color: var(--bg-card) !important;
