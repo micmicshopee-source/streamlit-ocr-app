@@ -2001,6 +2001,7 @@ if st.session_state.get("start_ocr", False) and ("upload_file_data" in st.sessio
         
         success_count = 0
         fail_count = 0
+        duplicate_count = 0  # 因重複而跳過，需單獨提示
         
         with st.status("AI 正在分析發票中...", expanded=True) as status:
             prog = st.progress(0)
@@ -2076,8 +2077,8 @@ if st.session_state.get("start_ocr", False) and ("upload_file_data" in st.sessio
                                 dup_id = result.iloc[0]['id']
                     
                     if is_duplicate:
-                        st.warning(f"⚠️ {fname}: 疑似重複發票（發票號碼: {invoice_no}, 日期: {invoice_date}，記錄ID: {dup_id}），已跳過")
-                        fail_count += 1
+                        st.warning(f"⚠️ {fname}: 疑似重複發票（發票號碼: {invoice_no}, 日期: {invoice_date}），已跳過不重複新增")
+                        duplicate_count += 1
                         continue
                     
                     # 保存圖片（多用戶版本：使用 user_email）
@@ -2179,9 +2180,13 @@ if st.session_state.get("start_ocr", False) and ("upload_file_data" in st.sessio
                 
                 prog.progress((idx+1)/n_files)
             
-            status.update(label=f"處理完成! 成功: {success_count}, 失敗: {fail_count}", state="complete", expanded=True)
+            status.update(label=f"處理完成! 成功: {success_count}, 跳過重複: {duplicate_count}, 失敗: {fail_count}", state="complete", expanded=True)
         
-        # 若有失敗，在頂部顯示明確摘要（避免「沒有任何提示」）
+        # 重複發票：明確提示（避免用戶以為沒任何反應）
+        if duplicate_count > 0:
+            st.info(f"ℹ️ **已跳過 {duplicate_count} 張重複發票**：發票號碼與日期已存在於列表中，未重複新增。若要再次匯入請先刪除舊資料。")
+        
+        # 若有辨識失敗（API/網路/解析錯誤），在頂部顯示明確摘要
         if fail_count > 0:
             st.error(f"⚠️ 辨識失敗 {fail_count} 張。常見原因：API 金鑰錯誤或過期、網路問題、圖片不清晰。請確認 Secrets 中的 GEMINI_API_KEY 正確，或展開上方詳情查看具體錯誤。")
             if st.session_state.get("ocr_report"):
@@ -2191,9 +2196,11 @@ if st.session_state.get("start_ocr", False) and ("upload_file_data" in st.sessio
         
         # 簡化顯示識別結果（只顯示摘要，不顯示圖片預覽）
         if success_count > 0:
-            st.success(f"✅ 成功辨識 {success_count} 張發票")
+            st.success(f"✅ 成功辨識並新增 {success_count} 張發票")
             if fail_count > 0:
                 st.warning(f"⚠️ {fail_count} 張辨識失敗")
+            if duplicate_count > 0:
+                st.caption(f"另有 {duplicate_count} 張因重複已跳過。")
             # 自動清空圖片預覽，節省空間
             if "ocr_images" in st.session_state:
                 st.session_state.ocr_images = []
