@@ -3692,10 +3692,10 @@ with st.container():
                 "稅率類型": st.column_config.SelectboxColumn("稅率類型", options=["5%", "0%", "免稅", "零稅率"], required=False)
             }
             column_config["會計科目"] = st.column_config.SelectboxColumn("會計科目", options=subject_options, required=False)
-            # 類型 = 發票類型（三聯發票、二聯發票、電子發票等）；保留既有選項以相容舊資料
+            # 類型 = 發票類型（三聯發票、二聯發票、電子發票、收銀機發票、其它）
+            # 僅顯示發票「類型」本身，不再混入報帳分類（餐飲、交通等）
             invoice_type_options = ["三聯發票", "二聯發票", "電子發票", "收銀機發票", "其它"]
-            _type_opts = sorted(set(invoice_type_options + [str(x) for x in (category_options or []) if x and str(x).strip()]))
-            column_config["類型"] = st.column_config.SelectboxColumn("類型", options=_type_opts, required=False)
+            column_config["類型"] = st.column_config.SelectboxColumn("類型", options=invoice_type_options, required=False)
         
             # 文字類欄位左對齊配置（會計科目、類型已用 SelectboxColumn）
             text_columns = ["賣方名稱", "發票號碼", "賣方統編", "狀態", "備註"]
