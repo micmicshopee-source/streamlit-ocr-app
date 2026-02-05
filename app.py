@@ -3979,8 +3979,6 @@ with st.container():
 
             # ========== 單條數據：可選擇、可編輯 ==========
             st.markdown('<p class="report-section-title">發票明細</p>', unsafe_allow_html=True)
-            st.caption("每行為一筆發票。勾選「選取」可批次刪除；直接於表格內編輯後點「儲存變更」。")
-        
             # 保存原始數據的副本用於比較（不包含ID列）
             original_df_copy = df.copy()
         
