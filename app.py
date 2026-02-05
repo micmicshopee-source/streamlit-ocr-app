@@ -3995,6 +3995,9 @@ with st.container():
         
             # 處理日期列：嘗試轉換為日期類型（先創建 df_for_editor）
             df_for_editor = df.copy()
+            # 去掉表格中不展示的內部欄位（id 保留供刪除/儲存用，由 column_order 隱藏；_original_index 僅內部用）
+            if "_original_index" in df_for_editor.columns:
+                df_for_editor = df_for_editor.drop(columns=["_original_index"])
         
             # 準備列配置（不包含ID列、user_id列、檔案名稱列）
             # 金額類數字右對齊，文字類左對齊
@@ -4057,12 +4060,6 @@ with st.container():
                     column_config["建立時間"] = st.column_config.TextColumn("建立時間", width="medium")
                     df_for_editor["建立時間"] = df["建立時間"]
         
-            # 明細一覽說明與欄位顯示切換（核心欄位優先，進階欄位可展開）
-            show_all_cols = st.checkbox(
-                "顯示全部欄位（會計科目、稅額、備註等）",
-                value=st.session_state.get("invoice_show_all_columns", False),
-                key="invoice_show_all_columns"
-            )
             st.caption(f"共 **{len(df_for_editor)}** 筆。勾選「選取」可批次刪除；直接於表格內編輯後點「儲存變更」。")
 
             # 檢查並清理 DataFrame 的列名（確保沒有重複或無效列名），然後顯示數據表格
@@ -4090,13 +4087,12 @@ with st.container():
                             seen[col] = seen.get(col, 0) + 1
                             new_cols.append(col if seen[col] == 1 else f"{col}_{seen[col]}")
                         df_for_editor.columns = new_cols
+                    # 默認全部欄位顯示（不隱藏進階欄位）
                     core_columns = [c for c in ["選取", "日期", "發票號碼", "賣方名稱", "總計", "狀態"] if c in df_for_editor.columns]
                     secondary_order = ["會計科目", "類型", "賣方統編", "銷售額", "稅額", "未稅金額", "稅額 (5%)", "稅率類型", "備註", "建立時間", "修改時間"]
                     other_cols_ordered = [c for c in secondary_order if c in df_for_editor.columns]
                     rest = [c for c in df_for_editor.columns if c not in core_columns and c not in other_cols_ordered and c not in ("id", "_original_index")]
-                    other_columns = other_cols_ordered + rest
-                    show_all = st.session_state.get("invoice_show_all_columns", False)
-                    visible_columns = (core_columns + other_columns) if show_all else core_columns
+                    visible_columns = core_columns + other_cols_ordered + rest
                     def is_valid_column_name(name):
                         return name is not None and (isinstance(name, str) and name.strip() != "")
                     visible_columns = [c for c in visible_columns if is_valid_column_name(c)]
@@ -4125,6 +4121,19 @@ with st.container():
                 ed_df = pd.DataFrame()
                 if not df_for_editor.empty:
                     st.dataframe(df_for_editor, use_container_width=True, height=500)
+
+            # 導出目前表格內容（CSV）
+            _export_df = ed_df if not ed_df.empty else df_for_editor
+            if not _export_df.empty:
+                _csv_export = _export_df.to_csv(index=False).encode("utf-8-sig")
+                st.download_button(
+                    "📥 導出目前表格 (CSV)",
+                    _csv_export,
+                    file_name="發票明細_目前表格.csv",
+                    mime="text/csv",
+                    key="export_current_table_csv",
+                    help="下載目前畫面上表格的全部內容"
+                )
 
             # 添加 JavaScript 來高亮問題行並設置列對齊（在表格渲染後執行）
             st.markdown("""

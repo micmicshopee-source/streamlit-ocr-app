@@ -18,9 +18,12 @@
     --text-secondary: #9CA3AF;
     --text-muted: #6B7280;
     
-    /* 主色（點綴用，不喧賓奪主）*/
+    /* 主色（點綴用，不喧賓奪主）；主按鈕用淺藍底+深色字以提升可讀性 */
     --accent: #4285F4;
     --accent-hover: #5A9BF5;
+    --accent-btn-text: #0F172A;
+    --accent-btn-bg: #7BB3FA;
+    --accent-btn-bg-hover: #93C5FD;
     
     /* 4px/8px 網格 */
     --space-1: 4px;
@@ -226,14 +229,16 @@ div[data-testid="stAppViewContainer"] {
 }
 
 .stButton > button[kind="primary"] {
-    background-color: var(--accent) !important;
-    color: var(--text-primary) !important;
-    border-color: var(--accent) !important;
+    background-color: var(--accent-btn-bg) !important;
+    color: var(--accent-btn-text) !important;
+    border-color: var(--accent-btn-bg) !important;
+    font-weight: 600 !important;
 }
 
 .stButton > button[kind="primary"]:hover {
-    background-color: var(--accent-hover) !important;
-    border-color: var(--accent-hover) !important;
+    background-color: var(--accent-btn-bg-hover) !important;
+    border-color: var(--accent-btn-bg-hover) !important;
+    color: var(--accent-btn-text) !important;
 }
 
 .stButton > button:not([kind="primary"]) {
