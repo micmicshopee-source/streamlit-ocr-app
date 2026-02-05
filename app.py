@@ -2008,12 +2008,16 @@ with st.container():
             today = datetime.now().date()
             month_start = today.replace(day=1)
             
-            # 篩選本月的發票（支援多種日期格式）
+            # 篩選本月的發票（支援多種日期格式：YYYY/MM/DD、YYYY-MM-DD、含時間等）
             if "日期" in df_stats.columns:
                 try:
-                    df_stats['日期_parsed'] = pd.to_datetime(df_stats['日期'], errors='coerce', format='%Y/%m/%d')
+                    # 先不指定 format，讓 pandas 自動推斷多種格式
+                    df_stats['日期_parsed'] = pd.to_datetime(df_stats['日期'], errors='coerce')
                     if df_stats['日期_parsed'].isna().all():
-                        df_stats['日期_parsed'] = pd.to_datetime(df_stats['日期'], errors='coerce', format='%Y-%m-%d')
+                        for fmt in ('%Y/%m/%d', '%Y-%m-%d', '%Y/%m/%d %H:%M:%S', '%Y-%m-%d %H:%M:%S'):
+                            df_stats['日期_parsed'] = pd.to_datetime(df_stats['日期'], errors='coerce', format=fmt)
+                            if not df_stats['日期_parsed'].isna().all():
+                                break
                     df_month = df_stats[df_stats['日期_parsed'].notna() & (df_stats['日期_parsed'].dt.date >= month_start)].copy()
                 except Exception:
                     month_str = today.strftime("%Y/%m")
@@ -2021,12 +2025,21 @@ with st.container():
             else:
                 df_month = df_stats.copy()
             
-            # 計算本月統計數據
+            # 本月無發票時改顯示「全部」統計，避免 KPI 全為 0
+            if df_month.empty and not df_stats.empty:
+                df_month = df_stats.copy()
+                _kpi_use_all = True
+            else:
+                _kpi_use_all = False
+            
+            # 計算統計數據（本月或全部）
             month_total = pd.to_numeric(df_month['總計'], errors='coerce').fillna(0).sum() if not df_month.empty else 0
-            month_tax = pd.to_numeric(df_month['稅額'], errors='coerce').fillna(0).sum() if not df_month.empty else 0
+            month_tax = pd.to_numeric(df_month['稅額'], errors='coerce').fillna(0).sum() if not df_month.empty and '稅額' in df_month.columns else 0
             month_invoice_count = len(df_month) if not df_month.empty else 0
             month_missing_count = len(df_month[df_month['狀態'].astype(str).str.contains('缺失', na=False)]) if not df_month.empty and '狀態' in df_month.columns else 0
             
+            # 本月無發票時改顯示「全部」統計（在計算 df_month 後已設定 _kpi_use_all）
+            kpi_pill = "全部" if _kpi_use_all else "本月份"
             # 報表標題區（參考 Planetaria：左 標題+說明，右 pill）
             st.markdown(
                 '<div class="report-header">'
@@ -2034,7 +2047,7 @@ with st.container():
                 '<p class="report-header-title"><span class="report-header-dot"></span> 發票報帳</p>'
                 '<p class="report-header-desc">來自上傳與導入的發票明細</p>'
                 '</div>'
-                '<div class="report-header-right"><span class="report-pill">本月份</span></div>'
+                f'<div class="report-header-right"><span class="report-pill">{kpi_pill}</span></div>'
                 '</div>',
                 unsafe_allow_html=True,
             )
@@ -2048,7 +2061,9 @@ with st.container():
                 st.markdown(f'<div class="kpi-card"><span class="kpi-label">發票總數</span><span class="kpi-value">{month_invoice_count:,} 筆</span></div>', unsafe_allow_html=True)
             with stat_col4:
                 st.markdown(f'<div class="kpi-card"><span class="kpi-label">缺失件數</span><span class="kpi-value">{month_missing_count:,} 筆</span></div>', unsafe_allow_html=True)
-            if month_invoice_count == 0:
+            if _kpi_use_all:
+                st.caption("本月尚無發票，以上為**全部**數據。")
+            elif month_invoice_count == 0:
                 st.caption("尚無本月發票，請先上傳或導入。")
     else:
         # 無數據時：報表標題 + 空 KPI 卡片
