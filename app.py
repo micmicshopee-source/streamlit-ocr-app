@@ -2865,6 +2865,17 @@ with st.container():
             tax_series = pd.to_numeric(df["稅額"], errors="coerce").fillna(0) if has_tax else pd.Series(0, index=df.index)
             df["總計"] = (subtotal_series + tax_series).round(0)
     
+    # 去掉重複列（優先依 id，其次依發票號碼+日期），避免表格內容重複
+    if not df.empty:
+        if "id" in df.columns and df["id"].notna().any():
+            df = df.drop_duplicates(subset=["id"], keep="first")
+        elif "發票號碼" in df.columns and "日期" in df.columns:
+            df = df.drop_duplicates(subset=["發票號碼", "日期"], keep="first")
+        else:
+            df = df.drop_duplicates(keep="first")
+        if df_with_id is not None and not df_with_id.empty:
+            df_with_id = df_with_id.loc[df.index.intersection(df_with_id.index)].copy()
+    
     # 保留未篩選的完整數據（按組視圖與導出全部用）
     df_base = df.copy() if not df.empty else df
     
