@@ -2637,7 +2637,7 @@ if st.session_state.get("start_import", False) and "import_file" in st.session_s
         st.error(f"導入失敗: {str(e)}")
 
 # ========== 3. 圖表展示區 ==========
-st.subheader("📈 分析圖表")
+st.subheader("分析圖表")
 with st.container():
     # 準備數據（如果df_stats已定義，使用它；否則使用df_raw並重命名）
     if 'df_stats' in locals() and not df_stats.empty:
