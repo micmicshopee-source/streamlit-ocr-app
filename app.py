@@ -4028,7 +4028,6 @@ with st.container():
                 value=st.session_state.get("invoice_show_all_columns", False),
                 key="invoice_show_all_columns"
             )
-            st.session_state.invoice_show_all_columns = show_all_cols
 
             # 添加 JavaScript 來高亮問題行並設置列對齊（在表格渲染後執行）
             st.markdown("""
