@@ -3989,7 +3989,6 @@ with st.container():
                 delete_confirm_dialog()
 
             # ========== 單條數據：可選擇、可編輯 ==========
-            st.markdown('<p class="report-section-title">發票明細</p>', unsafe_allow_html=True)
             # 保存原始數據的副本用於比較（不包含ID列）
             original_df_copy = df.copy()
         
@@ -4010,11 +4009,10 @@ with st.container():
                 "總計": st.column_config.NumberColumn("總計", format="$%d"),
                 "備註": st.column_config.TextColumn("備註", width="medium"),
                 "建立時間": st.column_config.DatetimeColumn("建立時間", format="YYYY-MM-DD"),
-                "修改時間": st.column_config.DatetimeColumn("修改時間", format="YYYY-MM-DD HH:mm", disabled=True),
                 "稅率類型": st.column_config.SelectboxColumn("稅率類型", options=["5%", "0%", "免稅", "零稅率"], required=False)
             }
             column_config["會計科目"] = st.column_config.SelectboxColumn("會計科目", options=subject_options, required=False)
-            column_config["類型"] = st.column_config.SelectboxColumn("類型", options=category_options, required=False)
+            column_config["類型"] = st.column_config.SelectboxColumn("類型（發票類型）", options=category_options, required=False)
         
             # 文字類欄位左對齊配置（會計科目、類型已用 SelectboxColumn）
             text_columns = ["賣方名稱", "發票號碼", "賣方統編", "狀態", "備註"]
@@ -4087,12 +4085,13 @@ with st.container():
                             seen[col] = seen.get(col, 0) + 1
                             new_cols.append(col if seen[col] == 1 else f"{col}_{seen[col]}")
                         df_for_editor.columns = new_cols
-                    # 默認全部欄位顯示（不隱藏進階欄位）
-                    core_columns = [c for c in ["選取", "日期", "發票號碼", "賣方名稱", "總計", "狀態"] if c in df_for_editor.columns]
-                    secondary_order = ["會計科目", "類型", "賣方統編", "銷售額", "稅額", "未稅金額", "稅額 (5%)", "稅率類型", "備註", "建立時間", "修改時間"]
-                    other_cols_ordered = [c for c in secondary_order if c in df_for_editor.columns]
-                    rest = [c for c in df_for_editor.columns if c not in core_columns and c not in other_cols_ordered and c not in ("id", "_original_index")]
-                    visible_columns = core_columns + other_cols_ordered + rest
+                    # 表格僅顯示：選取、日期、發票號碼、賣方名稱、總計、狀態、會計科目、類型（發票類型）、賣方統編、銷售額、稅額、未稅金額、稅額(5%)、稅率類型、備註、建立時間
+                    table_columns_order = [
+                        "選取", "日期", "發票號碼", "賣方名稱", "總計", "狀態",
+                        "會計科目", "類型", "賣方統編", "銷售額", "稅額", "未稅金額", "稅額 (5%)",
+                        "稅率類型", "備註", "建立時間"
+                    ]
+                    visible_columns = [c for c in table_columns_order if c in df_for_editor.columns]
                     def is_valid_column_name(name):
                         return name is not None and (isinstance(name, str) and name.strip() != "")
                     visible_columns = [c for c in visible_columns if is_valid_column_name(c)]
