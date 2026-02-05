@@ -18,12 +18,12 @@
     --text-secondary: #9CA3AF;
     --text-muted: #6B7280;
     
-    /* 主色（點綴用，不喧賓奪主）；主按鈕用淺藍底+深色字以提升可讀性 */
+    /* 主色（點綴用）；主按鈕用深藍底+白字，避免藍灰搭配看不清 */
     --accent: #4285F4;
     --accent-hover: #5A9BF5;
-    --accent-btn-text: #0F172A;
-    --accent-btn-bg: #7BB3FA;
-    --accent-btn-bg-hover: #93C5FD;
+    --accent-btn-text: #FFFFFF;
+    --accent-btn-bg: #1D4ED8;
+    --accent-btn-bg-hover: #2563EB;
     
     /* 4px/8px 網格 */
     --space-1: 4px;
@@ -56,14 +56,14 @@ div[data-testid="stAppViewContainer"] {
     background-color: var(--bg-base) !important;
 }
 
-/* 主工作區：4px/8px 網格，寬度限制 + 置中 */
+/* 主工作區：4px/8px 網格，左右縮小間距以顯示更多表格內容 */
 .main .block-container,
 .block-container {
     padding-top: var(--space-5) !important;
     padding-bottom: var(--space-6) !important;
-    padding-left: var(--space-5) !important;
-    padding-right: var(--space-5) !important;
-    max-width: 1280px !important;
+    padding-left: var(--space-3) !important;
+    padding-right: var(--space-3) !important;
+    max-width: 100% !important;
     margin-left: auto !important;
     margin-right: auto !important;
     width: 100% !important;
@@ -243,11 +243,11 @@ div[data-testid="stAppViewContainer"] {
 
 .stButton > button:not([kind="primary"]) {
     background-color: var(--bg-card) !important;
-    color: var(--text-secondary) !important;
+    color: var(--text-primary) !important;
 }
 
 .stButton > button:not([kind="primary"]):hover {
-    background-color: var(--border-subtle) !important;
+    background-color: var(--border-default) !important;
     color: var(--text-primary) !important;
     border-color: var(--text-muted) !important;
 }

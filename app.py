@@ -4012,7 +4012,10 @@ with st.container():
                 "稅率類型": st.column_config.SelectboxColumn("稅率類型", options=["5%", "0%", "免稅", "零稅率"], required=False)
             }
             column_config["會計科目"] = st.column_config.SelectboxColumn("會計科目", options=subject_options, required=False)
-            column_config["類型"] = st.column_config.SelectboxColumn("類型（發票類型）", options=category_options, required=False)
+            # 類型 = 發票類型（三聯發票、二聯發票、電子發票等）；保留既有選項以相容舊資料
+            invoice_type_options = ["三聯發票", "二聯發票", "電子發票", "收銀機發票", "其它"]
+            _type_opts = sorted(set(invoice_type_options + [str(x) for x in (category_options or []) if x and str(x).strip()]))
+            column_config["類型"] = st.column_config.SelectboxColumn("類型", options=_type_opts, required=False)
         
             # 文字類欄位左對齊配置（會計科目、類型已用 SelectboxColumn）
             text_columns = ["賣方名稱", "發票號碼", "賣方統編", "狀態", "備註"]
@@ -4085,10 +4088,10 @@ with st.container():
                             seen[col] = seen.get(col, 0) + 1
                             new_cols.append(col if seen[col] == 1 else f"{col}_{seen[col]}")
                         df_for_editor.columns = new_cols
-                    # 表格僅顯示：選取、日期、發票號碼、賣方名稱、總計、狀態、會計科目、類型（發票類型）、賣方統編、銷售額、稅額、未稅金額、稅額(5%)、稅率類型、備註、建立時間
+                    # 表格僅顯示：選取、狀態放最前，其餘依序
                     table_columns_order = [
-                        "選取", "日期", "發票號碼", "賣方名稱", "總計", "狀態",
-                        "會計科目", "類型", "賣方統編", "銷售額", "稅額", "未稅金額", "稅額 (5%)",
+                        "選取", "狀態", "日期", "發票號碼", "賣方名稱", "賣方統編",
+                        "會計科目", "類型", "銷售額", "稅額", "稅額 (5%)", "未稅金額", "總計",
                         "稅率類型", "備註", "建立時間"
                     ]
                     visible_columns = [c for c in table_columns_order if c in df_for_editor.columns]
@@ -4120,19 +4123,6 @@ with st.container():
                 ed_df = pd.DataFrame()
                 if not df_for_editor.empty:
                     st.dataframe(df_for_editor, use_container_width=True, height=500)
-
-            # 導出目前表格內容（CSV）
-            _export_df = ed_df if not ed_df.empty else df_for_editor
-            if not _export_df.empty:
-                _csv_export = _export_df.to_csv(index=False).encode("utf-8-sig")
-                st.download_button(
-                    "📥 導出目前表格 (CSV)",
-                    _csv_export,
-                    file_name="發票明細_目前表格.csv",
-                    mime="text/csv",
-                    key="export_current_table_csv",
-                    help="下載目前畫面上表格的全部內容"
-                )
 
             # 添加 JavaScript 來高亮問題行並設置列對齊（在表格渲染後執行）
             st.markdown("""
