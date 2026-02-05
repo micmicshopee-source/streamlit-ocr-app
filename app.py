@@ -2878,8 +2878,12 @@ with st.container():
         st.caption("選擇開始與結束日期")
         date_start = st.session_state.get("date_range_start")
         date_end = st.session_state.get("date_range_end")
-        display_start = date_start if date_start is not None else today
-        display_end = date_end if date_end is not None else today
+        # 默認顯示最近一個月（開始 = 今天減 30 天，結束 = 今天）
+        if date_start is not None and date_end is not None:
+            display_start, display_end = date_start, date_end
+        else:
+            display_end = today
+            display_start = today - timedelta(days=30)
         if display_start > display_end:
             display_start, display_end = display_end, display_start
         date_range_value = st.date_input(
@@ -2896,8 +2900,15 @@ with st.container():
         if dr_start and dr_end:
             if dr_start > dr_end:
                 dr_start, dr_end = dr_end, dr_start
-            st.session_state.date_range_start = dr_start
-            st.session_state.date_range_end = dr_end
+            # 僅在用戶已選過日期或本次選擇與「默認一個月」不同時才寫入，避免初次載入就篩掉全部數據
+            default_range = (display_start, display_end)
+            chosen = (dr_start, dr_end)
+            if (date_start is not None and date_end is not None) or chosen != default_range:
+                st.session_state.date_range_start = dr_start
+                st.session_state.date_range_end = dr_end
+            else:
+                st.session_state.date_range_start = None
+                st.session_state.date_range_end = None
     with filter_row3:
         status_filter = st.pills(
             "狀態",
@@ -3454,6 +3465,7 @@ with st.container():
         if not batches_list and ungrouped_df.empty:
             st.info("📊 目前沒有數據，請上傳發票圖片或導入 CSV 數據。")
         else:
+            st.caption("💡 切換至「按單張」可顯示並編輯數據表格。")
             # 組摘要表（一覽：建立時間、來源、張數、合計、稅額）
             summary_rows = []
             for b in batches_list:
@@ -4022,12 +4034,73 @@ with st.container():
                     df_for_editor["建立時間"] = df["建立時間"]
         
             # 明細一覽說明與欄位顯示切換（核心欄位優先，進階欄位可展開）
-            st.caption(f"共 **{len(df_for_editor)}** 筆。勾選「選取」可批次刪除；直接於表格內編輯後點「儲存變更」。")
             show_all_cols = st.checkbox(
                 "顯示全部欄位（會計科目、稅額、備註等）",
                 value=st.session_state.get("invoice_show_all_columns", False),
                 key="invoice_show_all_columns"
             )
+            st.caption(f"共 **{len(df_for_editor)}** 筆。勾選「選取」可批次刪除；直接於表格內編輯後點「儲存變更」。")
+
+            # 檢查並清理 DataFrame 的列名（確保沒有重複或無效列名），然後顯示數據表格
+            try:
+                if df_for_editor.empty:
+                    st.info("📊 目前沒有數據可顯示")
+                    ed_df = pd.DataFrame()
+                else:
+                    if df_for_editor.columns.duplicated().any():
+                        cols = pd.Series(df_for_editor.columns)
+                        for dup in cols[cols.duplicated()].unique():
+                            cols[cols[cols == dup].index.values.tolist()] = [dup if i == 0 else f"{dup}_{i}" 
+                                                                             for i in range(sum(cols == dup))]
+                        df_for_editor.columns = cols
+                    def clean_column_name(name):
+                        if name is None: return "unnamed"
+                        if not isinstance(name, str): name = str(name)
+                        name = name.strip()
+                        if name == "": return "unnamed"
+                        return name.replace('\x00', '').replace('\n', ' ').replace('\r', ' ')
+                    df_for_editor.columns = [clean_column_name(col) for col in df_for_editor.columns]
+                    if df_for_editor.columns.duplicated().any():
+                        cols, seen, new_cols = list(df_for_editor.columns), {}, []
+                        for col in cols:
+                            seen[col] = seen.get(col, 0) + 1
+                            new_cols.append(col if seen[col] == 1 else f"{col}_{seen[col]}")
+                        df_for_editor.columns = new_cols
+                    core_columns = [c for c in ["選取", "日期", "發票號碼", "賣方名稱", "總計", "狀態"] if c in df_for_editor.columns]
+                    secondary_order = ["會計科目", "類型", "賣方統編", "銷售額", "稅額", "未稅金額", "稅額 (5%)", "稅率類型", "備註", "建立時間", "修改時間"]
+                    other_cols_ordered = [c for c in secondary_order if c in df_for_editor.columns]
+                    rest = [c for c in df_for_editor.columns if c not in core_columns and c not in other_cols_ordered and c not in ("id", "_original_index")]
+                    other_columns = other_cols_ordered + rest
+                    show_all = st.session_state.get("invoice_show_all_columns", False)
+                    visible_columns = (core_columns + other_columns) if show_all else core_columns
+                    def is_valid_column_name(name):
+                        return name is not None and (isinstance(name, str) and name.strip() != "")
+                    visible_columns = [c for c in visible_columns if is_valid_column_name(c)]
+                    visible_columns = list(dict.fromkeys(visible_columns))
+                    valid_column_config = {}
+                    for k, v in column_config.items():
+                        cleaned_key = clean_column_name(k)
+                        if cleaned_key in df_for_editor.columns and is_valid_column_name(cleaned_key):
+                            valid_column_config[cleaned_key] = v
+                    try:
+                        ed_df = st.data_editor(
+                            df_for_editor,
+                            use_container_width=True,
+                            hide_index=True,
+                            height=500,
+                            column_config=valid_column_config if valid_column_config else None,
+                            column_order=visible_columns if visible_columns else None,
+                            key="invoice_data_editor_single"
+                        )
+                    except Exception as e:
+                        st.error(f"表格顯示錯誤: {str(e)}")
+                        st.dataframe(df_for_editor, use_container_width=True, height=500)
+                        ed_df = df_for_editor.copy()
+            except Exception as e:
+                st.error(f"數據處理錯誤: {str(e)}")
+                ed_df = pd.DataFrame()
+                if not df_for_editor.empty:
+                    st.dataframe(df_for_editor, use_container_width=True, height=500)
 
             # 添加 JavaScript 來高亮問題行並設置列對齊（在表格渲染後執行）
             st.markdown("""
@@ -4109,116 +4182,6 @@ with st.container():
             })();
             </script>
             """, unsafe_allow_html=True)
-        
-            # 檢查並清理 DataFrame 的列名（確保沒有重複或無效列名）
-            try:
-                if df_for_editor.empty:
-                    # 如果 DataFrame 為空，顯示提示信息
-                    st.info("📊 目前沒有數據可顯示")
-                    ed_df = pd.DataFrame()
-                else:
-                    # 檢查並修復重複的列名
-                    if df_for_editor.columns.duplicated().any():
-                        # 如果有重複的列名，重命名它們
-                        cols = pd.Series(df_for_editor.columns)
-                        for dup in cols[cols.duplicated()].unique():
-                            cols[cols[cols == dup].index.values.tolist()] = [dup if i == 0 else f"{dup}_{i}" 
-                                                                             for i in range(sum(cols == dup))]
-                        df_for_editor.columns = cols
-                
-                    # 清理列名：移除 None、空字符串或無效字符
-                    def clean_column_name(name):
-                        """清理列名"""
-                        if name is None:
-                            return "unnamed"
-                        if not isinstance(name, str):
-                            name = str(name)
-                        name = name.strip()
-                        if name == "":
-                            return "unnamed"
-                        # 移除可能導致問題的特殊字符
-                        name = name.replace('\x00', '').replace('\n', ' ').replace('\r', ' ')
-                        return name
-                
-                    # 清理所有列名
-                    df_for_editor.columns = [clean_column_name(col) for col in df_for_editor.columns]
-                
-                    # 確保沒有重複（再次檢查）
-                    if df_for_editor.columns.duplicated().any():
-                        # 手動處理重複列名
-                        cols = list(df_for_editor.columns)
-                        seen = {}
-                        new_cols = []
-                        for col in cols:
-                            if col in seen:
-                                seen[col] += 1
-                                new_cols.append(f"{col}_{seen[col]}")
-                            else:
-                                seen[col] = 0
-                                new_cols.append(col)
-                        df_for_editor.columns = new_cols
-                
-                    # 核心欄位優先顯示，進階欄位依「顯示全部欄位」切換
-                    core_columns = [c for c in ["選取", "日期", "發票號碼", "賣方名稱", "總計", "狀態"] if c in df_for_editor.columns]
-                    secondary_order = ["會計科目", "類型", "賣方統編", "銷售額", "稅額", "未稅金額", "稅額 (5%)", "稅率類型", "備註", "建立時間", "修改時間"]
-                    other_cols_ordered = [c for c in secondary_order if c in df_for_editor.columns]
-                    rest = [c for c in df_for_editor.columns if c not in core_columns and c not in other_cols_ordered and c not in ("id", "_original_index")]
-                    other_columns = other_cols_ordered + rest
-                    show_all = st.session_state.get("invoice_show_all_columns", False)
-                    visible_columns = (core_columns + other_columns) if show_all else core_columns
-
-                    # 驗證列名：確保沒有 None、空字符串或無效字符
-                    def is_valid_column_name(name):
-                        """檢查列名是否有效"""
-                        if name is None:
-                            return False
-                        if not isinstance(name, str):
-                            return False
-                        if name.strip() == "":
-                            return False
-                        return True
-
-                    visible_columns = [c for c in visible_columns if is_valid_column_name(c)]
-                    visible_columns = list(dict.fromkeys(visible_columns))  # 移除重複，保持順序
-                
-                    # 確保 column_config 中的列也在 df_for_editor 中存在，且列名有效
-                    valid_column_config = {}
-                    for k, v in column_config.items():
-                        cleaned_key = clean_column_name(k)
-                        if cleaned_key in df_for_editor.columns and is_valid_column_name(cleaned_key):
-                            valid_column_config[cleaned_key] = v
-                
-                    # 如果沒有有效的列，使用默認行為（不傳 column_order）
-                    try:
-                        ed_df = st.data_editor(
-                            df_for_editor,
-                            use_container_width=True,
-                            hide_index=True,
-                            height=500,
-                            column_config=valid_column_config if valid_column_config else None,
-                            column_order=visible_columns if visible_columns else None,
-                            key="data_editor"
-                        )
-                    except Exception as e:
-                        # 如果 st.data_editor 出錯，嘗試使用簡化版本
-                        st.error(f"表格顯示錯誤: {str(e)}")
-                        st.warning("嘗試使用簡化表格顯示...")
-                        # 顯示調試信息
-                        with st.expander("🔍 調試信息", expanded=False):
-                            st.write(f"DataFrame 形狀: {df_for_editor.shape}")
-                            st.write(f"列名: {list(df_for_editor.columns)}")
-                            st.write(f"是否有重複列名: {df_for_editor.columns.duplicated().any()}")
-                            st.write(f"有效列配置: {list(valid_column_config.keys())}")
-                            st.write(f"可見列: {visible_columns}")
-                        # 使用 st.dataframe 作為備選（注意：st.dataframe 返回 None，所以使用原始 df_for_editor）
-                        st.dataframe(df_for_editor, use_container_width=True, height=500)
-                        ed_df = df_for_editor.copy()
-            except Exception as e:
-                st.error(f"數據處理錯誤: {str(e)}")
-                import traceback
-                with st.expander("🔍 詳細錯誤信息", expanded=False):
-                    st.code(traceback.format_exc())
-                ed_df = pd.DataFrame()
         
             # 如果日期被轉換為日期類型，需要轉回字符串格式以便保存
             if not ed_df.empty and "日期" in ed_df.columns and ed_df["日期"].dtype != object:
