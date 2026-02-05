@@ -56,14 +56,14 @@ div[data-testid="stAppViewContainer"] {
     background-color: var(--bg-base) !important;
 }
 
-/* 主工作區：4px/8px 網格，左右縮小間距以顯示更多表格內容 */
+/* 主工作區：左右間距調小，寬度限制不鋪滿 */
 .main .block-container,
 .block-container {
     padding-top: var(--space-5) !important;
     padding-bottom: var(--space-6) !important;
-    padding-left: var(--space-3) !important;
-    padding-right: var(--space-3) !important;
-    max-width: 100% !important;
+    padding-left: var(--space-2) !important;
+    padding-right: var(--space-2) !important;
+    max-width: 1280px !important;
     margin-left: auto !important;
     margin-right: auto !important;
     width: 100% !important;

@@ -3016,328 +3016,8 @@ with st.container():
             if amount_max > 0: mask = mask & (total_num <= amount_max)
             df = df[mask]
 
-    st.caption("💡 篩選與操作在 **按單張** 視圖生效；**按組** 可導出全部。")
-    st.markdown('<p class="filter-section-label">操作（按單張視圖）</p>', unsafe_allow_html=True)
-    act_col1, act_col2, act_col3, act_col4 = st.columns(4)
-    with act_col1:
-        if not df.empty and not is_group_view:
-            preview_selected = st.session_state.get("preview_selected_count", 0)
-            if preview_selected > 0:
-                delete_button_top = st.button(
-                    f"🗑️ 刪除 {preview_selected} 條",
-                    type="primary",
-                    use_container_width=True,
-                    help="刪除已選中的數據",
-                    key="delete_button_top"
-                )
-            else:
-                st.button(
-                    "🗑️ 刪除",
-                    disabled=True,
-                    use_container_width=True,
-                    help="請先勾選要刪除的記錄",
-                    key="delete_button_top_disabled"
-                )
-                delete_button_top = False
-    with act_col2:
-        if not df.empty and not is_group_view:
-            csv_data = df.to_csv(index=False).encode('utf-8-sig')
-            st.download_button(
-                "📥 CSV",
-                csv_data,
-                "invoice_report.csv",
-                mime="text/csv",
-                use_container_width=True,
-                help="導出當前篩選後的數據為 CSV"
-            )
-    with act_col3:
-        if not df.empty and not is_group_view:
-            def generate_excel():
-                # 使用統計結果（如有），否則使用當前表格數據
-                export_df = df_stats.copy() if 'df_stats' in locals() and not df_stats.empty else df.copy()
-                if export_df.empty:
-                    return b""
-
-                # 構建符合國稅局欄位結構的表格；審計：依稅率類型支援 0%/免稅
-                total_series = pd.to_numeric(export_df.get('總計', 0), errors='coerce').fillna(0)
-                subtotal_series = pd.to_numeric(export_df.get('銷售額', 0), errors='coerce').fillna(0)
-                tax_series = pd.to_numeric(export_df.get('稅額', 0), errors='coerce').fillna(0)
-                tax_type_col = export_df.get('稅率類型')
-                if tax_type_col is None:
-                    tax_type_col = pd.Series('5%', index=export_df.index)
-                tax_type_str = tax_type_col.fillna('5%').astype(str).str.strip().str.lower()
-                is_zero_or_exempt = tax_type_str.isin(['0%', 'exempt', '零稅率', '免稅'])
-
-                need_recalc = ((subtotal_series == 0) | (tax_series == 0)) & (total_series > 0)
-                if need_recalc.any():
-                    calc_tax = pd.Series(0.0, index=export_df.index).where(is_zero_or_exempt, (total_series - (total_series / 1.05)).round(0))
-                    calc_subtotal = (total_series - calc_tax).round(0)
-                    tax_series = tax_series.where(~need_recalc, calc_tax)
-                    subtotal_series = subtotal_series.where(~need_recalc, calc_subtotal)
-
-                # 如果已有"銷售額"列，重命名為"銷售額(未稅)"；否則創建新列
-                if '銷售額' in export_df.columns:
-                    export_df = export_df.rename(columns={'銷售額': '銷售額(未稅)'})
-                else:
-                    export_df['銷售額(未稅)'] = subtotal_series
-                
-                # 確保稅額和總計列存在
-                if '稅額' not in export_df.columns:
-                    export_df['稅額'] = tax_series
-                else:
-                    export_df['稅額'] = tax_series  # 更新稅額值
-                
-                if '總計' not in export_df.columns:
-                    export_df['總計'] = total_series
-                else:
-                    export_df['總計'] = total_series  # 更新總計值
-
-                # 按常見報帳格式排列列順序（確保沒有重複列）
-                desired_order = [
-                    "日期", "發票號碼", "賣方名稱", "賣方統編",
-                    "銷售額(未稅)", "稅額", "總計",
-                    "會計科目", "類型", "備註"
-                ]
-                # 只選擇存在的列，並去重（避免重複）
-                columns = []
-                seen = set()
-                for c in desired_order:
-                    if c in export_df.columns and c not in seen:
-                        columns.append(c)
-                        seen.add(c)
-                # 添加其他未在desired_order中的列（但排除重複的日期相關列）
-                for c in export_df.columns:
-                    if c not in seen and c not in ['日期_parsed', 'date', 'Date']:
-                        columns.append(c)
-                        seen.add(c)
-                export_df = export_df[columns].copy()
-
-                # 導出為 Excel
-                output = io.BytesIO()
-                with pd.ExcelWriter(output, engine="openpyxl") as writer:
-                    export_df.to_excel(writer, index=False, sheet_name="發票報表")
-                    ws = writer.sheets["發票報表"]
-
-                    # 標題樣式與列寬
-                    header_font = Font(bold=True)
-                    for col_cells in ws.iter_cols(min_row=1, max_row=1):
-                        for cell in col_cells:
-                            cell.font = header_font
-                            # 自動列寬（簡化處理）
-                            col_letter = cell.column_letter
-                            ws.column_dimensions[col_letter].width = max(12, len(str(cell.value)) + 4)
-
-                    # 金額欄位右對齊並加入千分位
-                    amount_headers = {"銷售額(未稅)", "稅額", "總計"}
-                    header_map = {cell.value: cell.column for cell in ws[1] if cell.value}
-                    for header in amount_headers:
-                        col_idx = header_map.get(header)
-                        if col_idx is None:
-                            continue
-                        for cell in ws.iter_rows(min_row=2, min_col=col_idx, max_col=col_idx):
-                            c = cell[0]
-                            c.number_format = '#,##0'
-                            c.alignment = Alignment(horizontal='right')
-
-                return output.getvalue()
-
-            excel_data = generate_excel()
-            st.download_button(
-                "📊 導出Excel",
-                excel_data,
-                f"invoice_report_{datetime.now().strftime('%Y%m%d')}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True,
-                help="導出符合國稅局欄位結構的 Excel 報表"
-            )
-    with act_col4:
-        if not df.empty and not is_group_view:
-            if PDF_AVAILABLE:
-                def generate_pdf():
-                    pdf = FPDF()
-                    pdf.set_auto_page_break(auto=True, margin=15)
-                    pdf.add_page()
-                    
-                    # 嘗試載入中文字體
-                    font_path = "NotoSansTC-Regular.ttf"
-                    font_loaded = False
-                    font_name = "NotoSansTC"
-                    
-                    if os.path.exists(font_path):
-                        try:
-                            pdf.add_font(font_name, '', font_path, uni=True)
-                            pdf.add_font(font_name, 'B', font_path, uni=True)
-                            font_loaded = True
-                        except:
-                            font_loaded = False
-                    
-                    def safe_cell(pdf, w, h, txt, border=0, ln=0, align='', fill=False, link='', font_name_override=None):
-                        try:
-                            if font_name_override:
-                                pdf.set_font(font_name_override[0], font_name_override[1], font_name_override[2])
-                            pdf.cell(w, h, txt, border, ln, align, fill, link)
-                        except:
-                            pdf.set_font('Arial', '', 10)
-                            pdf.cell(w, h, str(txt)[:50], border, ln, align, fill, link)
-                    
-                    # 標題
-                    if font_loaded:
-                        pdf.set_font(font_name, 'B', 16)
-                        safe_cell(pdf, 0, 10, '發票報帳統計報表', ln=1, align='C')
-                    else:
-                        pdf.set_font('Arial', 'B', 16)
-                        safe_cell(pdf, 0, 10, 'Invoice Report', ln=1, align='C')
-                    pdf.ln(5)
-                    
-                    # 生成時間
-                    if font_loaded:
-                        pdf.set_font(font_name, '', 10)
-                        safe_cell(pdf, 0, 5, f'生成時間: {datetime.now().strftime("%Y年%m月%d日 %H:%M:%S")}', ln=1, align='R')
-                    else:
-                        pdf.set_font('Arial', '', 10)
-                        safe_cell(pdf, 0, 5, f'Generated: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}', ln=1, align='R')
-                    pdf.ln(5)
-                    
-                    # 核心邏輯：增加公司資訊
-                    if font_loaded:
-                        pdf.set_font(font_name, '', 10)
-                        company_name = st.session_state.get('company_name', '')
-                        company_ubn = st.session_state.get('company_ubn', '')
-                        if company_name:
-                            safe_cell(pdf, 200, 10, txt=f"報支公司：{company_name}", ln=1)
-                        if company_ubn:
-                            safe_cell(pdf, 200, 10, txt=f"公司統編：{company_ubn}", ln=1)
-                    else:
-                        pdf.set_font('Arial', '', 10)
-                        company_name = st.session_state.get('company_name', '')
-                        company_ubn = st.session_state.get('company_ubn', '')
-                        if company_name:
-                            safe_cell(pdf, 200, 10, txt=f"Company: {company_name}", ln=1)
-                        if company_ubn:
-                            safe_cell(pdf, 200, 10, txt=f"UBN: {company_ubn}", ln=1)
-                    pdf.ln(5)
-                    
-                    # 統計摘要
-                    if font_loaded:
-                        pdf.set_font(font_name, 'B', 12)
-                        safe_cell(pdf, 0, 8, '統計摘要', ln=1)
-                        pdf.set_font(font_name, '', 10)
-                        safe_cell(pdf, 90, 6, '累計金額:', 1)
-                        # 計算統計數據 - 使用df_stats或df
-                        export_df_for_stats = df_stats.copy() if 'df_stats' in locals() and not df_stats.empty else df.copy()
-                        if "總計" in export_df_for_stats.columns:
-                            total_sum = pd.to_numeric(export_df_for_stats['總計'], errors='coerce').fillna(0).sum()
-                        else:
-                            total_sum = 0
-                        safe_cell(pdf, 90, 6, f"${total_sum:,.0f}", 1, ln=1)
-                        safe_cell(pdf, 90, 6, '累計稅額:', 1)
-                        if "稅額" in export_df_for_stats.columns:
-                            tax_sum = pd.to_numeric(export_df_for_stats['稅額'], errors='coerce').fillna(0).sum()
-                        else:
-                            tax_sum = 0
-                        safe_cell(pdf, 90, 6, f"${tax_sum:,.0f}", 1, ln=1)
-                        safe_cell(pdf, 90, 6, '發票總數:', 1)
-                        safe_cell(pdf, 90, 6, f"{len(export_df_for_stats)} 筆", 1, ln=1)
-                    pdf.ln(5)
-                    
-                    # 詳細數據表格 - 修改表格 Header（包含銷售額(未稅)、稅額、總計）
-                    export_df = df.copy()
-                    # 調整列寬以適應新的列：日期、發票號碼、賣方統編、銷售額(未稅)、稅額、總計、備註
-                    col_widths = [25, 30, 30, 30, 25, 25, 25]
-                    if font_loaded:
-                        pdf.set_font(font_name, 'B', 10)
-                        headers = ["日期", "發票號碼", "賣方統編", "銷售額(未稅)", "稅額", "總計", "備註"]
-                    else:
-                        pdf.set_font('Arial', 'B', 10)
-                        headers = ["Date", "Invoice No", "Seller UBN", "Net Amount (Excl. Tax)", "Tax", "Total", "Note"]
-                    
-                    for i, header in enumerate(headers):
-                        safe_cell(pdf, col_widths[i], 7, header, 1, align='C')
-                    pdf.ln()
-                    
-                    if font_loaded:
-                        pdf.set_font(font_name, '', 8)
-                    else:
-                        pdf.set_font('Arial', '', 8)
-                    
-                    def pdf_safe_value(val, default='No'):
-                        if pd.isna(val) or val == '' or val == 'N/A' or str(val).strip() == '':
-                            return default
-                        return str(val)
-                    
-                    # 每一行數據自動計算銷售額(未稅)、稅額、總計
-                    for _, row in export_df.iterrows():
-                        # 優先使用現有欄位，否則由總計推算
-                        total_val = pd.to_numeric(row.get('總計', row.get('total', 0)), errors='coerce')
-                        subtotal_val = pd.to_numeric(row.get('銷售額', row.get('subtotal', 0)), errors='coerce')
-                        tax_val = pd.to_numeric(row.get('稅額', row.get('tax', 0)), errors='coerce')
-
-                        if pd.isna(total_val):
-                            total_val = 0
-
-                        if (pd.isna(subtotal_val) or subtotal_val == 0) or (pd.isna(tax_val) or tax_val == 0):
-                            if total_val > 0:
-                                tax_type_val = str(row.get('稅率類型', row.get('tax_type', '5%')) or '5%').strip().lower()
-                                if tax_type_val in ('0%', 'exempt', '零稅率', '免稅'):
-                                    tax_val = 0
-                                    subtotal_val = total_val
-                                else:
-                                    tax_val = round(total_val - (total_val / 1.05))
-                                    subtotal_val = total_val - tax_val
-                            else:
-                                subtotal_val = 0
-                                tax_val = 0
-                        
-                        # 獲取其他字段
-                        date_str = pdf_safe_value(row.get('日期', ''), 'No')[:10]
-                        invoice_no = pdf_safe_value(row.get('發票號碼', ''), 'No')[:15]
-                        seller_ubn = pdf_safe_value(row.get('賣方統編', ''), 'No')[:15]
-                        note = pdf_safe_value(row.get('備註', '') or row.get('會計科目', '') or row.get('類型', ''), '')[:15]
-                        
-                        # 格式化金額
-                        net_amount_str = f"${subtotal_val:,.0f}"
-                        tax_str = f"${tax_val:,.0f}"
-                        total_str = f"${total_val:,.0f}"
-                        
-                        # 寫入 PDF
-                        safe_cell(pdf, col_widths[0], 6, date_str, 1)
-                        safe_cell(pdf, col_widths[1], 6, invoice_no, 1)
-                        safe_cell(pdf, col_widths[2], 6, seller_ubn, 1)
-                        safe_cell(pdf, col_widths[3], 6, net_amount_str, 1, align='R')
-                        safe_cell(pdf, col_widths[4], 6, tax_str, 1, align='R')
-                        safe_cell(pdf, col_widths[5], 6, total_str, 1, align='R')
-                        safe_cell(pdf, col_widths[6], 6, note, 1, ln=1)
-                        
-                        if pdf.get_y() > 270:
-                            pdf.add_page()
-                            if font_loaded:
-                                pdf.set_font(font_name, 'B', 10)
-                            else:
-                                pdf.set_font('Arial', 'B', 10)
-                            for i, header in enumerate(headers):
-                                safe_cell(pdf, col_widths[i], 7, header, 1, align='C')
-                            pdf.ln()
-                            if font_loaded:
-                                pdf.set_font(font_name, '', 8)
-                            else:
-                                pdf.set_font('Arial', '', 8)
-                    
-                    pdf_bytes = pdf.output(dest='S')
-                    if isinstance(pdf_bytes, bytearray):
-                        return bytes(pdf_bytes)
-                    return pdf_bytes
-                
-                pdf_data = generate_pdf()
-                st.download_button(
-                    "📄 導出PDF",
-                    pdf_data,
-                    f"invoice_report_{datetime.now().strftime('%Y%m%d')}.pdf",
-                    mime="application/pdf",
-                    use_container_width=True,
-                    help="導出當前數據為PDF報告"
-                )
-            else:
-                st.info("📄 PDF", help="需要安裝 fpdf2")
+    st.caption("💡 篩選在 **按單張** 視圖生效；**按組** 可導出全部。")
+    # 操作按鈕（刪除、CSV、Excel、PDF）已移至「按單張」視圖中「共 N 筆…」說明下方
     # 移除image相關的列
     if not df.empty:
         columns_to_drop = ['image_data', 'imageData', 'image_path']  # 移除所有圖片相關列
@@ -4062,6 +3742,271 @@ with st.container():
                     df_for_editor["建立時間"] = df["建立時間"]
         
             st.caption(f"共 **{len(df_for_editor)}** 筆。勾選「選取」可批次刪除；直接於表格內編輯後點「儲存變更」。")
+
+            # 操作按鈕列（刪除、CSV、Excel、PDF）
+            act_col1, act_col2, act_col3, act_col4 = st.columns(4)
+            with act_col1:
+                if not df.empty:
+                    preview_selected = st.session_state.get("preview_selected_count", 0)
+                    if preview_selected > 0:
+                        delete_button_top = st.button(
+                            f"🗑️ 刪除 {preview_selected} 條",
+                            type="primary",
+                            use_container_width=True,
+                            help="刪除已選中的數據",
+                            key="delete_button_top"
+                        )
+                    else:
+                        st.button(
+                            "🗑️ 刪除",
+                            disabled=True,
+                            use_container_width=True,
+                            help="請先勾選要刪除的記錄",
+                            key="delete_button_top_disabled"
+                        )
+                        delete_button_top = False
+            with act_col2:
+                if not df.empty:
+                    csv_data = df.to_csv(index=False).encode('utf-8-sig')
+                    st.download_button(
+                        "📥 CSV",
+                        csv_data,
+                        "invoice_report.csv",
+                        mime="text/csv",
+                        use_container_width=True,
+                        help="導出當前篩選後的數據為 CSV"
+                    )
+            with act_col3:
+                if not df.empty:
+                    def _gen_excel():
+                        export_df = df_stats.copy() if ('df_stats' in locals() and not getattr(df_stats, 'empty', True)) else df.copy()
+                        if export_df.empty:
+                            return b""
+                        total_series = pd.to_numeric(export_df.get('總計', 0), errors='coerce').fillna(0)
+                        subtotal_series = pd.to_numeric(export_df.get('銷售額', 0), errors='coerce').fillna(0)
+                        tax_series = pd.to_numeric(export_df.get('稅額', 0), errors='coerce').fillna(0)
+                        tax_type_col = export_df.get('稅率類型')
+                        if tax_type_col is None:
+                            tax_type_col = pd.Series('5%', index=export_df.index)
+                        tax_type_str = tax_type_col.fillna('5%').astype(str).str.strip().str.lower()
+                        is_zero_or_exempt = tax_type_str.isin(['0%', 'exempt', '零稅率', '免稅'])
+                        need_recalc = ((subtotal_series == 0) | (tax_series == 0)) & (total_series > 0)
+                        if need_recalc.any():
+                            calc_tax = pd.Series(0.0, index=export_df.index).where(is_zero_or_exempt, (total_series - (total_series / 1.05)).round(0))
+                            calc_subtotal = (total_series - calc_tax).round(0)
+                            tax_series = tax_series.where(~need_recalc, calc_tax)
+                            subtotal_series = subtotal_series.where(~need_recalc, calc_subtotal)
+                        if '銷售額' in export_df.columns:
+                            export_df = export_df.rename(columns={'銷售額': '銷售額(未稅)'})
+                        else:
+                            export_df = export_df.copy()
+                            export_df['銷售額(未稅)'] = subtotal_series
+                        if '稅額' not in export_df.columns:
+                            export_df['稅額'] = tax_series
+                        else:
+                            export_df['稅額'] = tax_series
+                        if '總計' not in export_df.columns:
+                            export_df['總計'] = total_series
+                        else:
+                            export_df['總計'] = total_series
+                        desired_order = ["日期", "發票號碼", "賣方名稱", "賣方統編", "銷售額(未稅)", "稅額", "總計", "會計科目", "類型", "備註"]
+                        columns = []
+                        seen = set()
+                        for c in desired_order:
+                            if c in export_df.columns and c not in seen:
+                                columns.append(c)
+                                seen.add(c)
+                        for c in export_df.columns:
+                            if c not in seen and c not in ['日期_parsed', 'date', 'Date']:
+                                columns.append(c)
+                                seen.add(c)
+                        export_df = export_df[columns].copy()
+                        output = io.BytesIO()
+                        with pd.ExcelWriter(output, engine="openpyxl") as writer:
+                            export_df.to_excel(writer, index=False, sheet_name="發票報表")
+                            ws = writer.sheets["發票報表"]
+                            header_font = Font(bold=True)
+                            for col_cells in ws.iter_cols(min_row=1, max_row=1):
+                                for cell in col_cells:
+                                    cell.font = header_font
+                                    col_letter = cell.column_letter
+                                    ws.column_dimensions[col_letter].width = max(12, len(str(cell.value)) + 4)
+                            amount_headers = {"銷售額(未稅)", "稅額", "總計"}
+                            header_map = {cell.value: cell.column for cell in ws[1] if cell.value}
+                            for header in amount_headers:
+                                col_idx = header_map.get(header)
+                                if col_idx is not None:
+                                    for cell in ws.iter_rows(min_row=2, min_col=col_idx, max_col=col_idx):
+                                        c = cell[0]
+                                        c.number_format = '#,##0'
+                                        c.alignment = Alignment(horizontal='right')
+                        return output.getvalue()
+                    excel_data = _gen_excel()
+                    st.download_button(
+                        "📊 導出Excel",
+                        excel_data,
+                        f"invoice_report_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True,
+                        help="導出符合國稅局欄位結構的 Excel 報表"
+                    )
+            with act_col4:
+                if not df.empty:
+                    if PDF_AVAILABLE:
+                        def _gen_pdf():
+                            pdf = FPDF()
+                            pdf.set_auto_page_break(auto=True, margin=15)
+                            pdf.add_page()
+                            font_path = "NotoSansTC-Regular.ttf"
+                            font_loaded = False
+                            font_name = "NotoSansTC"
+                            if os.path.exists(font_path):
+                                try:
+                                    pdf.add_font(font_name, '', font_path, uni=True)
+                                    pdf.add_font(font_name, 'B', font_path, uni=True)
+                                    font_loaded = True
+                                except Exception:
+                                    font_loaded = False
+                            def safe_cell(pdf, w, h, txt, border=0, ln=0, align='', fill=False, link='', font_name_override=None):
+                                try:
+                                    if font_name_override:
+                                        pdf.set_font(font_name_override[0], font_name_override[1], font_name_override[2])
+                                    pdf.cell(w, h, txt, border, ln, align, fill, link)
+                                except Exception:
+                                    pdf.set_font('Arial', '', 10)
+                                    pdf.cell(w, h, str(txt)[:50], border, ln, align, fill, link)
+                            if font_loaded:
+                                pdf.set_font(font_name, 'B', 16)
+                                safe_cell(pdf, 0, 10, '發票報帳統計報表', ln=1, align='C')
+                            else:
+                                pdf.set_font('Arial', 'B', 16)
+                                safe_cell(pdf, 0, 10, 'Invoice Report', ln=1, align='C')
+                            pdf.ln(5)
+                            if font_loaded:
+                                pdf.set_font(font_name, '', 10)
+                                safe_cell(pdf, 0, 5, f'生成時間: {datetime.now().strftime("%Y年%m月%d日 %H:%M:%S")}', ln=1, align='R')
+                            else:
+                                pdf.set_font('Arial', '', 10)
+                                safe_cell(pdf, 0, 5, f'Generated: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}', ln=1, align='R')
+                            pdf.ln(5)
+                            if font_loaded:
+                                pdf.set_font(font_name, '', 10)
+                                company_name = st.session_state.get('company_name', '')
+                                company_ubn = st.session_state.get('company_ubn', '')
+                                if company_name:
+                                    safe_cell(pdf, 200, 10, txt=f"報支公司：{company_name}", ln=1)
+                                if company_ubn:
+                                    safe_cell(pdf, 200, 10, txt=f"公司統編：{company_ubn}", ln=1)
+                            else:
+                                pdf.set_font('Arial', '', 10)
+                                company_name = st.session_state.get('company_name', '')
+                                company_ubn = st.session_state.get('company_ubn', '')
+                                if company_name:
+                                    safe_cell(pdf, 200, 10, txt=f"Company: {company_name}", ln=1)
+                                if company_ubn:
+                                    safe_cell(pdf, 200, 10, txt=f"UBN: {company_ubn}", ln=1)
+                            pdf.ln(5)
+                            if font_loaded:
+                                pdf.set_font(font_name, 'B', 12)
+                                safe_cell(pdf, 0, 8, '統計摘要', ln=1)
+                                pdf.set_font(font_name, '', 10)
+                            else:
+                                pdf.set_font('Arial', 'B', 12)
+                                safe_cell(pdf, 0, 8, '統計摘要', ln=1)
+                                pdf.set_font('Arial', '', 10)
+                            safe_cell(pdf, 90, 6, '累計金額:', 1)
+                            export_df_for_stats = df_stats.copy() if 'df_stats' in locals() and not getattr(df_stats, 'empty', True) else df.copy()
+                            if "總計" in export_df_for_stats.columns:
+                                total_sum = pd.to_numeric(export_df_for_stats['總計'], errors='coerce').fillna(0).sum()
+                            else:
+                                total_sum = 0
+                            safe_cell(pdf, 90, 6, f"${total_sum:,.0f}", 1, ln=1)
+                            safe_cell(pdf, 90, 6, '累計稅額:', 1)
+                            if "稅額" in export_df_for_stats.columns:
+                                tax_sum = pd.to_numeric(export_df_for_stats['稅額'], errors='coerce').fillna(0).sum()
+                            else:
+                                tax_sum = 0
+                            safe_cell(pdf, 90, 6, f"${tax_sum:,.0f}", 1, ln=1)
+                            safe_cell(pdf, 90, 6, '發票總數:', 1)
+                            safe_cell(pdf, 90, 6, f"{len(export_df_for_stats)} 筆", 1, ln=1)
+                            pdf.ln(5)
+                            export_df = df.copy()
+                            col_widths = [25, 30, 30, 30, 25, 25, 25]
+                            if font_loaded:
+                                pdf.set_font(font_name, 'B', 10)
+                                headers = ["日期", "發票號碼", "賣方統編", "銷售額(未稅)", "稅額", "總計", "備註"]
+                            else:
+                                pdf.set_font('Arial', 'B', 10)
+                                headers = ["Date", "Invoice No", "Seller UBN", "Net Amount (Excl. Tax)", "Tax", "Total", "Note"]
+                            for i, header in enumerate(headers):
+                                safe_cell(pdf, col_widths[i], 7, header, 1, align='C')
+                            pdf.ln()
+                            if font_loaded:
+                                pdf.set_font(font_name, '', 8)
+                            else:
+                                pdf.set_font('Arial', '', 8)
+                            def pdf_safe_value(val, default='No'):
+                                if pd.isna(val) or val == '' or val == 'N/A' or str(val).strip() == '':
+                                    return default
+                                return str(val)
+                            for _, row in export_df.iterrows():
+                                total_val = pd.to_numeric(row.get('總計', row.get('total', 0)), errors='coerce')
+                                subtotal_val = pd.to_numeric(row.get('銷售額', row.get('subtotal', 0)), errors='coerce')
+                                tax_val = pd.to_numeric(row.get('稅額', row.get('tax', 0)), errors='coerce')
+                                if pd.isna(total_val):
+                                    total_val = 0
+                                if (pd.isna(subtotal_val) or subtotal_val == 0) or (pd.isna(tax_val) or tax_val == 0):
+                                    if total_val > 0:
+                                        tax_type_val = str(row.get('稅率類型', row.get('tax_type', '5%')) or '5%').strip().lower()
+                                        if tax_type_val in ('0%', 'exempt', '零稅率', '免稅'):
+                                            tax_val = 0
+                                            subtotal_val = total_val
+                                        else:
+                                            tax_val = round(total_val - (total_val / 1.05))
+                                            subtotal_val = total_val - tax_val
+                                    else:
+                                        subtotal_val = 0
+                                        tax_val = 0
+                                date_str = pdf_safe_value(row.get('日期', ''), 'No')[:10]
+                                invoice_no = pdf_safe_value(row.get('發票號碼', ''), 'No')[:15]
+                                seller_ubn = pdf_safe_value(row.get('賣方統編', ''), 'No')[:15]
+                                note = pdf_safe_value(row.get('備註', '') or row.get('會計科目', '') or row.get('類型', ''), '')[:15]
+                                net_amount_str = f"${subtotal_val:,.0f}"
+                                tax_str = f"${tax_val:,.0f}"
+                                total_str = f"${total_val:,.0f}"
+                                safe_cell(pdf, col_widths[0], 6, date_str, 1)
+                                safe_cell(pdf, col_widths[1], 6, invoice_no, 1)
+                                safe_cell(pdf, col_widths[2], 6, seller_ubn, 1)
+                                safe_cell(pdf, col_widths[3], 6, net_amount_str, 1, align='R')
+                                safe_cell(pdf, col_widths[4], 6, tax_str, 1, align='R')
+                                safe_cell(pdf, col_widths[5], 6, total_str, 1, align='R')
+                                safe_cell(pdf, col_widths[6], 6, note, 1, ln=1)
+                                if pdf.get_y() > 270:
+                                    pdf.add_page()
+                                    if font_loaded:
+                                        pdf.set_font(font_name, 'B', 10)
+                                    else:
+                                        pdf.set_font('Arial', 'B', 10)
+                                    for i, header in enumerate(headers):
+                                        safe_cell(pdf, col_widths[i], 7, header, 1, align='C')
+                                    pdf.ln()
+                                    if font_loaded:
+                                        pdf.set_font(font_name, '', 8)
+                                    else:
+                                        pdf.set_font('Arial', '', 8)
+                            pdf_bytes = pdf.output(dest='S')
+                            return bytes(pdf_bytes) if isinstance(pdf_bytes, bytearray) else pdf_bytes
+                        pdf_data = _gen_pdf()
+                        st.download_button(
+                            "📄 導出PDF",
+                            pdf_data,
+                            f"invoice_report_{datetime.now().strftime('%Y%m%d')}.pdf",
+                            mime="application/pdf",
+                            use_container_width=True,
+                            help="導出當前數據為PDF報告"
+                        )
+                    else:
+                        st.info("📄 PDF", help="需要安裝 fpdf2")
 
             # 檢查並清理 DataFrame 的列名（確保沒有重複或無效列名），然後顯示數據表格
             try:
