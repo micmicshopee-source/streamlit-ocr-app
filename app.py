@@ -2289,7 +2289,7 @@ with st.container():
             with st.spinner("正在自動對獎最新一期…"):
                 _auto_err = _run_lottery_and_match(0)
 
-        # 對獎結果優先：一句摘要 + 中獎明細表
+        # 方案 A：常駐只一句摘要，明細與開獎號碼收合
         last = st.session_state.get("lottery_last_checked")
         if last:
             winners = last.get("winners") or []
@@ -2302,25 +2302,24 @@ with st.container():
                     f"**{label}** 對獎 {checked_count} 張，中獎 **{len(winners)}** 張，共 **{total_prize:,}** 元。"
                     + (f" 領獎期限至 {claim_txt}" if claim_txt else "")
                 )
-                st.dataframe(pd.DataFrame(winners), use_container_width=True, hide_index=True)
+                with st.expander("查看中獎明細", expanded=False):
+                    st.dataframe(pd.DataFrame(winners), use_container_width=True, hide_index=True)
             else:
                 st.info(f"**{label}** 對獎 {checked_count} 張，未中獎。")
         elif _auto_err:
             st.warning(f"自動對獎失敗：{_auto_err}。請點下方按鈕或使用「手動貼上開獎號碼（備用）」.")
 
-        # 本期開獎號碼：對獎後直接展示
+        # 本期開獎號碼：收合
         draw = st.session_state.get("lottery_draw")
         if draw:
-            st.markdown("---")
-            st.caption("**本期開獎號碼**")
-            st.markdown(
-                f"特別獎：`{draw.get('special_prize')}`　特獎：`{draw.get('top_prize')}`　頭獎：{', '.join(draw.get('first_prizes') or [])}"
-            )
-            if draw.get("claim_period_text"):
-                st.caption(f"領獎期間自 {draw['claim_period_text']}")
+            with st.expander("本期開獎號碼", expanded=False):
+                st.markdown(
+                    f"特別獎：`{draw.get('special_prize')}`　特獎：`{draw.get('top_prize')}`　頭獎：{', '.join(draw.get('first_prizes') or [])}"
+                )
+                if draw.get("claim_period_text"):
+                    st.caption(f"領獎期間自 {draw['claim_period_text']}")
 
-        # 說明 + 按鈕（重新對獎／對上一期）
-        st.caption("可點按鈕重新對獎最新一期或對上一期。")
+        # 按鈕同一行，不另 caption
         col_a, col_b = st.columns(2)
         with col_a:
             if st.button("對獎（最新一期）", type="secondary", use_container_width=True, key="lottery_btn_latest"):
