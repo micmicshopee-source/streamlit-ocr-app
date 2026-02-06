@@ -1479,20 +1479,20 @@ def normalize_invoice_number(raw):
     return digits[-8:]
 
 
-# 財政部稅務入口網開獎頁網址：ETW183W2_{期別}.html，期別 5 碼如 11411=114年11-12月、11501=115年1-2月
-LOTTERY_ETAX_BASE = "https://www.etax.nat.gov.tw/etw-main/ETW183W2_"
+# 財政部統一發票中獎號碼（新站）：僅兩頁，無期別代碼網址
+# https://invoice.etax.nat.gov.tw/index.html = 最新一期，lastNumber.html = 上一期
+LOTTERY_ETAX_LATEST = "https://invoice.etax.nat.gov.tw/index.html"
+LOTTERY_ETAX_PREVIOUS = "https://invoice.etax.nat.gov.tw/lastNumber.html"
 
 
-def fetch_lottery_draw_from_etax(period):
-    """從財政部稅務入口網自動取得指定期別開獎號碼。
-    period: 5 碼期別，如 "11411"（114年11-12月）、"11501"（115年1-2月）。
+def fetch_lottery_draw_from_etax(slot):
+    """從財政部稅務入口網（invoice.etax.nat.gov.tw）自動取得開獎號碼。
+    slot: 0 = 最新一期（index.html），1 = 上一期（lastNumber.html）。其餘期別請改用手動貼上。
     回傳 (draw_dict, error_message)。draw_dict 結構同 parse_lottery_text。
-    若網路或解析失敗，draw_dict 為 None。
     """
-    if not period or not re.match(r"^\d{5}$", str(period).strip()):
-        return None, "期別請填 5 碼數字，例如 11411（114年11-12月）。"
-    period = str(period).strip()
-    url = f"{LOTTERY_ETAX_BASE}{period}.html"
+    if slot not in (0, 1):
+        return None, "僅支援「最新一期」或「上一期」自動取得，其餘請改用手動貼上。"
+    url = LOTTERY_ETAX_LATEST if slot == 0 else LOTTERY_ETAX_PREVIOUS
     try:
         r = requests.get(
             url,
@@ -1500,21 +1500,19 @@ def fetch_lottery_draw_from_etax(period):
             headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"},
         )
         r.raise_for_status()
-        r.encoding = r.apparent_encoding or "utf-8"
+        r.encoding = r.encoding or "utf-8"
         text = r.text
     except requests.RequestException as e:
         return None, f"無法取得開獎頁面：{e}"
-    # 解析：與 parse_lottery_text 相同邏輯，但依「特別獎／特獎／頭獎」關鍵字定位後取 8 碼
-    period_match = re.search(r"(\d{3}年\s*\d{1,2}\s*[~～]\s*\d{1,2}\s*月)", text)
-    period_label = period_match.group(1).strip() if period_match else f"{period[:3]}年{period[3:]}月期"
+    # 解析：依「特別獎／特獎／頭獎」關鍵字與 8 碼數字
+    period_match = re.search(r"(\d{3}年\s*\d{1,2}\s*[~～\-]\s*\d{1,2}\s*月)", text)
+    period_label = period_match.group(1).strip() if period_match else ("最新一期" if slot == 0 else "上一期")
     claim_match = re.search(r"領獎期間自(.+?止)", text)
     claim_period_text = claim_match.group(1).strip() if claim_match else ""
-    # 特別獎：關鍵字後第一個 8 碼數字
     sp = re.search(r"特別獎\s*\|?\s*(\d{8})", text)
     special_prize = sp.group(1) if sp else ""
     tp = re.search(r"特獎\s*\|?\s*(\d{8})", text)
     top_prize = tp.group(1) if tp else ""
-    # 頭獎：頭獎與二獎／同期之間的所有 8 碼數字
     head_block = re.search(r"頭獎\s*\|?\s*([\d\s]+?)(?:\s*\||\s*同期|二獎)", text, re.DOTALL)
     first_prizes = re.findall(r"\d{8}", head_block.group(1)) if head_block else []
     if not special_prize and not top_prize and not first_prizes:
@@ -2283,16 +2281,18 @@ with st.container():
                 key="lottery_period_select",
             )
             st.session_state["lottery_period_sel"] = period_sel
-            period_code = period_values[period_sel]
+            # 財政部新站僅提供「最新一期」「上一期」兩頁，slot 0=index.html、1=lastNumber.html
             if st.button("📡 自動取得開獎號碼", type="primary", use_container_width=True, key="lottery_fetch_btn"):
                 with st.spinner("正在從財政部稅務入口網取得…"):
-                    draw, err = fetch_lottery_draw_from_etax(period_code)
+                    draw, err = fetch_lottery_draw_from_etax(period_sel)
                 if err:
                     st.error(err)
                 else:
                     st.session_state["lottery_draw"] = draw
                     st.success(f"已取得 {draw.get('period_label', period_labels[period_sel])} 開獎號碼。")
                     st.rerun()
+        if period_sel >= 2:
+            st.caption("💡 僅「最新一期」「上一期」可自動取得，其餘期別請改用手動貼上財政部頁面內容。")
         raw_lottery = st.text_area(
             "或貼上財政部「統一發票中獎號碼」頁面的文字內容（手動解析）",
             value=st.session_state.get("lottery_raw_text", ""),
