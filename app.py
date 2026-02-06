@@ -2297,111 +2297,111 @@ with st.container():
         _claim = (last.get("draw") or draw or {}).get("claim_period_text")
         _winners = (last or {}).get("winners") or []
 
-        # 方案 H：步驟式 — ① 選擇期別 → ② 開獎號碼 → ③ 對獎結果 → ④ 中獎明細
+        # 方案 G：雙欄，兩邊對齊（等寬、區塊標題一致）
         st.subheader("🎰 發票對獎")
-        _steps = "① 選擇期別 → ② 開獎號碼 → ③ 對獎結果"
-        if _winners:
-            _steps += " → ④ 中獎明細"
-        st.caption(_steps)
-
-        # ① 選擇期別
-        st.markdown("**① 選擇期別**")
-        _b1, _b2 = st.columns(2)
-        with _b1:
-            if st.button("對獎（本期）", type="secondary", use_container_width=True, key="lottery_btn_latest"):
-                with st.spinner("對獎中…"):
-                    err = _run_lottery_and_match(0)
-                if err:
-                    st.error(err)
-                else:
-                    st.rerun()
-        with _b2:
-            if st.button("對獎（上期）", type="secondary", use_container_width=True, key="lottery_btn_prev"):
-                with st.spinner("對獎中…"):
-                    err = _run_lottery_and_match(1)
-                if err:
-                    st.error(err)
-                else:
-                    st.rerun()
         if label or _claim:
-            st.caption(f"目前：{label}" + (f" · 領獎至 {_claim}" if _claim else ""))
+            st.caption(f"{label}" + (f" · 領獎至 {_claim}" if _claim else ""))
 
-        # ② 開獎號碼
-        st.markdown("**② 開獎號碼**")
-        if draw:
-            _rows = [
-                ("特別獎", draw.get("special_prize") or "—"),
-                ("特獎", draw.get("top_prize") or "—"),
-                ("頭獎", "、".join(draw.get("first_prizes") or []) or "—"),
-            ]
-            st.dataframe(
-                pd.DataFrame(_rows, columns=["獎別", "中獎號碼"]),
-                use_container_width=True,
-                hide_index=True,
-            )
-            if draw.get("claim_period_text"):
-                st.caption(f"領獎期間 {draw['claim_period_text']}")
-        else:
-            st.caption("尚無開獎資料，請先點上方「對獎（本期／上期）」取得。")
-
-        # ③ 對獎結果
-        st.markdown("**③ 對獎結果**")
-        if _auto_err and not last:
-            st.warning("無法取得開獎，請使用下方「手動貼上開獎號碼」或重新點「對獎」。")
-        elif last:
-            checked_count = last.get("checked_count", 0)
-            total_prize = last.get("total_prize", 0)
-            if _winners:
-                st.success(f"對獎 {checked_count} 張，中獎 **{len(_winners)}** 張，共 **{total_prize:,}** 元。")
-            else:
-                st.info(f"對獎 {checked_count} 張，未中獎。")
-        else:
-            st.caption("尚未對獎，請先選擇期別。")
-
-        # ④ 中獎明細（有中獎才顯示）
-        if _winners:
-            st.markdown("**④ 中獎明細**")
-            st.dataframe(pd.DataFrame(last["winners"]), use_container_width=True, hide_index=True)
-
-        with st.expander("手動貼上開獎號碼（備用）", expanded=False):
-            st.caption("當自動取得失敗或要對更早期別時，可至 [財政部開獎頁](https://invoice.etax.nat.gov.tw/) 複製整頁貼上後解析並對獎。")
-            raw_lottery = st.text_area(
-                "貼上財政部「統一發票中獎號碼」頁面文字",
-                value=st.session_state.get("lottery_raw_text", ""),
-                height=100,
-                key="lottery_raw_text",
-            )
-            if st.button("解析並對獎", key="lottery_parse_and_match_btn"):
-                draw, err = parse_lottery_text(raw_lottery)
-                if err:
-                    st.error(err)
+        # 雙欄等高對齊：左欄 對獎結果／操作，右欄 開獎號碼
+        st.markdown(
+            '<style>div[data-testid="column"] { align-items: stretch; }</style>',
+            unsafe_allow_html=True,
+        )
+        _left, _right = st.columns([1, 1])
+        with _left:
+            st.markdown("**對獎結果**")
+            if _auto_err and not last:
+                st.warning("無法取得開獎，請使用下方手動貼上或點「對獎」重試。")
+            elif last:
+                checked_count = last.get("checked_count", 0)
+                total_prize = last.get("total_prize", 0)
+                if _winners:
+                    st.success(f"對獎 {checked_count} 張，中獎 **{len(_winners)}** 張，共 **{total_prize:,}** 元。")
                 else:
-                    st.session_state["lottery_draw"] = draw
-                    winners = []
-                    total_prize = 0
-                    checked_count = 0
-                    for _, row in df_raw.iterrows():
-                        inv_num8 = normalize_invoice_number(row.get("invoice_number"))
-                        if not inv_num8:
-                            continue
-                        prize, amount = match_lottery_prize(inv_num8, draw)
-                        checked_count += 1
-                        if amount > 0:
-                            winners.append({
-                                "日期": row.get("date"),
-                                "發票號碼": row.get("invoice_number"),
-                                "賣方名稱": row.get("seller_name"),
-                                "獎別": prize,
-                                "獎金": amount,
-                            })
-                            total_prize += amount
-                    st.session_state["lottery_last_checked"] = {
-                        "draw": draw,
-                        "winners": winners,
-                        "checked_count": checked_count,
-                        "total_prize": total_prize,
-                    }
-                    st.rerun()
+                    st.info(f"對獎 {checked_count} 張，未中獎。")
+            else:
+                st.caption("尚未對獎")
+
+            if last and _winners:
+                with st.expander("中獎明細", expanded=False):
+                    st.dataframe(pd.DataFrame(last["winners"]), use_container_width=True, hide_index=True)
+
+            st.markdown("**操作**")
+            _b1, _b2 = st.columns(2)
+            with _b1:
+                if st.button("對獎（本期）", type="secondary", use_container_width=True, key="lottery_btn_latest"):
+                    with st.spinner("對獎中…"):
+                        err = _run_lottery_and_match(0)
+                    if err:
+                        st.error(err)
+                    else:
+                        st.rerun()
+            with _b2:
+                if st.button("對獎（上期）", type="secondary", use_container_width=True, key="lottery_btn_prev"):
+                    with st.spinner("對獎中…"):
+                        err = _run_lottery_and_match(1)
+                    if err:
+                        st.error(err)
+                    else:
+                        st.rerun()
+
+            with st.expander("手動貼上開獎號碼（備用）", expanded=False):
+                st.caption("當自動取得失敗或要對更早期別時，可至 [財政部開獎頁](https://invoice.etax.nat.gov.tw/) 複製整頁貼上後解析並對獎。")
+                raw_lottery = st.text_area(
+                    "貼上財政部「統一發票中獎號碼」頁面文字",
+                    value=st.session_state.get("lottery_raw_text", ""),
+                    height=100,
+                    key="lottery_raw_text",
+                )
+                if st.button("解析並對獎", key="lottery_parse_and_match_btn"):
+                    draw, err = parse_lottery_text(raw_lottery)
+                    if err:
+                        st.error(err)
+                    else:
+                        st.session_state["lottery_draw"] = draw
+                        winners = []
+                        total_prize = 0
+                        checked_count = 0
+                        for _, row in df_raw.iterrows():
+                            inv_num8 = normalize_invoice_number(row.get("invoice_number"))
+                            if not inv_num8:
+                                continue
+                            prize, amount = match_lottery_prize(inv_num8, draw)
+                            checked_count += 1
+                            if amount > 0:
+                                winners.append({
+                                    "日期": row.get("date"),
+                                    "發票號碼": row.get("invoice_number"),
+                                    "賣方名稱": row.get("seller_name"),
+                                    "獎別": prize,
+                                    "獎金": amount,
+                                })
+                                total_prize += amount
+                        st.session_state["lottery_last_checked"] = {
+                            "draw": draw,
+                            "winners": winners,
+                            "checked_count": checked_count,
+                            "total_prize": total_prize,
+                        }
+                        st.rerun()
+
+        with _right:
+            st.markdown("**本期開獎號碼**")
+            if draw:
+                _rows = [
+                    ("特別獎", draw.get("special_prize") or "—"),
+                    ("特獎", draw.get("top_prize") or "—"),
+                    ("頭獎", "、".join(draw.get("first_prizes") or []) or "—"),
+                ]
+                st.dataframe(
+                    pd.DataFrame(_rows, columns=["獎別", "中獎號碼"]),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+                if draw.get("claim_period_text"):
+                    st.caption(f"領獎期間 {draw['claim_period_text']}")
+            else:
+                st.caption("尚無開獎資料，請點左側「對獎」取得。")
 
 # 初始化 dialog 狀態
 if "show_upload_dialog" not in st.session_state:
