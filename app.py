@@ -1479,53 +1479,68 @@ def normalize_invoice_number(raw):
     return digits[-8:]
 
 
-# 財政部統一發票中獎號碼（新站）：僅兩頁，無期別代碼網址
+# 財政部統一發票中獎號碼（新站）：僅兩頁
 # https://invoice.etax.nat.gov.tw/index.html = 最新一期，lastNumber.html = 上一期
 LOTTERY_ETAX_LATEST = "https://invoice.etax.nat.gov.tw/index.html"
 LOTTERY_ETAX_PREVIOUS = "https://invoice.etax.nat.gov.tw/lastNumber.html"
 
+# 爬蟲用 headers，模擬瀏覽器避免被擋
+LOTTERY_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.8",
+}
+
+
+def _parse_lottery_draw_from_html(text):
+    """從開獎頁 HTML 文字解析開獎號碼。不依賴標籤結構，只依「特別獎」後依序的 8 碼數字。
+    回傳 (draw_dict, error_message)。成功時 error_message 為 None。
+    """
+    if not text or "特別獎" not in text:
+        return None, "頁面內容中找不到「特別獎」，可能非開獎頁或格式已變更。"
+    # 從「特別獎」出現處往後取整段，依序抓所有 8 碼數字（特別獎、特獎、頭獎×N）
+    idx = text.find("特別獎")
+    rest = text[idx:]
+    nums = re.findall(r"\d{8}", rest)
+    if len(nums) < 3:
+        return None, "在「特別獎」區塊後找不到足夠的 8 碼數字（需至少特別獎、特獎、頭獎×1）。"
+    special_prize = nums[0]
+    top_prize = nums[1]
+    first_prizes = nums[2:12]  # 頭獎最多取 10 組
+    # 期別：114年09-10月 或 114年 11 ~ 12 月
+    period_match = re.search(r"(\d{3}年\s*\d{1,2}\s*[~～\-]\s*\d{1,2}\s*月)", text)
+    period_label = period_match.group(1).strip() if period_match else ""
+    # 領獎期間
+    claim_match = re.search(r"領獎期間自\s*(.+?止)", text)
+    claim_period_text = (claim_match.group(1).strip() if claim_match else "").replace("\n", "")
+    draw = {
+        "period_label": period_label or "開獎期",
+        "special_prize": special_prize,
+        "top_prize": top_prize,
+        "first_prizes": first_prizes,
+        "extra_six": [],
+        "claim_period_text": claim_period_text,
+    }
+    return draw, None
+
 
 def fetch_lottery_draw_from_etax(slot):
-    """從財政部稅務入口網（invoice.etax.nat.gov.tw）自動取得開獎號碼。
-    slot: 0 = 最新一期（index.html），1 = 上一期（lastNumber.html）。其餘期別請改用手動貼上。
+    """爬蟲：直接取得財政部開獎頁 HTML，並解析開獎號碼。
+    slot: 0 = 最新一期（index.html），1 = 上一期（lastNumber.html）。
     回傳 (draw_dict, error_message)。draw_dict 結構同 parse_lottery_text。
     """
     if slot not in (0, 1):
         return None, "僅支援「最新一期」或「上一期」自動取得，其餘請改用手動貼上。"
     url = LOTTERY_ETAX_LATEST if slot == 0 else LOTTERY_ETAX_PREVIOUS
     try:
-        r = requests.get(
-            url,
-            timeout=15,
-            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"},
-        )
+        r = requests.get(url, timeout=15, headers=LOTTERY_HEADERS)
         r.raise_for_status()
-        r.encoding = r.encoding or "utf-8"
+        # 強制以 utf-8 解讀，避免編碼錯亂
+        r.encoding = "utf-8"
         text = r.text
     except requests.RequestException as e:
         return None, f"無法取得開獎頁面：{e}"
-    # 解析：依「特別獎／特獎／頭獎」關鍵字與 8 碼數字
-    period_match = re.search(r"(\d{3}年\s*\d{1,2}\s*[~～\-]\s*\d{1,2}\s*月)", text)
-    period_label = period_match.group(1).strip() if period_match else ("最新一期" if slot == 0 else "上一期")
-    claim_match = re.search(r"領獎期間自(.+?止)", text)
-    claim_period_text = claim_match.group(1).strip() if claim_match else ""
-    sp = re.search(r"特別獎\s*\|?\s*(\d{8})", text)
-    special_prize = sp.group(1) if sp else ""
-    tp = re.search(r"特獎\s*\|?\s*(\d{8})", text)
-    top_prize = tp.group(1) if tp else ""
-    head_block = re.search(r"頭獎\s*\|?\s*([\d\s]+?)(?:\s*\||\s*同期|二獎)", text, re.DOTALL)
-    first_prizes = re.findall(r"\d{8}", head_block.group(1)) if head_block else []
-    if not special_prize and not top_prize and not first_prizes:
-        return None, "頁面格式可能已變更，無法解析開獎號碼，請改用手動貼上。"
-    draw = {
-        "period_label": period_label,
-        "special_prize": special_prize,
-        "top_prize": top_prize,
-        "first_prizes": first_prizes[:10],
-        "extra_six": [],
-        "claim_period_text": claim_period_text,
-    }
-    return draw, None
+    return _parse_lottery_draw_from_html(text)
 
 
 def parse_lottery_text(raw_text):
