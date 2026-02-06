@@ -1479,6 +1479,57 @@ def normalize_invoice_number(raw):
     return digits[-8:]
 
 
+# 財政部稅務入口網開獎頁網址：ETW183W2_{期別}.html，期別 5 碼如 11411=114年11-12月、11501=115年1-2月
+LOTTERY_ETAX_BASE = "https://www.etax.nat.gov.tw/etw-main/ETW183W2_"
+
+
+def fetch_lottery_draw_from_etax(period):
+    """從財政部稅務入口網自動取得指定期別開獎號碼。
+    period: 5 碼期別，如 "11411"（114年11-12月）、"11501"（115年1-2月）。
+    回傳 (draw_dict, error_message)。draw_dict 結構同 parse_lottery_text。
+    若網路或解析失敗，draw_dict 為 None。
+    """
+    if not period or not re.match(r"^\d{5}$", str(period).strip()):
+        return None, "期別請填 5 碼數字，例如 11411（114年11-12月）。"
+    period = str(period).strip()
+    url = f"{LOTTERY_ETAX_BASE}{period}.html"
+    try:
+        r = requests.get(
+            url,
+            timeout=15,
+            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"},
+        )
+        r.raise_for_status()
+        r.encoding = r.apparent_encoding or "utf-8"
+        text = r.text
+    except requests.RequestException as e:
+        return None, f"無法取得開獎頁面：{e}"
+    # 解析：與 parse_lottery_text 相同邏輯，但依「特別獎／特獎／頭獎」關鍵字定位後取 8 碼
+    period_match = re.search(r"(\d{3}年\s*\d{1,2}\s*[~～]\s*\d{1,2}\s*月)", text)
+    period_label = period_match.group(1).strip() if period_match else f"{period[:3]}年{period[3:]}月期"
+    claim_match = re.search(r"領獎期間自(.+?止)", text)
+    claim_period_text = claim_match.group(1).strip() if claim_match else ""
+    # 特別獎：關鍵字後第一個 8 碼數字
+    sp = re.search(r"特別獎\s*\|?\s*(\d{8})", text)
+    special_prize = sp.group(1) if sp else ""
+    tp = re.search(r"特獎\s*\|?\s*(\d{8})", text)
+    top_prize = tp.group(1) if tp else ""
+    # 頭獎：頭獎與二獎／同期之間的所有 8 碼數字
+    head_block = re.search(r"頭獎\s*\|?\s*([\d\s]+?)(?:\s*\||\s*同期|二獎)", text, re.DOTALL)
+    first_prizes = re.findall(r"\d{8}", head_block.group(1)) if head_block else []
+    if not special_prize and not top_prize and not first_prizes:
+        return None, "頁面格式可能已變更，無法解析開獎號碼，請改用手動貼上。"
+    draw = {
+        "period_label": period_label,
+        "special_prize": special_prize,
+        "top_prize": top_prize,
+        "first_prizes": first_prizes[:10],
+        "extra_six": [],
+        "claim_period_text": claim_period_text,
+    }
+    return draw, None
+
+
 def parse_lottery_text(raw_text):
     """從財政部『統一發票中獎號碼』頁面貼上的文字中解析開獎結果。
     回傳 (draw_dict, error_message)。draw_dict 結構：
@@ -2182,21 +2233,75 @@ with st.container():
             st.markdown('<div class="kpi-card"><span class="kpi-label">缺失件數</span><span class="kpi-value">0 筆</span></div>', unsafe_allow_html=True)
 
 # ========== 台灣統一發票對獎（實驗版）==========
+# 期別選項：財政部網址為 ETW183W2_{YYYMM}.html，如 11411=114年11-12月、11501=115年1-2月（單月 1,3,5,7,9,11 開獎）
+def _lottery_period_options():
+    now = datetime.now()
+    roc = now.year - 1911
+    mo = now.month
+    if mo in (1, 2):
+        py, pm = roc - 1, 11
+    elif mo in (3, 4):
+        py, pm = roc, 1
+    elif mo in (5, 6):
+        py, pm = roc, 3
+    elif mo in (7, 8):
+        py, pm = roc, 5
+    elif mo in (9, 10):
+        py, pm = roc, 7
+    else:
+        py, pm = roc, 9
+    opts = []
+    for i in range(12):
+        m = pm - 2 * i
+        y = py
+        while m <= 0:
+            m += 12
+            y -= 1
+        period = f"{y}{m:02d}"
+        label = f"{y}年{m}～{m + 1}月" if m < 12 else f"{y}年{m}～{y + 1}年1月"
+        opts.append((period, label))
+    return opts
+
 with st.container():
     st.subheader("🎰 台灣統一發票對獎（實驗版）")
     if df_raw.empty:
         st.caption("目前沒有發票資料，請先上傳或導入後再進行對獎。")
     else:
-        st.caption("步驟：1）到財政部稅務入口網查詢本期中獎號碼；2）複製整頁文字貼到下方；3）解析並對獎。")
+        st.caption("**自動取得**：選擇期別後按「自動取得開獎號碼」；或**手動**：到財政部複製整頁文字貼到下方後按「解析」。")
+        # 期別選單 + 自動取得
+        period_opts = _lottery_period_options()
+        period_labels = [lb for _, lb in period_opts]
+        period_values = [pv for pv, _ in period_opts]
+        sel_idx = st.session_state.get("lottery_period_sel", 0)
+        row_auto, _ = st.columns([2, 1])
+        with row_auto:
+            period_sel = st.selectbox(
+                "開獎期別",
+                range(len(period_labels)),
+                format_func=lambda i: period_labels[i],
+                index=min(sel_idx, len(period_labels) - 1),
+                key="lottery_period_select",
+            )
+            st.session_state["lottery_period_sel"] = period_sel
+            period_code = period_values[period_sel]
+            if st.button("📡 自動取得開獎號碼", type="primary", use_container_width=True, key="lottery_fetch_btn"):
+                with st.spinner("正在從財政部稅務入口網取得…"):
+                    draw, err = fetch_lottery_draw_from_etax(period_code)
+                if err:
+                    st.error(err)
+                else:
+                    st.session_state["lottery_draw"] = draw
+                    st.success(f"已取得 {draw.get('period_label', period_labels[period_sel])} 開獎號碼。")
+                    st.rerun()
         raw_lottery = st.text_area(
-            "貼上財政部「統一發票中獎號碼」頁面的文字內容",
+            "或貼上財政部「統一發票中獎號碼」頁面的文字內容（手動解析）",
             value=st.session_state.get("lottery_raw_text", ""),
-            height=150,
+            height=120,
             key="lottery_raw_text",
         )
         col_parse, col_match = st.columns([1, 1])
         with col_parse:
-            if st.button("🔍 解析開獎號碼", use_container_width=True, key="lottery_parse_btn"):
+            if st.button("🔍 解析貼上內容", use_container_width=True, key="lottery_parse_btn"):
                 draw, err = parse_lottery_text(raw_lottery)
                 if err:
                     st.error(err)
@@ -2204,6 +2309,7 @@ with st.container():
                     st.session_state["lottery_draw"] = draw
                     label = draw.get("period_label") or "本期"
                     st.success(f"已解析 {label} 開獎號碼。")
+                    st.rerun()
         draw = st.session_state.get("lottery_draw")
         if draw:
             label = draw.get("period_label") or "本期"
