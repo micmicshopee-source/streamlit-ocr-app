@@ -2282,6 +2282,7 @@ with st.sidebar:
         ("contract", "⚖️ AI 合約比對"),
         ("customer_service", "📧 AI 客服小秘"),
         ("meeting", "📅 AI 會議精華"),
+        ("diagnostic", "🛡️ Google 登錄診斷工具"),
     ]
     current = st.session_state.current_tool
     idx = next((i for i, (k, _) in enumerate(tool_options) if k == current), 0)
@@ -2462,7 +2463,38 @@ if st.session_state.current_tool != "invoice":
                     st.success("比對結果")
                     st.markdown(reply or "")
         st.stop()
-    
+
+    # --- 🛡️ Google 登錄診斷工具 ---
+    if _tool == "diagnostic":
+        st.subheader("🛡️ Google 登錄診斷工具")
+        if "google_auth" in st.secrets:
+            st.success("✅ Streamlit Secrets 讀取成功！")
+            try:
+                client_id = st.secrets["google_auth"]["client_id"]
+                redirect_uri = st.secrets["google_auth"]["redirect_uri"]
+                st.write(f"**目前設定的 Client ID:** `{client_id[:15]}...` (隱藏部分)")
+                st.write(f"**目前設定的 Redirect URI:** `{redirect_uri}`")
+                test_url = (
+                    f"https://accounts.google.com/o/oauth2/v2/auth?"
+                    f"client_id={client_id}&"
+                    f"redirect_uri={redirect_uri}&"
+                    f"response_type=code&"
+                    f"scope=openid%20email%20profile"
+                )
+                st.markdown(f"### [👉 點擊這裡測試 Google 授權連結]({test_url})")
+                st.warning("""
+                **點開後請觀察：**
+                1. 如果顯示 **400: redirect_uri_mismatch**：代表你在 Google 後台填的網址，跟上面顯示的 `Redirect URI` **完全不一樣**。
+                2. 如果顯示 **403: access_denied**：代表你沒有在 Google 後台的「測試使用者」加入你的 Gmail。
+                3. 如果進入了選擇帳號頁面：恭喜你，設定正確！
+                """)
+            except KeyError as e:
+                st.error(f"❌ Secrets 格式不對，缺少欄位: {e}")
+        else:
+            st.error("❌ 找不到 `[google_auth]` Secrets 設定。請前往 Streamlit Cloud 後台設定。")
+        st.divider()
+        st.stop()
+
     # --- 📧 AI 客服小秘：維持佔位 ---
     st.subheader({"customer_service": "📧 AI 客服小秘"}.get(_tool, "小工具"))
     st.info("🛠️ 此工具即將推出，敬請期待。")
