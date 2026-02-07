@@ -809,6 +809,23 @@ def _get_oauth_redirect_uri():
     except Exception:
         return "http://localhost:8501/"
 
+def _get_google_oauth_config():
+    """取得 Google OAuth 設定：優先讀取 [google_auth]，否則 GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET。回傳 (client_id, client_secret, redirect_uri)。"""
+    try:
+        if "google_auth" in st.secrets:
+            ga = st.secrets["google_auth"]
+            cid = (ga.get("client_id") or "").strip()
+            if cid:
+                csec = (ga.get("client_secret") or "").strip()
+                redir = (ga.get("redirect_uri") or "").strip() or _get_oauth_redirect_uri()
+                return (cid, csec, redir)
+    except Exception:
+        pass
+    cid = _safe_secrets_get("GOOGLE_CLIENT_ID") or os.getenv("GOOGLE_CLIENT_ID") or ""
+    csec = _safe_secrets_get("GOOGLE_CLIENT_SECRET") or os.getenv("GOOGLE_CLIENT_SECRET") or ""
+    redir = _get_oauth_redirect_uri()
+    return (cid, csec, redir)
+
 def _build_oauth_state(provider: str) -> str:
     """產生 state 並存入 session，回傳 state 字串。"""
     token = _secrets_module.token_hex(16)
@@ -828,11 +845,10 @@ def _verify_oauth_state(provider: str, state: str) -> bool:
     return st.session_state.get("oauth_state", {}).get(provider) == parts[1]
 
 def build_oauth_url_google():
-    """建立 Google OAuth 授權 URL。"""
-    client_id = _safe_secrets_get("GOOGLE_CLIENT_ID") or os.getenv("GOOGLE_CLIENT_ID")
+    """建立 Google OAuth 授權 URL。支援 Secrets 內 GOOGLE_CLIENT_ID 或 [google_auth] client_id。"""
+    client_id, _client_secret, redirect_uri = _get_google_oauth_config()
     if not client_id:
-        return None, "未設定 GOOGLE_CLIENT_ID"
-    redirect_uri = _get_oauth_redirect_uri()
+        return None, "未設定 Google 登入（請在 Secrets 設定 GOOGLE_CLIENT_ID 或 [google_auth] client_id）"
     state = _build_oauth_state("google")
     scope = "openid email profile"
     params = {
@@ -924,11 +940,9 @@ def handle_oauth_callback_google(code: str, state: str) -> tuple[bool, str]:
     """處理 Google OAuth callback：以 code 換 token，取得使用者，查詢或建立用戶。回傳 (success, user_email 或錯誤訊息)。"""
     if not _verify_oauth_state("google", state):
         return False, "登入驗證已過期，請重新點選 Google 登入"
-    client_id = _safe_secrets_get("GOOGLE_CLIENT_ID") or os.getenv("GOOGLE_CLIENT_ID")
-    client_secret = _safe_secrets_get("GOOGLE_CLIENT_SECRET") or os.getenv("GOOGLE_CLIENT_SECRET")
+    client_id, client_secret, redirect_uri = _get_google_oauth_config()
     if not client_id or not client_secret:
-        return False, "未設定 Google 登入參數"
-    redirect_uri = _get_oauth_redirect_uri()
+        return False, "未設定 Google 登入參數（請在 Secrets 設定 GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET 或 [google_auth] client_id / client_secret）"
     try:
         r = requests.post(
             "https://oauth2.googleapis.com/token",
