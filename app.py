@@ -2728,30 +2728,214 @@ if "show_assistant_dialog" not in st.session_state:
 if "assistant_pending_draft" not in st.session_state:
     st.session_state.assistant_pending_draft = None
 
-# 上傳對話框函數
-@st.dialog("📤 上傳辨識", width="medium")
+def _run_ocr_batch(file_data_list, user_email, api_key_val, model_name):
+    """執行 OCR 辨識，回傳 (ocr_pending_records, success_count, fail_count, duplicate_count, ocr_report, duplicate_details)。"""
+    ocr_pending_records = []
+    success_count = 0
+    fail_count = 0
+    duplicate_count = 0
+    ocr_report = []
+    duplicate_details = []
+    
+    def clean_n(v):
+        try: return float(str(v).replace(',','').replace('$',''))
+        except: return 0.0
+    def safe_value(val, default='No'):
+        if val is None or val == '' or val == 'N/A': return default
+        return str(val)
+    def check_data_complete(data):
+        for f in ['date', 'invoice_no', 'seller_name', 'total']:
+            val = data.get(f, '')
+            if not val or val == 'N/A' or val == '' or (isinstance(val, (int, float)) and val == 0 and f == 'total'):
+                return False
+        return True
+    
+    for fname, fbytes in file_data_list:
+        try:
+            image_obj = Image.open(io.BytesIO(fbytes))
+        except Exception as img_err:
+            ocr_report.append(f"{fname}: 無法讀取圖片 {img_err}")
+            fail_count += 1
+            continue
+        data, err = process_ocr(image_obj, fname, model_name, api_key_val)
+        if data:
+            invoice_no = safe_value(data.get("invoice_no"), "No")
+            invoice_date = safe_value(data.get("date"), datetime.now().strftime("%Y/%m/%d"))
+            is_duplicate = False
+            if invoice_no and invoice_no not in ("No", "N/A"):
+                is_duplicate, _ = check_duplicate_invoice(invoice_no, invoice_date, user_email)
+            else:
+                seller_name = safe_value(data.get("seller_name"), "")
+                if st.session_state.use_memory_mode:
+                    for inv in st.session_state.local_invoices:
+                        if (inv.get('user_email', inv.get('user_id', '')) == user_email and
+                            inv.get('date') == invoice_date and inv.get('seller_name') == seller_name and
+                            inv.get('file_name') == fname):
+                            is_duplicate = True
+                            break
+                else:
+                    q = "SELECT id FROM invoices WHERE user_email = ? AND date = ? AND seller_name = ? AND file_name = ?"
+                    res = run_query(q, (user_email, invoice_date, seller_name, fname), is_select=True)
+                    if not res.empty:
+                        is_duplicate = True
+            if is_duplicate:
+                duplicate_count += 1
+                duplicate_details.append({"檔名": fname, "發票號碼": invoice_no, "日期": invoice_date})
+                continue
+            image_path = save_invoice_image(image_obj.copy(), fname, user_email)
+            ocr_pending_records.append({
+                'file_name': safe_value(data.get("file_name"), "未命名"),
+                'date': safe_value(data.get("date"), datetime.now().strftime("%Y/%m/%d")),
+                'invoice_number': safe_value(data.get("invoice_no"), "No"),
+                'seller_name': safe_value(data.get("seller_name"), "No"),
+                'seller_ubn': safe_value(data.get("seller_ubn"), "No"),
+                'subtotal': clean_n(data.get("subtotal", 0)), 'tax': clean_n(data.get("tax", 0)), 'total': clean_n(data.get("total", 0)),
+                'category': safe_value(data.get("type"), "其他"), 'subject': safe_value(data.get("category_suggest"), "雜項"),
+                'note': safe_value(data.get("note") or data.get("備註"), ""),
+                'image_path': image_path, 'tax_type': '5%'
+            })
+            success_count += 1
+        else:
+            ocr_report.append(f"{fname}: {err}")
+            fail_count += 1
+    return ocr_pending_records, success_count, fail_count, duplicate_count, ocr_report, duplicate_details
+
+# 上傳對話框函數（辨識狀態、重複提示、成功/失敗均在視窗內顯示）
+@st.dialog("📤 上傳辨識", width="large")
 def upload_dialog():
-    # 根據模式顯示不同內容
     upload_mode = st.session_state.get("upload_mode", "ocr")
     
     if upload_mode == "ocr":
-        # OCR識別區域
         st.markdown("### 📷 上傳發票圖")
         if not api_key:
             st.warning("⚠️ 圖片辨識需要 API 金鑰。請在 **Manage app → Settings → Secrets** 中設定 `GEMINI_API_KEY`，設定後重新載入頁面。")
         st.caption("支援 JPG、PNG；建議單張清晰、光線充足，以利辨識。")
-        files = st.file_uploader("批次選擇照片", type=["jpg","png","jpeg"], accept_multiple_files=True)
-        if files:
-            st.caption(f"已選擇 {len(files)} 個文件")
         
-        if files and st.button("開始辨識 🚀", type="primary", use_container_width=True):
-            # 先將檔案內容讀入 session state，避免 rerun 後 Streamlit 清除上傳檔案導致無法辨識
-            try:
-                st.session_state.upload_file_data = [(f.name, f.getvalue()) for f in files]
-                st.session_state.start_ocr = True
+        # 若已在辨識中（剛點開始辨識後 rerun）
+        if st.session_state.get("start_ocr") and st.session_state.get("upload_file_data"):
+            file_data_list = st.session_state.upload_file_data
+            st.session_state.start_ocr = False
+            del st.session_state.upload_file_data
+            user_email = st.session_state.get("user_email", "default_user")
+            with st.spinner("AI 正在努力辨識發票中..."):
+                prog = st.progress(0)
+                n = len(file_data_list)
+                ocr_recs, ok, fail, dup, report, dup_details = _run_ocr_batch(file_data_list, user_email, api_key, model)
+                prog.progress(1.0)
+            st.session_state.ocr_pending_records = ocr_recs
+            st.session_state.ocr_show_editor = len(ocr_recs) > 0
+            st.session_state.ocr_status = {"ok": ok, "fail": fail, "dup": dup, "report": report, "dup_details": dup_details}
+            st.rerun()
+        
+        # 若辨識完成（有成功結果），顯示狀態摘要與檢視區
+        if st.session_state.get("ocr_show_editor") and st.session_state.get("ocr_pending_records"):
+            recs = st.session_state.ocr_pending_records
+            stat = st.session_state.get("ocr_status") or {}
+            if stat.get("ok", 0) > 0:
+                st.success(f"✅ 辨識成功 {stat['ok']} 張，可於下方檢視與微調。")
+            if stat.get("dup", 0) > 0:
+                st.warning(f"⚠️ **已跳過 {stat['dup']} 張重複發票**：發票號碼與日期已存在於列表中。")
+                for d in (stat.get("dup_details") or [])[:5]:
+                    st.caption(f"　重複：{d.get('檔名','')} — {d.get('發票號碼','')} / {d.get('日期','')}")
+                if len(stat.get("dup_details") or []) > 5:
+                    st.caption(f"　... 共 {stat['dup']} 張")
+            if stat.get("fail", 0) > 0:
+                st.error(f"❌ 辨識失敗 {stat['fail']} 張。")
+                for line in (stat.get("report") or [])[-10:]:
+                    st.caption(f"　{line}")
+            st.caption("AI 辨識難免有誤，您可手動修改金額或統編後再確認新增。")
+            rows = [{"序號": i+1, "日期": r.get("date",""), "發票號碼": r.get("invoice_number",""), "賣方名稱": r.get("seller_name",""), "賣方統編": r.get("seller_ubn",""), "銷售額": r.get("subtotal",0), "稅額": r.get("tax",0), "總計": r.get("total",0), "類型": r.get("category",""), "會計科目": r.get("subject",""), "備註": r.get("note","")} for i, r in enumerate(recs)]
+            df_ocr = pd.DataFrame(rows)
+            col_config = {"序號": st.column_config.NumberColumn("序號", disabled=True), "日期": st.column_config.TextColumn("日期"), "發票號碼": st.column_config.TextColumn("發票號碼"), "賣方名稱": st.column_config.TextColumn("賣方名稱"), "賣方統編": st.column_config.TextColumn("賣方統編"), "銷售額": st.column_config.NumberColumn("銷售額", format="%.0f"), "稅額": st.column_config.NumberColumn("稅額", format="%.0f"), "總計": st.column_config.NumberColumn("總計", format="%.0f"), "類型": st.column_config.TextColumn("類型"), "會計科目": st.column_config.TextColumn("會計科目"), "備註": st.column_config.TextColumn("備註")}
+            ed_ocr = st.data_editor(df_ocr, use_container_width=True, hide_index=True, column_config=col_config, key="ocr_result_editor_dialog")
+            o1, o2, o3 = st.columns([1, 1, 2])
+            with o1:
+                out = io.BytesIO()
+                with pd.ExcelWriter(out, engine="openpyxl") as w:
+                    ed_ocr.drop(columns=["序號"], errors="ignore").to_excel(w, index=False, sheet_name="發票辨識結果")
+                st.download_button("📊 下載 Excel", out.getvalue(), f"發票辨識結果_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True, key="ocr_dl_dialog")
+            with o2:
+                if st.button("✅ 確認新增", type="primary", use_container_width=True, key="ocr_confirm_dialog"):
+                    user_email = st.session_state.get("user_email", "default_user")
+                    batch_id = create_batch(user_email, "ocr")
+                    def _s(v, d=""):
+                        if v is None or (isinstance(v, float) and pd.isna(v)): return d
+                        return str(v).strip() or d
+                    def _f(v):
+                        try: return float(v) if v is not None and not (isinstance(v, float) and pd.isna(v)) else 0.0
+                        except: return 0.0
+                    saved = 0
+                    for i, row in ed_ocr.iterrows():
+                        seq = int(row.get("序號", i+1)) - 1
+                        if seq < 0 or seq >= len(recs): continue
+                        base = recs[seq]
+                        date_val = _s(row.get("日期"), base.get("date","")) or datetime.now().strftime("%Y/%m/%d")
+                        inv_no = _s(row.get("發票號碼"), base.get("invoice_number","No")) or "No"
+                        seller = _s(row.get("賣方名稱"), base.get("seller_name","No")) or "No"
+                        ubn = _s(row.get("賣方統編"), base.get("seller_ubn","No")) or "No"
+                        sub, tax, total = _f(row.get("銷售額", base.get("subtotal",0))), _f(row.get("稅額", base.get("tax",0))), _f(row.get("總計", base.get("total",0)))
+                        cat = _s(row.get("類型"), base.get("category","其他")) or "其他"
+                        subj = _s(row.get("會計科目"), base.get("subject","雜項")) or "雜項"
+                        note_val = _s(row.get("備註"), base.get("note",""))
+                        image_path = base.get("image_path")
+                        if st.session_state.use_memory_mode:
+                            st.session_state.local_invoices.append({"id": len(st.session_state.local_invoices)+1, "user_email": user_email, "file_name": base.get("file_name","未命名"), "date": date_val, "invoice_number": inv_no, "seller_name": seller, "seller_ubn": ubn, "subtotal": sub, "tax": tax, "total": total, "category": cat, "subject": subj, "status": "✅ 正常", "note": note_val, "image_path": image_path, "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "batch_id": batch_id, "tax_type": base.get("tax_type","5%")})
+                            saved += 1
+                        else:
+                            init_db()
+                            img_data = None
+                            if image_path and os.path.exists(image_path):
+                                try:
+                                    with open(image_path, "rb") as f: img_data = f.read()
+                                except: pass
+                            q = "INSERT INTO invoices (user_email, file_name, date, invoice_number, seller_name, seller_ubn, subtotal, tax, total, category, subject, status, note, image_path, image_data, batch_id, tax_type) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+                            if run_query(q, (user_email, base.get("file_name","未命名"), date_val, inv_no, seller, ubn, sub, tax, total, cat, subj, "✅ 正常", note_val, image_path, img_data, batch_id, base.get("tax_type","5%")), is_select=False): saved += 1
+                    st.session_state.ocr_show_editor = False
+                    st.session_state.ocr_pending_records = []
+                    st.session_state.ocr_status = None
+                    st.session_state.show_upload_dialog = False
+                    st.success(f"✅ 已新增 {saved} 筆發票，可關閉視窗。")
+                    time.sleep(0.5)
+                    st.rerun()
+            with o3:
+                if st.button("❌ 取消", use_container_width=True, key="ocr_cancel_dialog"):
+                    st.session_state.ocr_show_editor = False
+                    st.session_state.ocr_pending_records = []
+                    st.session_state.ocr_status = None
+                    st.session_state.show_upload_dialog = False
+                    st.rerun()
+        # 若辨識完成但全部為重複或失敗（無可新增結果）
+        elif st.session_state.get("ocr_status") and not st.session_state.get("ocr_pending_records"):
+            stat = st.session_state.ocr_status
+            if stat.get("dup", 0) > 0:
+                st.warning(f"⚠️ **已跳過 {stat['dup']} 張重複發票**：發票號碼與日期已存在於列表中。")
+                for d in (stat.get("dup_details") or [])[:5]:
+                    st.caption(f"　重複：{d.get('檔名','')} — {d.get('發票號碼','')} / {d.get('日期','')}")
+            if stat.get("fail", 0) > 0:
+                st.error(f"❌ 辨識失敗 {stat['fail']} 張。")
+                for line in (stat.get("report") or [])[:10]:
+                    st.caption(f"　{line}")
+            st.info("無可新增的發票，請重新上傳或檢查是否重複。")
+            if st.button("關閉", key="ocr_close_no_results"):
+                st.session_state.ocr_status = None
+                st.session_state.show_upload_dialog = False
                 st.rerun()
-            except Exception as e:
-                st.error(f"讀取檔案失敗，請重試: {e}")
+        # 初始狀態：選擇檔案與開始辨識
+        else:
+            files = st.file_uploader("批次選擇照片", type=["jpg","png","jpeg"], accept_multiple_files=True)
+            if files:
+                st.caption(f"已選擇 {len(files)} 個文件")
+            if files and st.button("開始辨識 🚀", type="primary", use_container_width=True):
+                try:
+                    st.session_state.upload_file_data = [(f.name, f.getvalue()) for f in files]
+                    st.session_state.start_ocr = True
+                    st.session_state.show_upload_dialog = True
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"讀取檔案失敗，請重試: {e}")
+            if st.button("關閉", key="ocr_close_initial"):
+                st.session_state.show_upload_dialog = False
+                st.rerun()
     else:
         # 數據導入區域
         st.markdown("### 📥 CSV 數據導入")
@@ -2780,108 +2964,21 @@ def upload_dialog():
         if uploaded_file and st.button("開始導入", type="primary", use_container_width=True, key="import_btn_dialog"):
             st.session_state.import_file = uploaded_file
             st.session_state.start_import = True
+            st.session_state.show_upload_dialog = False
+            st.rerun()
+        if st.button("關閉", key="import_close"):
+            st.session_state.show_upload_dialog = False
             st.rerun()
 
-# 顯示上傳對話框（優先，以便空狀態按鈕可觸發）
+# 顯示上傳對話框（辨識狀態與結果均在視窗內；僅在用戶點 關閉/確認/取消 時才關閉）
 if st.session_state.show_upload_dialog:
     upload_dialog()
-    st.session_state.show_upload_dialog = False
 
 # 若有待處理的 OCR 或導入，不要停在空狀態，讓下方 OCR/導入區塊執行
 _has_pending_ocr = st.session_state.get("start_ocr") and ("upload_file_data" in st.session_state or "upload_files" in st.session_state)
 _has_pending_import = st.session_state.get("start_import") and "import_file" in st.session_state
 
-# 辨識結果檢視：優先顯示，供用戶微調後再確認新增（data_editor + 下載 Excel + 確認）
-if st.session_state.get("ocr_show_editor") and st.session_state.get("ocr_pending_records"):
-    recs = st.session_state.ocr_pending_records
-    st.markdown("### 📋 辨識結果檢視與微調")
-    st.caption("AI 辨識難免有誤，您可手動修改金額或統編後再確認新增。")
-    rows = []
-    for i, r in enumerate(recs):
-        rows.append({
-            "序號": i + 1, "日期": r.get("date", ""), "發票號碼": r.get("invoice_number", ""),
-            "賣方名稱": r.get("seller_name", ""), "賣方統編": r.get("seller_ubn", ""),
-            "銷售額": r.get("subtotal", 0), "稅額": r.get("tax", 0), "總計": r.get("total", 0),
-            "類型": r.get("category", ""), "會計科目": r.get("subject", ""), "備註": r.get("note", ""),
-        })
-    df_ocr = pd.DataFrame(rows)
-    col_config = {
-        "序號": st.column_config.NumberColumn("序號", disabled=True),
-        "日期": st.column_config.TextColumn("日期"), "發票號碼": st.column_config.TextColumn("發票號碼"),
-        "賣方名稱": st.column_config.TextColumn("賣方名稱"), "賣方統編": st.column_config.TextColumn("賣方統編"),
-        "銷售額": st.column_config.NumberColumn("銷售額", format="%.0f"),
-        "稅額": st.column_config.NumberColumn("稅額", format="%.0f"),
-        "總計": st.column_config.NumberColumn("總計", format="%.0f"),
-        "類型": st.column_config.TextColumn("類型"), "會計科目": st.column_config.TextColumn("會計科目"),
-        "備註": st.column_config.TextColumn("備註"),
-    }
-    ed_ocr = st.data_editor(df_ocr, use_container_width=True, hide_index=True, column_config=col_config, key="ocr_result_editor")
-    oc1, oc2, oc3 = st.columns([1, 1, 2])
-    with oc1:
-        export_df = ed_ocr.drop(columns=["序號"], errors="ignore").copy()
-        output = io.BytesIO()
-        with pd.ExcelWriter(output, engine="openpyxl") as writer:
-            export_df.to_excel(writer, index=False, sheet_name="發票辨識結果")
-        st.download_button("📊 下載 Excel", output.getvalue(),
-            f"發票辨識結果_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True, key="ocr_download_excel")
-    with oc2:
-        if st.button("✅ 確認新增", type="primary", use_container_width=True, key="ocr_confirm_save"):
-            user_email = st.session_state.get("user_email", "default_user")
-            batch_id = create_batch(user_email, "ocr")
-            def _s(v, d=""):
-                if v is None or (isinstance(v, float) and pd.isna(v)): return d
-                return str(v).strip() or d
-            def _f(v):
-                try: return float(v) if v is not None and not (isinstance(v, float) and pd.isna(v)) else 0.0
-                except: return 0.0
-            saved = 0
-            for i, row in ed_ocr.iterrows():
-                seq = int(row.get("序號", i + 1)) - 1
-                if seq < 0 or seq >= len(recs): continue
-                base = recs[seq]
-                date_val = _s(row.get("日期"), base.get("date", "")) or datetime.now().strftime("%Y/%m/%d")
-                inv_no = _s(row.get("發票號碼"), base.get("invoice_number", "No")) or "No"
-                seller = _s(row.get("賣方名稱"), base.get("seller_name", "No")) or "No"
-                ubn = _s(row.get("賣方統編"), base.get("seller_ubn", "No")) or "No"
-                sub, tax, total = _f(row.get("銷售額", base.get("subtotal", 0))), _f(row.get("稅額", base.get("tax", 0))), _f(row.get("總計", base.get("total", 0)))
-                cat = _s(row.get("類型"), base.get("category", "其他")) or "其他"
-                subj = _s(row.get("會計科目"), base.get("subject", "雜項")) or "雜項"
-                note_val = _s(row.get("備註"), base.get("note", ""))
-                image_path = base.get("image_path")
-                if st.session_state.use_memory_mode:
-                    rec = {"id": len(st.session_state.local_invoices) + 1, "user_email": user_email,
-                        "file_name": base.get("file_name", "未命名"), "date": date_val, "invoice_number": inv_no,
-                        "seller_name": seller, "seller_ubn": ubn, "subtotal": sub, "tax": tax, "total": total,
-                        "category": cat, "subject": subj, "status": "✅ 正常", "note": note_val,
-                        "image_path": image_path, "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                        "batch_id": batch_id, "tax_type": base.get("tax_type", "5%")}
-                    st.session_state.local_invoices.append(rec)
-                    saved += 1
-                else:
-                    init_db()
-                    image_data = None
-                    if image_path and os.path.exists(image_path):
-                        try:
-                            with open(image_path, "rb") as f: image_data = f.read()
-                        except: pass
-                    q = "INSERT INTO invoices (user_email, file_name, date, invoice_number, seller_name, seller_ubn, subtotal, tax, total, category, subject, status, note, image_path, image_data, batch_id, tax_type) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
-                    params = (user_email, base.get("file_name", "未命名"), date_val, inv_no, seller, ubn, sub, tax, total, cat, subj, "✅ 正常", note_val, image_path, image_data, batch_id, base.get("tax_type", "5%"))
-                    if run_query(q, params, is_select=False): saved += 1
-            st.session_state.ocr_show_editor = False
-            st.session_state.ocr_pending_records = []
-            st.success(f"✅ 已新增 {saved} 筆發票")
-            time.sleep(0.5)
-            st.rerun()
-    with oc3:
-        if st.button("❌ 取消", use_container_width=True, key="ocr_cancel_editor"):
-            st.session_state.ocr_show_editor = False
-            st.session_state.ocr_pending_records = []
-            st.rerun()
-    st.stop()
-
-# 發票模組：尚無資料時顯示空狀態與操作引導（有待處理 OCR/導入或辨識結果檢視時不停止）
+# 發票模組：尚無資料時顯示空狀態與操作引導（有待處理 OCR/導入時不停止）
 if df_raw.empty and not _has_pending_ocr and not _has_pending_import:
     st.markdown("---")
     st.subheader("📋 發票明細")
@@ -2980,153 +3077,7 @@ def assistant_dialog():
 if st.session_state.show_assistant_dialog:
     assistant_dialog()
 
-# 處理 OCR 識別（從 dialog 觸發；使用 upload_file_data 避免 rerun 後上傳檔案被清除）
-if st.session_state.get("start_ocr", False) and ("upload_file_data" in st.session_state or "upload_files" in st.session_state):
-    # 優先使用已讀入的 (檔名, bytes)，否則沿用舊的 upload_files（UploadedFile 在 rerun 後可能失效）
-    if "upload_file_data" in st.session_state:
-        file_data_list = st.session_state.upload_file_data
-        del st.session_state.upload_file_data
-    else:
-        file_data_list = [(f.name, f.getvalue()) for f in st.session_state.upload_files]
-        del st.session_state.upload_files
-    st.session_state.start_ocr = False
-    
-    if not api_key:
-        st.error("無法辨識：未設定 API 金鑰。請在 **Manage app → Settings → Secrets** 中設定 `GEMINI_API_KEY` 後重新上傳。")
-    else:
-        # 初始化 session_state 用於存儲結果報告
-        if "ocr_report" not in st.session_state: 
-            st.session_state.ocr_report = []
-        
-        success_count = 0
-        fail_count = 0
-        duplicate_count = 0  # 因重複而跳過，需單獨提示
-        user_email = st.session_state.get('user_email', 'default_user')
-        # Batch 延後至用戶確認新增時建立
-        
-        with st.spinner("AI 正在努力辨識發票中..."):
-            prog = st.progress(0)
-            n_files = len(file_data_list)
-            ocr_pending_records = []  # 辨識結果暫存，供 data_editor 檢視與微調後再儲存
-            
-            for idx, (fname, fbytes) in enumerate(file_data_list):
-                try:
-                    image_obj = Image.open(io.BytesIO(fbytes))
-                except Exception as img_err:
-                    st.error(f"❌ {fname} 無法讀取圖片: {img_err}")
-                    st.session_state.ocr_report.append(f"{fname}: 無法讀取圖片 {img_err}")
-                    fail_count += 1
-                    prog.progress((idx+1)/n_files)
-                    continue
-                data, err = process_ocr(image_obj, fname, model, api_key)
-                
-                if data:
-                    def clean_n(v):
-                        try: return float(str(v).replace(',','').replace('$',''))
-                        except: return 0.0
-                    
-                    # 處理空值：確保所有字段都有值
-                    def safe_value(val, default='No'):
-                        if val is None or val == '' or val == 'N/A':
-                            return default
-                        return str(val)
-                    
-                    # 檢查數據是否完整，用於設置狀態
-                    def check_data_complete(data):
-                        key_fields = ['date', 'invoice_no', 'seller_name', 'total']
-                        for field in key_fields:
-                            val = data.get(field, '')
-                            if not val or val == 'N/A' or val == '' or (isinstance(val, (int, float)) and val == 0 and field == 'total'):
-                                return False
-                        return True
-                    
-                    # 檢查重複發票（即使發票號碼為"No"也要檢查，因為可能是同一張發票重複上傳）
-                    invoice_no = safe_value(data.get("invoice_no"), "No")
-                    invoice_date = safe_value(data.get("date"), datetime.now().strftime("%Y/%m/%d"))
-                    
-                    # 檢查重複：如果發票號碼不是"No"，使用發票號碼+日期檢查；如果是"No"，使用日期+賣方名稱檢查
-                    is_duplicate = False
-                    dup_id = None
-                    
-                    if invoice_no and invoice_no != "No" and invoice_no != "N/A":
-                        # 正常情況：使用發票號碼+日期檢查
-                        is_duplicate, dup_id = check_duplicate_invoice(invoice_no, invoice_date, user_email)
-                    else:
-                        # 發票號碼為"No"的情況：使用日期+賣方名稱+檔案名稱檢查（避免同一檔案重複上傳）
-                        seller_name = safe_value(data.get("seller_name"), "")
-                        file_name = fname
-                        
-                        if st.session_state.use_memory_mode:
-                            # 內存模式檢查
-                            for inv in st.session_state.local_invoices:
-                                inv_user = inv.get('user_email', inv.get('user_id', 'default_user'))
-                                if (inv_user == user_email and 
-                                    inv.get('date') == invoice_date and
-                                    inv.get('seller_name') == seller_name and
-                                    inv.get('file_name') == file_name):
-                                    is_duplicate = True
-                                    dup_id = inv.get('id')
-                                    break
-                        else:
-                            # 數據庫模式檢查
-                            query = "SELECT id FROM invoices WHERE user_email = ? AND date = ? AND seller_name = ? AND file_name = ?"
-                            result = run_query(query, (user_email, invoice_date, seller_name, file_name), is_select=True)
-                            if not result.empty:
-                                is_duplicate = True
-                                dup_id = result.iloc[0]['id']
-                    
-                    if is_duplicate:
-                        st.warning(f"⚠️ {fname}: 疑似重複發票（發票號碼: {invoice_no}, 日期: {invoice_date}），已跳過不重複新增")
-                        duplicate_count += 1
-                        continue
-                    
-                    # 保存圖片（多用戶版本：使用 user_email）
-                    image_path = save_invoice_image(image_obj.copy(), fname, user_email)
-                    
-                    # 暫存辨識結果，供 data_editor 檢視與微調後再儲存（給予用戶修改權）
-                    invoice_record = {
-                        'file_name': safe_value(data.get("file_name"), "未命名"),
-                        'date': safe_value(data.get("date"), datetime.now().strftime("%Y/%m/%d")),
-                        'invoice_number': safe_value(data.get("invoice_no"), "No"),
-                        'seller_name': safe_value(data.get("seller_name"), "No"),
-                        'seller_ubn': safe_value(data.get("seller_ubn"), "No"),
-                        'subtotal': clean_n(data.get("subtotal", 0)),
-                        'tax': clean_n(data.get("tax", 0)),
-                        'total': clean_n(data.get("total", 0)),
-                        'category': safe_value(data.get("type"), "其他"),
-                        'subject': safe_value(data.get("category_suggest"), "雜項"),
-                        'status': "❌ 缺失" if not check_data_complete(data) else safe_value(data.get("status"), "✅ 正常"),
-                        'note': safe_value(data.get("note") or data.get("備註"), ""),
-                        'image_path': image_path,
-                        'tax_type': '5%'
-                    }
-                    ocr_pending_records.append(invoice_record)
-                    success_count += 1
-                else:
-                    st.error(f"❌ {fname} 失敗: {err}")
-                    st.session_state.ocr_report.append(f"{fname}: {err}")
-                    fail_count += 1
-                
-                prog.progress((idx+1)/n_files)
-        
-        # 重複發票：明確提示（避免用戶以為沒任何反應）
-        if duplicate_count > 0:
-            st.info(f"ℹ️ **已跳過 {duplicate_count} 張重複發票**：發票號碼與日期已存在於列表中，未重複新增。若要再次匯入請先刪除舊資料。")
-        
-        # 若有辨識失敗（API/網路/解析錯誤），在頂部顯示明確摘要
-        if fail_count > 0:
-            st.error(f"⚠️ 辨識失敗 {fail_count} 張。常見原因：API 金鑰錯誤或過期、網路問題、圖片不清晰。請確認 Secrets 中的 GEMINI_API_KEY 正確，或展開上方詳情查看具體錯誤。")
-            if st.session_state.get("ocr_report"):
-                with st.expander("查看失敗詳情", expanded=True):
-                    for line in st.session_state.ocr_report:
-                        st.text(line)
-        
-        # 若有辨識成功，暫存結果並顯示 data_editor 供檢視與微調（給予用戶修改權）
-        if success_count > 0:
-            st.session_state.ocr_pending_records = ocr_pending_records
-            st.session_state.ocr_show_editor = True
-            if "ocr_images" in st.session_state:
-                st.session_state.ocr_images = []
+# OCR 辨識已移入上傳視窗內，此區塊不再使用
 
 # 處理數據導入（從 dialog 觸發）
 if st.session_state.get("start_import", False) and "import_file" in st.session_state:
