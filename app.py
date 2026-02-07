@@ -4023,28 +4023,11 @@ with st.container():
                     column_config["建立時間"] = st.column_config.TextColumn("建立時間", width="medium")
                     df_for_editor["建立時間"] = df["建立時間"]
         
-            # 操作按鈕列（刪除、CSV、Excel、PDF）
+            # 操作按鈕列：刪除按鈕在表格下方（即時反映勾選）；此處為 CSV/Excel/PDF
             act_col1, act_col2, act_col3, act_col4 = st.columns(4)
             with act_col1:
-                if not df.empty:
-                    preview_selected = st.session_state.get("preview_selected_count", 0)
-                    if preview_selected > 0:
-                        delete_button_top = st.button(
-                            f"🗑️ 刪除 {preview_selected} 條",
-                            type="primary",
-                            use_container_width=True,
-                            help="刪除已選中的數據",
-                            key="delete_button_top"
-                        )
-                    else:
-                        st.button(
-                            "🗑️ 刪除",
-                            disabled=True,
-                            use_container_width=True,
-                            help="請先勾選要刪除的記錄",
-                            key="delete_button_top_disabled"
-                        )
-                        delete_button_top = False
+                delete_button_top = False  # 下方表格處會依勾選數重新渲染刪除按鈕
+                st.caption("勾選後於下方刪除")
             with act_col2:
                 if not df.empty:
                     csv_data = df.to_csv(index=False).encode('utf-8-sig')
@@ -4441,15 +4424,30 @@ with st.container():
             elif "選取" not in df.columns:
                 df["選取"] = False
         
-            # 檢查是否有選中的行
+            # 檢查是否有選中的行（當次勾選數，用於即時更新刪除按鈕）
             selected_count = ed_df["選取"].sum() if not ed_df.empty and "選取" in ed_df.columns else 0
-            # 保存到session_state，用於下次顯示（不自動觸發rerun，避免頻繁刷新）
-            current_selected = st.session_state.get("preview_selected_count", 0)
-            if current_selected != selected_count:
-                st.session_state.preview_selected_count = int(selected_count)
-                # 只在用戶明確點擊刪除按鈕時才觸發rerun，不自動刷新
-                # 移除自動 rerun，避免數據報表快速消失
-        
+            st.session_state.preview_selected_count = int(selected_count)
+
+            # 刪除按鈕置於表格下方，依當次勾選數即時顯示（勾選後立即反映，無延遲）
+            if not df.empty:
+                if selected_count > 0:
+                    delete_button_top = st.button(
+                        f"🗑️ 刪除 {int(selected_count)} 條",
+                        type="primary",
+                        use_container_width=True,
+                        help="刪除已選中的數據",
+                        key="delete_button_below_table"
+                    )
+                else:
+                    st.button(
+                        "🗑️ 刪除",
+                        disabled=True,
+                        use_container_width=True,
+                        help="請先勾選要刪除的記錄",
+                        key="delete_button_below_disabled"
+                    )
+                    delete_button_top = False
+
             # 統一處理刪除邏輯（使用當前的選中數量）
             delete_button = delete_button_top
         
