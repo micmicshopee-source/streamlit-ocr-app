@@ -845,20 +845,19 @@ def _verify_oauth_state(provider: str, state: str) -> bool:
     return st.session_state.get("oauth_state", {}).get(provider) == parts[1]
 
 def build_oauth_url_google():
-    """建立 Google OAuth 授權 URL。支援 Secrets 內 GOOGLE_CLIENT_ID 或 [google_auth] client_id。"""
+    """建立 Google OAuth 授權 URL。與診斷工具使用相同參數（僅加 state），避免 prompt=consent 在測試模式觸發 403。"""
     client_id, _client_secret, redirect_uri = _get_google_oauth_config()
     if not client_id:
         return None, "未設定 Google 登入（請在 Secrets 設定 GOOGLE_CLIENT_ID 或 [google_auth] client_id）"
     state = _build_oauth_state("google")
     scope = "openid email profile"
+    # 與診斷工具授權連結一致：不加 prompt=consent / access_type=offline，減少測試模式 403
     params = {
         "client_id": client_id,
         "redirect_uri": redirect_uri,
         "response_type": "code",
         "scope": scope,
         "state": state,
-        "access_type": "offline",
-        "prompt": "consent",
     }
     return "https://accounts.google.com/o/oauth2/v2/auth?" + urlencode(params), None
 
