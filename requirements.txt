@@ -1,5 +1,8 @@
+# 核心依賴（必須）
 streamlit>=1.28.0,<2
 google-generativeai>=0.3.0
+# 可選：密碼安全雜湊 AUTH-01（未安裝時使用 SHA256）
+# bcrypt>=4.0.0
 Pillow>=10.0.0
 requests>=2.28.0
 pandas>=2.0.0
