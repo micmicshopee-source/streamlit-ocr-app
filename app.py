@@ -2139,7 +2139,7 @@ with st.container():
                 st.session_state.show_upload_dialog = True
                 st.session_state.upload_mode = "ocr"
         with btn_row2:
-            if st.button("📥 CSV／Excel 導入", type="primary", use_container_width=True):
+            if st.button("📥 CSV 導入", type="primary", use_container_width=True):
                 st.session_state.show_upload_dialog = True
                 st.session_state.upload_mode = "import"
         with btn_row3:
@@ -2405,8 +2405,8 @@ def upload_dialog():
                 st.error(f"讀取檔案失敗，請重試: {e}")
     else:
         # 數據導入區域
-        st.markdown("### 📥 CSV／Excel 數據導入")
-        st.info("💡 支援 Excel (.xlsx) 或 CSV (.csv)；必填欄位：日期、發票號碼、總計。可先下載模板再填寫。")
+        st.markdown("### 📥 CSV 數據導入")
+        st.info("💡 支援 CSV (.csv)；必填欄位：日期、發票號碼、總計。可先下載模板再填寫。")
         
         # 下載導入模板
         template_data = {
@@ -2426,7 +2426,7 @@ def upload_dialog():
         st.download_button("📥 下載導入模板 (CSV)", template_csv, "invoice_import_template.csv", 
                          mime="text/csv", use_container_width=True)
         
-        uploaded_file = st.file_uploader("選擇要導入的文件", type=["csv", "xlsx"], key="import_file_dialog")
+        uploaded_file = st.file_uploader("選擇要導入的 CSV 文件", type=["csv"], key="import_file_dialog")
         
         if uploaded_file and st.button("開始導入", type="primary", use_container_width=True, key="import_btn_dialog"):
             st.session_state.import_file = uploaded_file
@@ -2454,7 +2454,7 @@ if df_raw.empty and not _has_pending_ocr and not _has_pending_import:
             st.session_state.upload_mode = "ocr"
             st.rerun()
     with ec2:
-        if st.button("📥 CSV／Excel 導入", type="primary", use_container_width=True, key="empty_upload_import"):
+        if st.button("📥 CSV 導入", type="primary", use_container_width=True, key="empty_upload_import"):
             st.session_state.show_upload_dialog = True
             st.session_state.upload_mode = "import"
             st.rerun()
@@ -2779,15 +2779,8 @@ if st.session_state.get("start_import", False) and "import_file" in st.session_s
     del st.session_state.import_file
     
     try:
-        # 讀取文件
-        if uploaded_file.name.endswith('.csv'):
-            import_df = pd.read_csv(uploaded_file)
-        else:
-            try:
-                import_df = pd.read_excel(uploaded_file)
-            except:
-                st.error("請安裝 openpyxl 庫以支持 Excel 文件: pip install openpyxl")
-                st.stop()
+        # 讀取 CSV 文件
+        import_df = pd.read_csv(uploaded_file)
         
         if import_df.empty:
             st.error("文件為空，請檢查文件內容")
