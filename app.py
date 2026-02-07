@@ -827,15 +827,21 @@ def _get_google_oauth_config():
     return (cid, csec, redir)
 
 def _get_line_oauth_config():
-    """取得 LINE Login 設定：優先讀取 [line]，否則頂層 LINE_CHANNEL_ID / LINE_CHANNEL_SECRET。回傳 (client_id, client_secret, redirect_uri)。"""
+    """取得 LINE Login 設定：優先讀取 [line_auth]（channel_id, channel_secret, callback_url），其次 [line]，否則頂層 LINE_CHANNEL_ID。回傳 (client_id, client_secret, redirect_uri)。"""
     try:
+        if "line_auth" in st.secrets:
+            la = st.secrets["line_auth"]
+            cid = (la.get("channel_id") or "").strip()
+            if cid:
+                csec = (la.get("channel_secret") or "").strip()
+                redir = (la.get("callback_url") or la.get("redirect_uri") or "").strip() or _get_oauth_redirect_uri()
+                return (cid, csec, redir)
         if "line" in st.secrets:
             ln = st.secrets["line"]
-            # 支援 channel_id / channel_secret 或 LINE_CHANNEL_ID / LINE_CHANNEL_SECRET
             cid = (ln.get("channel_id") or ln.get("LINE_CHANNEL_ID") or ln.get("line_channel_id") or "").strip()
             if cid:
                 csec = (ln.get("channel_secret") or ln.get("LINE_CHANNEL_SECRET") or ln.get("line_channel_secret") or "").strip()
-                redir = (ln.get("redirect_uri") or "").strip() or _get_oauth_redirect_uri()
+                redir = (ln.get("redirect_uri") or ln.get("callback_url") or "").strip() or _get_oauth_redirect_uri()
                 return (cid, csec, redir)
     except Exception:
         pass
@@ -883,7 +889,7 @@ def build_oauth_url_line():
     """建立 LINE Login 授權 URL。支援頂層 LINE_CHANNEL_ID 或 [line] channel_id。"""
     client_id, _client_secret, redirect_uri = _get_line_oauth_config()
     if not client_id:
-        return None, "未設定 LINE（請在 Secrets 設定 LINE_CHANNEL_ID 或 [line] channel_id，鍵名需為 LINE_CHANNEL_ID / channel_id）"
+        return None, "未設定 LINE（請在 Secrets 設定 [line_auth] channel_id / channel_secret / callback_url 或 LINE_CHANNEL_ID）"
     state = _build_oauth_state("line")
     params = {
         "response_type": "code",
@@ -1000,7 +1006,7 @@ def handle_oauth_callback_line(code: str, state: str) -> tuple[bool, str]:
         return False, "登入驗證已過期，請重新點選 LINE 登入"
     client_id, client_secret, redirect_uri = _get_line_oauth_config()
     if not client_id or not client_secret:
-        return False, "未設定 LINE 登入參數（請在 Secrets 設定 LINE_CHANNEL_ID / LINE_CHANNEL_SECRET 或 [line] channel_id / channel_secret）"
+        return False, "未設定 LINE 登入參數（請在 Secrets 設定 [line_auth] channel_id / channel_secret / callback_url）"
     try:
         r = requests.post(
             "https://api.line.me/oauth2/v2.1/token",
