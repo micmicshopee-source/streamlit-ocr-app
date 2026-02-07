@@ -1886,6 +1886,116 @@ def call_gemini_chat(messages, api_key_val, model_name, system_instruction=None)
         return None, f"錯誤: {str(e)}"
 
 
+# --- AI 會議精華：錄音轉逐字稿與備援 ---
+AUDIO_MIME_TO_GEMINI = {
+    "audio/mp3": "audio/mp3", "audio/mpeg": "audio/mp3",
+    "audio/wav": "audio/wav", "audio/x-wav": "audio/wav",
+    "audio/m4a": "audio/aac", "audio/aac": "audio/aac",
+    "audio/flac": "audio/flac", "audio/ogg": "audio/ogg",
+}
+
+def _transcribe_audio_gemini(audio_bytes, mime_type, api_key_val, model_name):
+    """使用 Gemini API 將錄音轉成逐字稿。回傳 (transcript_text, error)。"""
+    if not api_key_val or not audio_bytes:
+        return None, "缺少 API Key 或音訊"
+    gemini_mime = AUDIO_MIME_TO_GEMINI.get(mime_type.lower(), "audio/mp3")
+    if len(audio_bytes) > 19 * 1024 * 1024:  # ~20MB
+        return None, "音訊檔超過 20MB，請使用較小檔案或 Cloud STT"
+    try:
+        b64 = base64.b64encode(audio_bytes).decode("utf-8")
+        model_id = model_name if "models/" in model_name else f"models/{model_name}"
+        url = f"https://generativelanguage.googleapis.com/v1beta/{model_id}:generateContent?key={api_key_val}"
+        payload = {
+            "contents": [{
+                "parts": [
+                    {"text": "請將此會議錄音轉成繁體中文逐字稿。格式：[MM:SS] 發言內容。若可辨識不同講者請標示。逐行輸出，不要其他說明。"},
+                    {"inlineData": {"mimeType": gemini_mime, "data": b64}}
+                ]
+            }],
+            "generationConfig": {"temperature": 0.2, "maxOutputTokens": 8192},
+        }
+        session = requests.Session()
+        session.trust_env = False
+        resp = session.post(url, json=payload, timeout=120)
+        if resp.status_code != 200:
+            return None, f"Gemini API 錯誤: {resp.status_code} {resp.text[:300]}"
+        data = resp.json()
+        if not data.get("candidates") or not data["candidates"][0].get("content", {}).get("parts"):
+            return None, "Gemini 回傳無逐字稿內容"
+        text = data["candidates"][0]["content"]["parts"][0].get("text", "").strip()
+        return text or None, None
+    except requests.exceptions.RequestException as e:
+        return None, f"網路錯誤: {str(e)}"
+    except Exception as e:
+        return None, f"Gemini 轉錄錯誤: {str(e)}"
+
+
+def _transcribe_audio_cloud_stt(audio_bytes, mime_type):
+    """使用 Google Cloud Speech-to-Text 轉錄。回傳 (transcript_text, error)。需 GCP 憑證。"""
+    try:
+        from google.cloud import speech_v1p1beta1 as speech
+    except ImportError:
+        return None, "未安裝 google-cloud-speech，請執行: pip install google-cloud-speech"
+    try:
+        client = speech.SpeechClient()
+        audio = speech.RecognitionAudio(content=audio_bytes)
+        enc_map = {
+            "audio/mp3": speech.RecognitionConfig.AudioEncoding.MP3,
+            "audio/mpeg": speech.RecognitionConfig.AudioEncoding.MP3,
+            "audio/wav": speech.RecognitionConfig.AudioEncoding.LINEAR16,
+            "audio/x-wav": speech.RecognitionConfig.AudioEncoding.LINEAR16,
+            "audio/flac": speech.RecognitionConfig.AudioEncoding.FLAC,
+            "audio/ogg": speech.RecognitionConfig.AudioEncoding.OGG_OPUS,
+        }
+        enc = enc_map.get(mime_type.lower(), speech.RecognitionConfig.AudioEncoding.MP3)
+        config = speech.RecognitionConfig(
+            encoding=enc,
+            language_code="zh-TW",
+            enable_automatic_punctuation=True,
+        )
+        # LINEAR16 (WAV) 需指定採樣率；常見為 16000 / 44100
+        if enc == speech.RecognitionConfig.AudioEncoding.LINEAR16:
+            config.sample_rate_hertz = 16000
+        operation = client.long_running_recognize(config=config, audio=audio)
+        response = operation.result(timeout=300)
+        parts = []
+        for result in response.results:
+            if result.alternatives:
+                parts.append(result.alternatives[0].transcript)
+        return "\n".join(parts) if parts else None, None
+    except Exception as e:
+        return None, f"Cloud STT 轉錄錯誤: {str(e)}"
+
+
+def transcribe_audio(audio_bytes, mime_type, api_key_val, model_name, source="auto"):
+    """轉錄錄音為逐字稿。source: 'gemini'|'cloud_stt'|'auto'（auto 時 Gemini 失敗則用 Cloud STT 備援）。"""
+    if source == "cloud_stt":
+        txt, err = _transcribe_audio_cloud_stt(audio_bytes, mime_type)
+        return txt, err, "cloud_stt"
+    txt, err = _transcribe_audio_gemini(audio_bytes, mime_type, api_key_val, model_name)
+    if err and source == "auto":
+        txt2, err2 = _transcribe_audio_cloud_stt(audio_bytes, mime_type)
+        if not err2 and txt2:
+            return txt2, None, "cloud_stt"
+    return txt, err, "gemini"
+
+
+def generate_meeting_highlights(transcript, api_key_val, model_name):
+    """根據逐字稿產出會議結論與待辦。回傳 (reply_text, error)。逐字稿由介面另行顯示。"""
+    sys_inst = """你是會議紀錄助手。根據使用者提供的會議逐字稿，用繁體中文產出以下結構（Markdown 格式）：
+## 會議結論
+（簡短條列）
+
+## 待辦事項
+（表格或條列：負責人／事項／期限）
+
+僅輸出上述兩區塊，不要輸出逐字稿。"""
+    return call_gemini_chat(
+        [{"role": "user", "content": transcript.strip()[:20000]}],
+        api_key_val, model_name, system_instruction=sys_inst,
+    )
+
+
 def parse_expense_from_assistant_reply(reply_text):
     """從助理回覆中解析 [EXPENSE] 後的 JSON，回傳 dict 或 None。"""
     if not reply_text or "[EXPENSE]" not in reply_text:
@@ -2059,29 +2169,82 @@ if st.session_state.current_tool != "invoice":
     api_key = st.session_state.get("gemini_api_key") or _safe_secrets_get("GEMINI_API_KEY")
     model = st.session_state.get("gemini_model") or "gemini-2.0-flash"
     
-    # --- 📅 AI 會議精華（最小可用版）---
+    # --- 📅 AI 會議精華（含錄音導入、逐字稿、多檔、Cloud STT 備援）---
     if _tool == "meeting":
         st.subheader("📅 AI 會議精華")
-        st.caption("貼上會議逐字稿或紀錄，由 AI 產出結論與待辦事項。")
+        st.caption("貼上會議逐字稿或上傳錄音，由 AI 產出結論與待辦事項；可顯示逐字稿並下載。")
         if not api_key:
-            st.warning("此功能需要 API 金鑰，請聯絡管理員設定。")
+            st.warning("此功能需要 Gemini API 金鑰，請在進階設定中設定。")
             st.stop()
-        transcript = st.text_area("會議逐字稿或紀錄", height=200, placeholder="貼上會議內容…", key="meeting_transcript")
+        # 進階設定：錄音轉錄優先來源（僅錄音上傳時有效）
+        meeting_stt_source = st.session_state.get("meeting_stt_source", "auto")
+        tab1, tab2 = st.tabs(["📝 貼上逐字稿", "🎤 上傳錄音"])
+        transcript_text = ""
+        with tab1:
+            transcript_input = st.text_area("會議逐字稿或紀錄", height=200, placeholder="貼上會議內容…", key="meeting_transcript")
+            transcript_text = (transcript_input or "").strip()
+        with tab2:
+            st.caption("支援 MP3、WAV、M4A、FLAC、OGG（單檔建議 < 20MB；超過時自動使用 Cloud STT 備援）")
+            with st.expander("⚙️ 錄音轉錄設定", expanded=False):
+                meeting_stt_source = st.radio(
+                    "轉錄引擎",
+                    ["auto", "gemini", "cloud_stt"],
+                    format_func=lambda x: {"auto": "自動（Gemini 優先，失敗用 Cloud STT）", "gemini": "僅 Gemini", "cloud_stt": "僅 Cloud Speech-to-Text"}[x],
+                    key="meeting_stt_radio",
+                )
+                st.session_state.meeting_stt_source = meeting_stt_source
+            uploaded_audios = st.file_uploader(
+                "上傳錄音檔（可多檔）",
+                type=["mp3", "wav", "m4a", "aac", "flac", "ogg"],
+                accept_multiple_files=True,
+                key="meeting_audio_upload",
+            )
+            if uploaded_audios:
+                for f in uploaded_audios:
+                    st.caption(f"📎 {f.name} ({f.size / 1024:.1f} KB)")
+        # 按鈕與處理邏輯
         if st.button("產出會議精華", type="primary", key="meeting_btn"):
-            if not (transcript and transcript.strip()):
-                st.error("請先貼上會議內容。")
+            if uploaded_audios:
+                # 從錄音轉錄
+                all_transcripts = []
+                for f in uploaded_audios:
+                    mime = f.type or "audio/mp3"
+                    if "m4a" in (f.name or "").lower():
+                        mime = "audio/m4a"
+                    bytes_data = f.read()
+                    with st.spinner(f"轉錄中：{f.name}…"):
+                        txt, err, engine = transcribe_audio(
+                            bytes_data, mime, api_key, model,
+                            source=st.session_state.get("meeting_stt_source", "auto"),
+                        )
+                    if err:
+                        st.error(f"{f.name} 轉錄失敗：{err}")
+                    elif txt:
+                        all_transcripts.append(f"### [{f.name}]\n{txt}")
+                transcript_text = "\n\n".join(all_transcripts)
+            if not transcript_text:
+                st.error("請先貼上會議逐字稿或上傳錄音檔。")
             else:
-                with st.spinner("正在產出精華…"):
-                    sys_inst = "你是會議紀錄助手。根據使用者提供的會議逐字稿或紀錄，用繁體中文產出：1) 會議結論（簡短條列）；2) 待辦事項（誰／做什麼／期限若有的話）。結構清晰、條列式。"
-                    reply, err = call_gemini_chat(
-                        [{"role": "user", "content": transcript.strip()[:15000]}],
-                        api_key, model, system_instruction=sys_inst,
-                    )
+                with st.spinner("正在產出結論與待辦…"):
+                    reply, err = generate_meeting_highlights(transcript_text, api_key, model)
                 if err:
                     st.error(err)
                 else:
-                    st.success("已產出")
+                    st.success("已產出會議精華")
+                    # 顯示：會議結論與待辦
                     st.markdown(reply or "")
+                    st.markdown("---")
+                    # 顯示逐字稿（可摺疊）
+                    with st.expander("📜 逐字稿（可複製、下載）", expanded=True):
+                        st.text_area("逐字稿內容", value=transcript_text, height=300, disabled=True, key="meeting_transcript_display")
+                        transcript_bytes = transcript_text.encode("utf-8")
+                        st.download_button(
+                            "📥 下載逐字稿 (.txt)",
+                            data=transcript_bytes,
+                            file_name=f"meeting_transcript_{datetime.now().strftime('%Y%m%d_%H%M')}.txt",
+                            mime="text/plain",
+                            key="meeting_download_transcript",
+                        )
         st.stop()
     
     # --- ⚖️ AI 合約比對（最小可用版）---
