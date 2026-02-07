@@ -826,6 +826,24 @@ def _get_google_oauth_config():
     redir = _get_oauth_redirect_uri()
     return (cid, csec, redir)
 
+def _get_line_oauth_config():
+    """取得 LINE Login 設定：優先讀取 [line]，否則頂層 LINE_CHANNEL_ID / LINE_CHANNEL_SECRET。回傳 (client_id, client_secret, redirect_uri)。"""
+    try:
+        if "line" in st.secrets:
+            ln = st.secrets["line"]
+            # 支援 channel_id / channel_secret 或 LINE_CHANNEL_ID / LINE_CHANNEL_SECRET
+            cid = (ln.get("channel_id") or ln.get("LINE_CHANNEL_ID") or ln.get("line_channel_id") or "").strip()
+            if cid:
+                csec = (ln.get("channel_secret") or ln.get("LINE_CHANNEL_SECRET") or ln.get("line_channel_secret") or "").strip()
+                redir = (ln.get("redirect_uri") or "").strip() or _get_oauth_redirect_uri()
+                return (cid, csec, redir)
+    except Exception:
+        pass
+    cid = _safe_secrets_get("LINE_CHANNEL_ID") or os.getenv("LINE_CHANNEL_ID") or ""
+    csec = _safe_secrets_get("LINE_CHANNEL_SECRET") or os.getenv("LINE_CHANNEL_SECRET") or ""
+    redir = _get_oauth_redirect_uri()
+    return (cid, csec, redir)
+
 def _build_oauth_state(provider: str) -> str:
     """產生 state 並存入 session，回傳 state 字串。"""
     token = _secrets_module.token_hex(16)
@@ -862,11 +880,10 @@ def build_oauth_url_google():
     return "https://accounts.google.com/o/oauth2/v2/auth?" + urlencode(params), None
 
 def build_oauth_url_line():
-    """建立 LINE Login 授權 URL。"""
-    client_id = _safe_secrets_get("LINE_CHANNEL_ID") or os.getenv("LINE_CHANNEL_ID")
+    """建立 LINE Login 授權 URL。支援頂層 LINE_CHANNEL_ID 或 [line] channel_id。"""
+    client_id, _client_secret, redirect_uri = _get_line_oauth_config()
     if not client_id:
-        return None, "未設定 LINE_CHANNEL_ID"
-    redirect_uri = _get_oauth_redirect_uri()
+        return None, "未設定 LINE（請在 Secrets 設定 LINE_CHANNEL_ID 或 [line] channel_id，鍵名需為 LINE_CHANNEL_ID / channel_id）"
     state = _build_oauth_state("line")
     params = {
         "response_type": "code",
@@ -981,11 +998,9 @@ def handle_oauth_callback_line(code: str, state: str) -> tuple[bool, str]:
     """處理 LINE OAuth callback。"""
     if not _verify_oauth_state("line", state):
         return False, "登入驗證已過期，請重新點選 LINE 登入"
-    client_id = _safe_secrets_get("LINE_CHANNEL_ID") or os.getenv("LINE_CHANNEL_ID")
-    client_secret = _safe_secrets_get("LINE_CHANNEL_SECRET") or os.getenv("LINE_CHANNEL_SECRET")
+    client_id, client_secret, redirect_uri = _get_line_oauth_config()
     if not client_id or not client_secret:
-        return False, "未設定 LINE 登入參數"
-    redirect_uri = _get_oauth_redirect_uri()
+        return False, "未設定 LINE 登入參數（請在 Secrets 設定 LINE_CHANNEL_ID / LINE_CHANNEL_SECRET 或 [line] channel_id / channel_secret）"
     try:
         r = requests.post(
             "https://api.line.me/oauth2/v2.1/token",
@@ -2282,6 +2297,30 @@ if st.session_state.authenticated and st.session_state.user_email and st.session
             st.session_state.login_at = None
     except Exception:
         st.session_state.login_at = None
+
+# 法律條款：側邊欄切換（主程式 / 隱私政策 / 服務條款），未登入也可查看
+with st.sidebar:
+    st.divider()
+    legal_page = st.radio("法律條款", ["主程式", "隱私政策", "服務條款"], key="legal_page_radio")
+if legal_page == "隱私政策":
+    st.title("隱私政策")
+    st.write("""
+    **本工具（上班族小工具）重視您的隱私：**
+    1. **數據蒐集**：我們僅在您上傳發票圖片時，利用 AI 提取文字數據。
+    2. **數據存儲**：圖片在識別完成後不會保留，僅保留識別後的文字數據於您的本地 Session 中。
+    3. **第三方分享**：我們不會將您的個人消費資訊分享給任何廣告商。
+    4. **LINE 授權**：僅用於發送中獎通知給您本人。
+    """)
+    st.stop()
+elif legal_page == "服務條款":
+    st.title("使用條款")
+    st.write("""
+    1. **服務內容**：本工具提供發票 AI 識別及自動對獎服務。
+    2. **準確性免責**：AI 識別可能存在誤差，報帳前請務必人工核對數據。
+    3. **責任限制**：本工具不對因識別錯誤造成的財務損失負責。
+    4. **更新權利**：我們保留隨時更新功能與調整服務額度的權利。
+    """)
+    st.stop()
 
 if not st.session_state.authenticated or not st.session_state.user_email:
     login_page()
