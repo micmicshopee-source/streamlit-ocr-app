@@ -1781,9 +1781,9 @@ def process_ocr(image_obj, file_name, model_name, api_key_val):
         - tax (Tax amount, number only)
         - total (Total amount, number only)
         - type (Invoice type, e.g., "電子發票", "收據")
-        - category_suggest (Category, e.g., "餐飲", "交通", "辦公用品")
+        - category_suggest (支出類別/類型，必填，例如 "餐飲","交通","辦公用品","差旅","其他"，用於類型分布)
         
-        If a field is missing, use null or 0.
+        If a field is missing, use null or 0. category_suggest must be one of: 餐飲, 交通, 辦公用品, 差旅, 其他.
         """
         
         payload = {
@@ -2790,7 +2790,7 @@ def _run_ocr_batch(file_data_list, user_email, api_key_val, model_name):
                 'seller_name': safe_value(data.get("seller_name"), "No"),
                 'seller_ubn': safe_value(data.get("seller_ubn"), "No"),
                 'subtotal': clean_n(data.get("subtotal", 0)), 'tax': clean_n(data.get("tax", 0)), 'total': clean_n(data.get("total", 0)),
-                'category': safe_value(data.get("type"), "其他"), 'subject': safe_value(data.get("category_suggest"), "雜項"),
+                'category': safe_value(data.get("category_suggest") or data.get("type"), "其他"), 'subject': safe_value(data.get("category_suggest"), "雜項"),
                 'note': safe_value(data.get("note") or data.get("備註"), ""),
                 'image_path': image_path, 'tax_type': '5%'
             })
