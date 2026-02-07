@@ -1996,6 +1996,120 @@ def generate_meeting_highlights(transcript, api_key_val, model_name):
     )
 
 
+# --- AI 合約比對：PDF / Word 辨識與多模態比對 ---
+def _extract_text_from_docx(file_bytes):
+    """從 Word .docx 抽出純文字。回傳 (text, error)。"""
+    try:
+        from docx import Document
+        doc = Document(io.BytesIO(file_bytes))
+        paras = [p.text for p in doc.paragraphs if p.text.strip()]
+        tables_text = []
+        for t in doc.tables:
+            for row in t.rows:
+                cells = [c.text.strip() for c in row.cells if c.text.strip()]
+                if cells:
+                    tables_text.append(" | ".join(cells))
+        text = "\n".join(paras)
+        if tables_text:
+            text += "\n\n[表格]\n" + "\n".join(tables_text)
+        return (text.strip() or None), None
+    except ImportError:
+        return None, "未安裝 python-docx，請執行: pip install python-docx"
+    except Exception as e:
+        return None, f"Word 讀取錯誤: {str(e)}"
+
+
+def _extract_text_from_pdf(file_bytes):
+    """從 PDF 抽出純文字。回傳 (text, error)。"""
+    try:
+        import fitz  # pymupdf
+        doc = fitz.open(stream=file_bytes, filetype="pdf")
+        parts = []
+        for page in doc:
+            parts.append(page.get_text())
+        doc.close()
+        text = "\n".join(parts).strip()
+        return (text or None), None
+    except ImportError:
+        return None, "未安裝 pymupdf，請執行: pip install pymupdf"
+    except Exception as e:
+        return None, f"PDF 讀取錯誤: {str(e)}"
+
+
+def _get_contract_content(uploaded_file):
+    """依檔案類型取得合約內容。回傳 (content_type, content, error)。
+    content_type: 'text' 時 content 為 str；'pdf' 時 content 為 bytes。"""
+    if not uploaded_file:
+        return None, None, "無檔案"
+    name = (uploaded_file.name or "").lower()
+    raw = uploaded_file.read()
+    if name.endswith(".pdf"):
+        return "pdf", raw, None
+    if name.endswith(".docx"):
+        txt, err = _extract_text_from_docx(raw)
+        if err:
+            return None, None, err
+        return "text", (txt or ""), None
+    if name.endswith(".doc"):
+        return None, None, "舊版 .doc 格式不支援，請另存為 .docx"
+    if name.endswith(".txt"):
+        try:
+            text = raw.decode("utf-8", errors="replace").strip()
+            return "text", text, None
+        except Exception as e:
+            return None, None, f"文字檔讀取錯誤: {str(e)}"
+    return None, None, f"不支援的格式: {name}"
+
+
+def call_gemini_contract_compare(content_a, content_b, api_key_val, model_name, type_a="text", type_b="text"):
+    """合約比對。content_a/content_b: 文字或 bytes；type_a/type_b: 'text'|'pdf'。回傳 (reply_text, error)。"""
+    if not api_key_val:
+        return None, "缺少 API Key"
+    sys_inst = "你是合約比對助手。根據使用者提供的兩份合約或條款（以 [A] 與 [B] 標示），用繁體中文產出：1) 主要差異（條列）；2) 需注意的條款或風險提示。簡潔明確。"
+    model_id = model_name if "models/" in model_name else f"models/{model_name}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/{model_id}:generateContent?key={api_key_val}"
+
+    parts = []
+    # 合約 A
+    if type_a == "pdf":
+        b64_a = base64.b64encode(content_a).decode("utf-8")
+        parts.append({"text": "以下是合約 A（第一份文件）："})
+        parts.append({"inlineData": {"mimeType": "application/pdf", "data": b64_a}})
+    else:
+        txt = (content_a or "").strip()[:15000]
+        parts.append({"text": f"以下是合約 A（第一份）：\n\n{txt}\n\n"})
+    # 合約 B
+    if type_b == "pdf":
+        b64_b = base64.b64encode(content_b).decode("utf-8")
+        parts.append({"text": "以下是合約 B（第二份文件）："})
+        parts.append({"inlineData": {"mimeType": "application/pdf", "data": b64_b}})
+    else:
+        txt = (content_b or "").strip()[:15000]
+        parts.append({"text": f"以下是合約 B（第二份）：\n\n{txt}\n\n"})
+    parts.append({"text": "請比較以上兩份合約的差異，產出：1) 主要差異（條列）；2) 需注意的條款或風險提示。用繁體中文。"})
+
+    payload = {
+        "contents": [{"role": "user", "parts": parts}],
+        "systemInstruction": {"parts": [{"text": sys_inst}]},
+        "generationConfig": {"temperature": 0.2, "maxOutputTokens": 4096},
+    }
+    try:
+        session = requests.Session()
+        session.trust_env = False
+        resp = session.post(url, json=payload, timeout=90)
+        if resp.status_code != 200:
+            return None, f"API 錯誤: {resp.status_code} {resp.text[:300]}"
+        data = resp.json()
+        if not data.get("candidates") or not data["candidates"][0].get("content", {}).get("parts"):
+            return None, "API 回傳無內容"
+        text = data["candidates"][0]["content"]["parts"][0].get("text", "").strip()
+        return text or None, None
+    except requests.exceptions.RequestException as e:
+        return None, f"網路錯誤: {str(e)}"
+    except Exception as e:
+        return None, f"錯誤: {str(e)}"
+
+
 def parse_expense_from_assistant_reply(reply_text):
     """從助理回覆中解析 [EXPENSE] 後的 JSON，回傳 dict 或 None。"""
     if not reply_text or "[EXPENSE]" not in reply_text:
@@ -2247,28 +2361,51 @@ if st.session_state.current_tool != "invoice":
                         )
         st.stop()
     
-    # --- ⚖️ AI 合約比對（最小可用版）---
+    # --- ⚖️ AI 合約比對（含 PDF / Word 上傳）---
     if _tool == "contract":
         st.subheader("⚖️ AI 合約比對")
-        st.caption("貼上兩份合約或條款內容，由 AI 標示差異與重點。")
+        st.caption("貼上或上傳兩份合約，由 AI 標示差異與重點。支援 PDF、Word、純文字。")
         if not api_key:
             st.warning("此功能需要 API 金鑰，請聯絡管理員設定。")
             st.stop()
-        c1, c2 = st.columns(2)
-        with c1:
-            text_a = st.text_area("合約／條款 A", height=180, placeholder="貼上第一份內容…", key="contract_a")
-        with c2:
-            text_b = st.text_area("合約／條款 B", height=180, placeholder="貼上第二份內容…", key="contract_b")
+        col_a, col_b = st.columns(2)
+        content_a, type_a, content_b, type_b = None, "text", None, "text"
+        err_a, err_b = None, None
+        with col_a:
+            st.markdown("**合約 A**")
+            tab_paste_a, tab_upload_a = st.tabs(["📝 貼上文字", "📎 上傳檔案"])
+            with tab_paste_a:
+                text_a = st.text_area("合約 A 內容", height=160, placeholder="貼上第一份合約內容…", key="contract_a", label_visibility="collapsed")
+                content_a = (text_a or "").strip() or None
+                type_a = "text"
+            with tab_upload_a:
+                file_a = st.file_uploader("上傳合約 A", type=["pdf", "docx", "txt"], key="contract_file_a", label_visibility="collapsed")
+                if file_a:
+                    type_a, content_a, err_a = _get_contract_content(file_a)
+                    st.caption(f"已選：{file_a.name}")
+        with col_b:
+            st.markdown("**合約 B**")
+            tab_paste_b, tab_upload_b = st.tabs(["📝 貼上文字", "📎 上傳檔案"])
+            with tab_paste_b:
+                text_b = st.text_area("合約 B 內容", height=160, placeholder="貼上第二份合約內容…", key="contract_b", label_visibility="collapsed")
+                content_b = (text_b or "").strip() or None
+                type_b = "text"
+            with tab_upload_b:
+                file_b = st.file_uploader("上傳合約 B", type=["pdf", "docx", "txt"], key="contract_file_b", label_visibility="collapsed")
+                if file_b:
+                    type_b, content_b, err_b = _get_contract_content(file_b)
+                    st.caption(f"已選：{file_b.name}")
         if st.button("開始比對", type="primary", key="contract_btn"):
-            if not (text_a and text_b and text_a.strip() and text_b.strip()):
-                st.error("請在 A、B 兩欄都貼上內容。")
+            if err_a:
+                st.error(f"合約 A：{err_a}")
+            elif err_b:
+                st.error(f"合約 B：{err_b}")
+            elif not content_a or not content_b:
+                st.error("請在 A、B 兩欄分別貼上內容或上傳檔案。")
             else:
                 with st.spinner("正在比對…"):
-                    sys_inst = "你是合約比對助手。根據使用者提供的兩份合約或條款（以 [A] 與 [B] 標示），用繁體中文產出：1) 主要差異（條列）；2) 需注意的條款或風險提示。簡潔明確。"
-                    content = f"[A]\n{text_a.strip()[:8000]}\n\n[B]\n{text_b.strip()[:8000]}"
-                    reply, err = call_gemini_chat(
-                        [{"role": "user", "content": content}],
-                        api_key, model, system_instruction=sys_inst,
+                    reply, err = call_gemini_contract_compare(
+                        content_a, content_b, api_key, model, type_a=type_a, type_b=type_b
                     )
                 if err:
                     st.error(err)
