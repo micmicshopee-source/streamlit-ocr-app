@@ -1,0 +1,27 @@
+# 生產環境用 Docker Compose（配合 Nginx 反向代理與自有域名）
+# 使用方式：docker compose -f docker-compose.prod.yml up -d --build
+
+version: '3.8'
+
+services:
+  invoice-ocr-app:
+    build: .
+    image: invoice-ocr-app:latest
+    container_name: invoice-ocr-app
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8501:8501"   # 僅本機監聽，由 Nginx 對外提供 HTTPS
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+      - ./invoice_images:/app/invoice_images
+      - ./.streamlit/secrets.toml:/app/.streamlit/secrets.toml:ro
+    environment:
+      - PYTHONUNBUFFERED=1
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s

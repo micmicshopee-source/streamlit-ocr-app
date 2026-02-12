@@ -2,8 +2,8 @@ FROM python:3.9-slim
 
 WORKDIR /app
 
-# 安裝系統依賴（如果需要）
-RUN apt-get update && apt-get install -y \
+# 安裝系統依賴（curl 用於健康檢查）
+RUN apt-get update && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/*
 
 # 複製依賴文件
@@ -14,7 +14,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # 複製應用文件
 COPY app.py .
-COPY NotoSansTC-Regular.ttf .  # 如果使用 PDF 導出
+COPY NotoSansTC-Regular.ttf .
+COPY templates/ ./templates/
+COPY pages/ ./pages/
 
 # 創建數據目錄
 RUN mkdir -p /app/data /app/invoice_images

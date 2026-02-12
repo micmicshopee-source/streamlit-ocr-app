@@ -459,6 +459,16 @@ def is_login_locked(account_key: str, max_attempts: int = 5, lock_minutes: int =
 
 
 # --- 1.7. 登入頁面（多用戶版本：含註冊功能）---
+def _is_ephemeral_env():
+    """是否為臨時環境（Streamlit Cloud 免費版等）：休眠後資料會清空。"""
+    get_db_path()  # 確保 db_path_mode 已設定
+    mode = st.session_state.get("db_path_mode") or ""
+    if "記憶體" in mode or "虛擬" in mode:
+        return True
+    if os.environ.get("STREAMLIT_SERVER_HEADLESS") == "true":
+        return True
+    return False
+
 def login_page():
     """顯示登入頁面（台灣版：含註冊、忘記密碼與 Google 登入規劃）"""
     # AUTH-05：CSRF 用 token，顯示表單時產生
@@ -470,6 +480,12 @@ def login_page():
         st.title("🔐 上班族小工具")
         st.markdown('<p>登入以使用發票報帳與更多辦公小幫手</p>', unsafe_allow_html=True)
         st.caption("您的資料僅供您本人使用，我們不會分享給第三方。")
+        # 方案 A（Streamlit Cloud 等）休眠與資料遺失說明
+        if _is_ephemeral_env():
+            st.warning(
+                "⚠️ **此為免費雲端環境**：應用長時間無人使用會休眠，休眠後註冊帳號與發票資料會清空，重新整理也可能需重新登入。"
+                "若需長期保存資料，請改用 **VPS 部署**（見專案內「部署上線方案」）。"
+            )
         
         # 第三方登入：若使用者已點選某一個，顯示對應授權連結
         oauth_pending = st.session_state.get("oauth_pending")
@@ -812,14 +828,17 @@ def _get_oauth_redirect_uri():
 def _get_google_oauth_config():
     """取得 Google OAuth 設定：優先讀取 [google_auth]，否則 GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET。回傳 (client_id, client_secret, redirect_uri)。"""
     try:
-        if "google_auth" in st.secrets:
-            ga = st.secrets["google_auth"]
-            cid = (ga.get("client_id") or "").strip()
-            if cid:
-                csec = (ga.get("client_secret") or "").strip()
-                redir = (ga.get("redirect_uri") or "").strip() or _get_oauth_redirect_uri()
-                return (cid, csec, redir)
-    except Exception:
+        ga = st.secrets["google_auth"]
+        cid = str(ga["client_id"] or "").strip()
+        if cid:
+            csec = str(ga["client_secret"] or "").strip()
+            try:
+                redir = str(ga["redirect_uri"] or "").strip()
+            except (KeyError, TypeError):
+                redir = ""
+            redir = redir or _get_oauth_redirect_uri()
+            return (cid, csec, redir)
+    except (KeyError, TypeError, AttributeError):
         pass
     cid = _safe_secrets_get("GOOGLE_CLIENT_ID") or os.getenv("GOOGLE_CLIENT_ID") or ""
     csec = _safe_secrets_get("GOOGLE_CLIENT_SECRET") or os.getenv("GOOGLE_CLIENT_SECRET") or ""
@@ -829,21 +848,54 @@ def _get_google_oauth_config():
 def _get_line_oauth_config():
     """取得 LINE Login 設定：優先讀取 [line_auth]（channel_id, channel_secret, callback_url），其次 [line]，否則頂層 LINE_CHANNEL_ID。回傳 (client_id, client_secret, redirect_uri)。"""
     try:
-        if "line_auth" in st.secrets:
-            la = st.secrets["line_auth"]
-            cid = (la.get("channel_id") or "").strip()
-            if cid:
-                csec = (la.get("channel_secret") or "").strip()
-                redir = (la.get("callback_url") or la.get("redirect_uri") or "").strip() or _get_oauth_redirect_uri()
-                return (cid, csec, redir)
-        if "line" in st.secrets:
-            ln = st.secrets["line"]
-            cid = (ln.get("channel_id") or ln.get("LINE_CHANNEL_ID") or ln.get("line_channel_id") or "").strip()
-            if cid:
-                csec = (ln.get("channel_secret") or ln.get("LINE_CHANNEL_SECRET") or ln.get("line_channel_secret") or "").strip()
-                redir = (ln.get("redirect_uri") or ln.get("callback_url") or "").strip() or _get_oauth_redirect_uri()
-                return (cid, csec, redir)
-    except Exception:
+        la = st.secrets["line_auth"]
+        cid = str(la["channel_id"] or "").strip()
+        if cid:
+            csec = str(la["channel_secret"] or "").strip()
+            redir = ""
+            try:
+                redir = str(la["callback_url"] or "").strip()
+            except (KeyError, TypeError):
+                pass
+            if not redir:
+                try:
+                    redir = str(la["redirect_uri"] or "").strip()
+                except (KeyError, TypeError):
+                    pass
+            redir = redir or _get_oauth_redirect_uri()
+            return (cid, csec, redir)
+    except (KeyError, TypeError, AttributeError):
+        pass
+    try:
+        ln = st.secrets["line"]
+        cid = ""
+        for key in ("channel_id", "LINE_CHANNEL_ID", "line_channel_id"):
+            try:
+                cid = str(ln[key] or "").strip()
+                if cid:
+                    break
+            except (KeyError, TypeError):
+                continue
+        if cid:
+            csec = ""
+            for key in ("channel_secret", "LINE_CHANNEL_SECRET", "line_channel_secret"):
+                try:
+                    csec = str(ln[key] or "").strip()
+                    if csec:
+                        break
+                except (KeyError, TypeError):
+                    continue
+            redir = ""
+            for key in ("callback_url", "redirect_uri"):
+                try:
+                    redir = str(ln[key] or "").strip()
+                    if redir:
+                        break
+                except (KeyError, TypeError):
+                    continue
+            redir = redir or _get_oauth_redirect_uri()
+            return (cid, csec, redir)
+    except (KeyError, TypeError, AttributeError):
         pass
     cid = _safe_secrets_get("LINE_CHANNEL_ID") or os.getenv("LINE_CHANNEL_ID") or ""
     csec = _safe_secrets_get("LINE_CHANNEL_SECRET") or os.getenv("LINE_CHANNEL_SECRET") or ""
@@ -2338,6 +2390,7 @@ with st.sidebar:
     tool_options = [
         ("invoice", "📑 發票報帳小秘笈"),
         ("contract", "⚖️ AI 合約比對"),
+        ("pdf_converter", "📄 PDF 萬能轉換工具"),
         ("customer_service", "📧 AI 客服小秘"),
         ("meeting", "📅 AI 會議精華"),
         ("diagnostic", "🛡️ Google 登錄診斷工具"),
@@ -2548,6 +2601,106 @@ if st.session_state.current_tool != "invoice":
         except Exception:
             st.error("還是找不到，請確認 Secrets 裡的標籤是否為 [google_auth]")
         st.divider()
+        st.stop()
+
+    # --- 📄 PDF 萬能轉換工具 ---
+    if _tool == "pdf_converter":
+        st.subheader("📄 PDF 萬能轉換工具")
+        st.caption("支援 PDF 轉 Excel、PPT、圖片 (JPG/PNG)、Word。上傳 PDF 後選擇轉換目標格式。")
+        try:
+            from pdf_converter import pdf_to_excel, pdf_to_ppt, pdf_to_images, pdf_to_word
+        except ImportError:
+            st.error("無法載入 pdf_converter 模組，請確認 pdf_converter.py 與依賴庫已正確安裝。")
+            st.stop()
+
+        uploaded = st.file_uploader("上傳 PDF 檔案", type=["pdf"], key="pdf_conv_upload")
+        if not uploaded:
+            st.info("👆 請先上傳 PDF 檔案")
+            st.stop()
+
+        pdf_bytes = uploaded.read()
+        if len(pdf_bytes) > 50 * 1024 * 1024:
+            st.warning("⚠️ 檔案超過 50MB，為避免記憶體負擔，建議縮小檔案後再試。")
+        conv_target = st.selectbox(
+            "轉換目標",
+            ["Excel (.xlsx)", "PPT (.pptx)", "圖片 (JPG/PNG) → ZIP", "Word (.docx)"],
+            key="pdf_conv_target",
+        )
+        img_fmt = "png"
+        if "圖片" in conv_target:
+            img_fmt = st.radio("圖片格式", ["PNG", "JPG"], horizontal=True, key="pdf_img_fmt")
+            img_fmt = img_fmt.lower()
+
+        if st.button("開始轉換", type="primary", key="pdf_conv_btn"):
+            base_name = os.path.splitext(uploaded.name or "document")[0]
+            progress = st.progress(0.0)
+            with st.spinner("轉換中，請稍候…"):
+                try:
+                    if "Excel" in conv_target:
+                        progress.progress(0.3)
+                        result, err = pdf_to_excel(pdf_bytes, progress_callback=lambda p: progress.progress(0.3 + 0.7 * p))
+                        progress.progress(1.0)
+                        if err:
+                            st.error(err)
+                        else:
+                            st.success("轉換完成")
+                            st.download_button(
+                                "📥 下載 Excel",
+                                data=result,
+                                file_name=f"{base_name}.xlsx",
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                key="pdf_dl_excel",
+                            )
+                    elif "PPT" in conv_target:
+                        progress.progress(0.3)
+                        result, err = pdf_to_ppt(pdf_bytes, progress_callback=lambda p: progress.progress(0.3 + 0.7 * p))
+                        progress.progress(1.0)
+                        if err:
+                            st.error(err)
+                        else:
+                            st.success("轉換完成")
+                            st.download_button(
+                                "📥 下載 PPT",
+                                data=result,
+                                file_name=f"{base_name}.pptx",
+                                mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                                key="pdf_dl_ppt",
+                            )
+                    elif "圖片" in conv_target:
+                        progress.progress(0.3)
+                        zip_data, first_img, err = pdf_to_images(pdf_bytes, fmt=img_fmt, dpi=200, progress_callback=lambda p: progress.progress(0.3 + 0.7 * p))
+                        progress.progress(1.0)
+                        if err:
+                            st.error(err)
+                        else:
+                            st.success("轉換完成")
+                            if first_img:
+                                st.markdown("**第一頁預覽**")
+                                st.image(first_img, use_container_width=True)
+                            st.download_button(
+                                "📥 下載 ZIP 壓縮檔",
+                                data=zip_data,
+                                file_name=f"{base_name}_images.zip",
+                                mime="application/zip",
+                                key="pdf_dl_zip",
+                            )
+                    elif "Word" in conv_target:
+                        progress.progress(0.3)
+                        result, err = pdf_to_word(pdf_bytes, progress_callback=lambda p: progress.progress(0.3 + 0.7 * p))
+                        progress.progress(1.0)
+                        if err:
+                            st.error(err)
+                        else:
+                            st.success("轉換完成")
+                            st.download_button(
+                                "📥 下載 Word",
+                                data=result,
+                                file_name=f"{base_name}.docx",
+                                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                key="pdf_dl_docx",
+                            )
+                except Exception as e:
+                    st.error(f"轉換過程發生錯誤：{e}")
         st.stop()
 
     # --- 📧 AI 客服小秘：維持佔位 ---
