@@ -740,13 +740,6 @@ def login_page():
                             st.session_state.oauth_pending = "line"
                             st.rerun()
                     st.caption("若未設定金鑰，請使用上方電子郵件與密碼登入。")
-                    with st.expander("🔧 OAuth 除錯（redirect_uri_mismatch 時可查看）", expanded=False):
-                        try:
-                            _, _, redir = _get_google_oauth_config()
-                            st.code(redir or "(未設定)", language=None)
-                            st.caption("請將上方網址一字不差加入 Google Cloud Console → 憑證 → 授權的重新導向 URI")
-                        except Exception:
-                            st.caption("無法讀取設定")
             
         else:  # 註冊模式
             email = st.text_input("📧 新帳號電子郵件", key="reg_email", label_visibility="visible", 
