@@ -401,7 +401,7 @@ def verify_user(email, password):
             user_id, stored_hash = row
             if not stored_hash:
                 conn.close()
-                return False, "此帳號僅支援第三方登入，請使用 Google / LINE / Facebook 登入"
+                return False, "此帳號僅支援第三方登入，請使用 Google / LINE 登入"
             
             if verify_password(password, stored_hash):
                 _clear_login_attempts(email)
@@ -591,9 +591,6 @@ def login_page():
             elif oauth_pending == "line":
                 url, err = build_oauth_url_line()
                 label = "LINE"
-            elif oauth_pending == "facebook":
-                url, err = build_oauth_url_facebook()
-                label = "Facebook"
             if err or not url:
                 st.warning(err or "無法取得登入連結")
                 if st.button("← 返回", key="oauth_back"):
@@ -706,8 +703,8 @@ def login_page():
                                     st.info("💡 若忘記密碼，可點上方「忘記密碼？」重設（僅限本站註冊帳號）")
                 
                 with col_btn2:
-                    # 第三方登入：Google / LINE / Facebook（需在 Secrets 或環境變數設定對應金鑰）
-                    oauth_col1, oauth_col2, oauth_col3 = st.columns(3)
+                    # 第三方登入：Google / LINE（需在 Secrets 或環境變數設定對應金鑰）
+                    oauth_col1, oauth_col2 = st.columns(2)
                     with oauth_col1:
                         if st.button("🔵 Google", use_container_width=True, key="btn_google"):
                             st.session_state.oauth_pending = "google"
@@ -716,11 +713,14 @@ def login_page():
                         if st.button("🟢 LINE", use_container_width=True, key="btn_line"):
                             st.session_state.oauth_pending = "line"
                             st.rerun()
-                    with oauth_col3:
-                        if st.button("🔷 Facebook", use_container_width=True, key="btn_facebook"):
-                            st.session_state.oauth_pending = "facebook"
-                            st.rerun()
                     st.caption("若未設定金鑰，請使用上方電子郵件與密碼登入。")
+                    with st.expander("🔧 OAuth 除錯（redirect_uri_mismatch 時可查看）", expanded=False):
+                        try:
+                            _, _, redir = _get_google_oauth_config()
+                            st.code(redir or "(未設定)", language=None)
+                            st.caption("請將上方網址一字不差加入 Google Cloud Console → 憑證 → 授權的重新導向 URI")
+                        except Exception:
+                            st.caption("無法讀取設定")
             
         else:  # 註冊模式
             email = st.text_input("📧 新帳號電子郵件", key="reg_email", label_visibility="visible", 
@@ -919,7 +919,7 @@ def init_db():
         return False
 
 
-# --- 下一階段：Google / LINE / Facebook OAuth 登入 ---
+# --- 下一階段：Google / LINE OAuth 登入 ---
 from urllib.parse import urlencode
 
 def _get_oauth_redirect_uri():
@@ -1011,23 +1011,81 @@ def _get_line_oauth_config():
     redir = _get_oauth_redirect_uri()
     return (cid, csec, redir)
 
+_OAUTH_STATE_FILE = None
+_OAUTH_STATE_TTL_SEC = 600  # 10 分鐘內有效
+
+def _get_oauth_state_path():
+    global _OAUTH_STATE_FILE
+    if _OAUTH_STATE_FILE is None:
+        base = os.path.dirname(os.path.abspath(__file__))
+        _OAUTH_STATE_FILE = os.path.join(base, ".streamlit", "oauth_states.json")
+    return _OAUTH_STATE_FILE
+
+def _load_oauth_states():
+    """讀取 OAuth state 暫存。回傳 {provider: {token, created_at}}"""
+    try:
+        path = _get_oauth_state_path()
+        if os.path.isfile(path):
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return {}
+
+def _save_oauth_state(provider: str, token: str):
+    """將 OAuth state 寫入檔案（跨 redirect 保持）。"""
+    try:
+        path = _get_oauth_state_path()
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        data = _load_oauth_states()
+        data[provider] = {"token": token, "created_at": time.time()}
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False)
+    except Exception:
+        pass
+
 def _build_oauth_state(provider: str) -> str:
-    """產生 state 並存入 session，回傳 state 字串。"""
+    """產生 state 並存入 session 與檔案，回傳 state 字串。"""
     token = _secrets_module.token_hex(16)
     state = f"{provider}:{token}"
     if "oauth_state" not in st.session_state:
         st.session_state.oauth_state = {}
     st.session_state.oauth_state[provider] = token
+    _save_oauth_state(provider, token)
     return state
 
 def _verify_oauth_state(provider: str, state: str) -> bool:
-    """驗證 state 與 session 內儲存一致。"""
+    """驗證 state：先查 session，若無則查檔案（支援 redirect 後 session 遺失）。"""
     if not state or ":" not in state:
         return False
     parts = state.split(":", 1)
     if parts[0] != provider:
         return False
-    return st.session_state.get("oauth_state", {}).get(provider) == parts[1]
+    token = parts[1]
+    # 1. 先試 session
+    if st.session_state.get("oauth_state", {}).get(provider) == token:
+        return True
+    # 2. 再試檔案（redirect 回來時 session 常遺失）
+    data = _load_oauth_states()
+    entry = data.get(provider)
+    if not entry or entry.get("token") != token:
+        return False
+    created = entry.get("created_at", 0)
+    if (time.time() - created) > _OAUTH_STATE_TTL_SEC:
+        data.pop(provider, None)
+        try:
+            with open(_get_oauth_state_path(), "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False)
+        except Exception:
+            pass
+        return False
+    data.pop(provider, None)
+    try:
+        with open(_get_oauth_state_path(), "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False)
+    except Exception:
+        pass
+    return True
 
 def build_oauth_url_google():
     """建立 Google OAuth 授權 URL。與診斷工具使用相同參數（僅加 state），避免 prompt=consent 在測試模式觸發 403。"""
@@ -1060,22 +1118,6 @@ def build_oauth_url_line():
         "scope": "profile openid",
     }
     return "https://access.line.me/oauth2/v2.1/authorize?" + urlencode(params), None
-
-def build_oauth_url_facebook():
-    """建立 Facebook Login 授權 URL。"""
-    app_id = _safe_secrets_get("FACEBOOK_APP_ID") or os.getenv("FACEBOOK_APP_ID")
-    if not app_id:
-        return None, "未設定 FACEBOOK_APP_ID"
-    redirect_uri = _get_oauth_redirect_uri()
-    state = _build_oauth_state("facebook")
-    params = {
-        "client_id": app_id,
-        "redirect_uri": redirect_uri,
-        "state": state,
-        "scope": "email,public_profile",
-        "response_type": "code",
-    }
-    return "https://www.facebook.com/v18.0/dialog/oauth?" + urlencode(params), None
 
 def _oauth_find_or_create_user(provider: str, email: str, provider_user_id: str) -> tuple[bool, str]:
     """
@@ -1198,49 +1240,6 @@ def handle_oauth_callback_line(code: str, state: str) -> tuple[bool, str]:
             return False, "無法取得 LINE 帳號資訊"
         email = (user_info.get("email") or "").strip()
         return _oauth_find_or_create_user("line", email, user_id)
-    except requests.RequestException:
-        return False, "登入連線失敗，請稍後再試"
-    except Exception:
-        return False, "登入失敗，請稍後再試"
-
-def handle_oauth_callback_facebook(code: str, state: str) -> tuple[bool, str]:
-    """處理 Facebook OAuth callback。"""
-    if not _verify_oauth_state("facebook", state):
-        return False, "登入驗證已過期，請重新點選 Facebook 登入"
-    app_id = _safe_secrets_get("FACEBOOK_APP_ID") or os.getenv("FACEBOOK_APP_ID")
-    app_secret = _safe_secrets_get("FACEBOOK_APP_SECRET") or os.getenv("FACEBOOK_APP_SECRET")
-    if not app_id or not app_secret:
-        return False, "未設定 Facebook 登入參數"
-    redirect_uri = _get_oauth_redirect_uri()
-    try:
-        r = requests.get(
-            "https://graph.facebook.com/v18.0/oauth/access_token",
-            params={
-                "client_id": app_id,
-                "client_secret": app_secret,
-                "redirect_uri": redirect_uri,
-                "code": code,
-            },
-            timeout=15,
-        )
-        r.raise_for_status()
-        data = r.json()
-        access_token = data.get("access_token")
-        if not access_token:
-            return False, "無法取得存取權杖"
-        info = requests.get(
-            "https://graph.facebook.com/me",
-            params={"fields": "id,name,email"},
-            headers={"Authorization": f"Bearer {access_token}"},
-            timeout=10,
-        )
-        info.raise_for_status()
-        user_info = info.json()
-        fb_id = user_info.get("id") or ""
-        if not fb_id:
-            return False, "無法取得 Facebook 帳號資訊"
-        email = (user_info.get("email") or "").strip()
-        return _oauth_find_or_create_user("facebook", email, fb_id)
     except requests.RequestException:
         return False, "登入連線失敗，請稍後再試"
     except Exception:
@@ -2397,8 +2396,6 @@ if qp.get("code") and qp.get("state"):
         success, msg = handle_oauth_callback_google(qp["code"], state)
     elif provider == "line":
         success, msg = handle_oauth_callback_line(qp["code"], state)
-    elif provider == "facebook":
-        success, msg = handle_oauth_callback_facebook(qp["code"], state)
     if success:
         st.session_state.authenticated = True
         st.session_state.user_email = msg

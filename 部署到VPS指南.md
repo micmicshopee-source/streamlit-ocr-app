@@ -82,13 +82,13 @@ GEMINI_API_KEY = "你的Gemini金鑰"
 [google_auth]
 client_id = "你的Client ID"
 client_secret = "你的Client Secret"
-redirect_uri = "https://你的域名/"
+redirect_uri = "https://getaiinvoice.com/"
 
 # 若用 LINE 登入
 [line_auth]
 channel_id = "你的Channel ID"
 channel_secret = "你的Channel Secret"
-callback_url = "https://你的域名/"
+callback_url = "https://getaiinvoice.com/"
 ```
 
 ---
@@ -180,12 +180,12 @@ sudo apt install -y nginx certbot python3-certbot-nginx
 sudo nano /etc/nginx/sites-available/streamlit-ocr
 ```
 
-內容（將 `你的域名.com` 改為實際域名）：
+內容：
 
 ```nginx
 server {
     listen 80;
-    server_name 你的域名.com www.你的域名.com;
+    server_name getaiinvoice.com www.getaiinvoice.com;
 
     location / {
         proxy_pass http://127.0.0.1:8501;
@@ -207,8 +207,10 @@ server {
 sudo ln -s /etc/nginx/sites-available/streamlit-ocr /etc/nginx/sites-enabled/
 sudo nginx -t
 sudo systemctl reload nginx
-sudo certbot --nginx -d 你的域名.com -d www.你的域名.com
+sudo certbot --nginx -d getaiinvoice.com -d www.getaiinvoice.com
 ```
+
+> **若使用 Google / LINE 登入**：請在 Google Cloud Console、LINE Developers 後台，將「授權重導 URI」設為 `https://getaiinvoice.com/`（與 secrets.toml 一致）。
 
 4. **防火牆**
 
