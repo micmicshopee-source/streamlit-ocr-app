@@ -2449,8 +2449,8 @@ with st.sidebar:
     tool_options = [
         ("invoice", "📑 發票報帳小秘笈"),
         ("contract", "⚖️ AI 合約比對"),
-        ("pdf_converter", "📄 PDF 萬能轉換工具"),
         ("meeting", "📅 AI 會議精華"),
+        ("pdf_converter", "📄 PDF 萬能轉換工具"),
     ]
     current = st.session_state.current_tool
     idx = next((i for i, (k, _) in enumerate(tool_options) if k == current), 0)
