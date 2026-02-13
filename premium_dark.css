@@ -56,8 +56,10 @@ div[data-testid="stAppViewContainer"] {
     background-color: var(--bg-base) !important;
 }
 
-/* 隱藏登入後頂部黑色遮擋條（stHeader） */
-.stApp [data-testid="stHeader"] {
+/* 隱藏頂部黑色遮擋條 */
+[data-testid="stHeader"],
+.stApp [data-testid="stHeader"],
+header {
     display: none !important;
 }
 

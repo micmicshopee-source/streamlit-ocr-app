@@ -582,6 +582,8 @@ def login_page():
                     st.session_state.show_forgot_password = True
                     st.rerun()
                 
+                agree_legal = st.checkbox("我同意隱私政策與服務條款", key="login_agree_legal")
+                
                 col_btn1, col_btn2 = st.columns([1, 1])
                 with col_btn1:
                     if st.button("🔑 登入", type="primary", use_container_width=True):
@@ -589,6 +591,8 @@ def login_page():
                             st.error("❌ 請輸入電子郵件")
                         elif not password:
                             st.error("❌ 請輸入密碼")
+                        elif not agree_legal:
+                            st.error("❌ 請勾選同意隱私政策與服務條款")
                         else:
                             success, message = verify_user(email.strip(), password)
                             if success:
@@ -636,6 +640,8 @@ def login_page():
             else:
                 invitation_code = ""
             
+            agree_legal_reg = st.checkbox("我同意隱私政策與服務條款", key="reg_agree_legal")
+            
             if st.button("✅ 建立帳號", type="primary", use_container_width=True):
                 if not email:
                     st.error("❌ 請輸入電子郵件")
@@ -645,6 +651,8 @@ def login_page():
                     st.error("❌ 兩次密碼不一致")
                 elif _invitation_required() and not (invitation_code and invitation_code.strip()):
                     st.error("❌ 請輸入邀請碼")
+                elif not agree_legal_reg:
+                    st.error("❌ 請勾選同意隱私政策與服務條款")
                 else:
                     success, message = register_user(email, password, invitation_code or "")
                     if success:
@@ -657,24 +665,6 @@ def login_page():
                         st.rerun()
                     else:
                         st.error(f"❌ {message}")
-            
-            # 隱私政策與服務條款（僅註冊頁面顯示）
-            st.markdown("---")
-            with st.expander("📜 隱私政策", expanded=False):
-                st.write("""
-**本工具（上班族小工具）重視您的隱私：**
-1. **數據蒐集**：我們僅在您上傳發票圖片時，利用 AI 提取文字數據。
-2. **數據存儲**：圖片在識別完成後不會保留，僅保留識別後的文字數據於您的本地 Session 中。
-3. **第三方分享**：我們不會將您的個人消費資訊分享給任何廣告商。
-4. **LINE 授權**：僅用於發送中獎通知給您本人。
-                """)
-            with st.expander("📋 服務條款", expanded=False):
-                st.write("""
-1. **服務內容**：本工具提供發票 AI 識別及自動對獎服務。
-2. **準確性免責**：AI 識別可能存在誤差，報帳前請務必人工核對數據。
-3. **責任限制**：本工具不對因識別錯誤造成的財務損失負責。
-4. **更新權利**：我們保留隨時更新功能與調整服務額度的權利。
-                """)
         
         st.markdown('</div>', unsafe_allow_html=True)
 
