@@ -1,20 +1,20 @@
-# 核心依賴（必須）
+# 核心依賴（Streamlit Cloud 相容）
 streamlit>=1.28.0,<2
 google-generativeai>=0.3.0
-# 可選：密碼安全雜湊 AUTH-01（未安裝時使用 SHA256）
-# bcrypt>=4.0.0
 Pillow>=10.0.0
 requests>=2.28.0
 pandas>=2.0.0
 openpyxl>=3.1.0
 fpdf2>=2.7.0
 altair>=5.0.0
-google-cloud-speech>=2.20.0
 python-docx>=0.8.11
 pymupdf>=1.23.0
 
-# PDF 萬能轉換工具（pdf2docx 無額外系統依賴，Docker 部署相容）
+# PDF 萬能轉換工具
 pdfplumber>=0.10.0
 python-pptx>=0.6.21
-pdf2image>=1.16.0   # 需 poppler（Dockerfile 已含 poppler-utils）
-pdf2docx>=0.5.0     # 主用：PDF→Word，純 pip、無額外系統依賴
+pdf2image>=1.16.0
+pdf2docx>=0.5.0
+
+# 可選：會議錄音 Cloud STT（體積大，Streamlit Cloud 易安裝失敗；已移除）
+# 未安裝時，AI 會議精華的錄音轉錄仍可用 Gemini 語音辨識
