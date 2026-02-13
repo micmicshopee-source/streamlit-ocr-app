@@ -67,6 +67,22 @@ def _inject_premium_dark_css():
             st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
 _inject_premium_dark_css()
 
+# 強制隱藏頂部黑色遮擋條（多種選擇器以兼容不同 Streamlit 版本）
+st.markdown("""
+<style>
+/* 頂部工具列、Header、裝飾區 */
+[data-testid="stHeader"],
+[data-testid="stToolbar"],
+[data-testid="stDecoration"],
+header[data-testid="stHeader"],
+div[data-testid="stHeader"],
+.stApp header { display: none !important; }
+/* 主內容區頂部留白改為 0 */
+.main .block-container { padding-top: 0.5rem !important; }
+section[data-testid="stAppViewBlockContainer"] { padding-top: 0 !important; }
+</style>
+""", unsafe_allow_html=True)
+
 if "db_error" not in st.session_state: st.session_state.db_error = None
 if "db_path_mode" not in st.session_state: st.session_state.db_path_mode = "💾 本地磁碟"
 if "use_memory_mode" not in st.session_state: st.session_state.use_memory_mode = False

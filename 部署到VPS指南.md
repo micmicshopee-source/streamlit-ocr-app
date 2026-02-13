@@ -148,7 +148,25 @@ sudo systemctl status streamlit-ocr
 
 ---
 
-## 六、Nginx 反向代理（HTTPS）
+## 六、更新程式碼後重啟
+
+修改程式後，需重新拉取並重啟：
+
+```bash
+cd /opt/streamlit_ocr_app   # 或你的專案路徑
+git fetch origin && git pull   # 若用 Git
+# 或手動上傳 app.py、premium_dark.css、.streamlit/config.toml 等
+
+pkill -f "streamlit run app.py"   # 停止舊進程
+source venv/bin/activate
+nohup streamlit run app.py --server.port=8501 --server.address=0.0.0.0 > streamlit.log 2>&1 &
+```
+
+若用 systemd：`sudo systemctl restart streamlit-ocr`
+
+---
+
+## 七、Nginx 反向代理（HTTPS）
 
 1. **安裝 Nginx 與 Certbot**
 
@@ -203,7 +221,7 @@ sudo ufw enable
 
 ---
 
-## 七、Docker 部署（替代方案）
+## 八、Docker 部署（替代方案）
 
 若偏好 Docker：
 
@@ -220,7 +238,7 @@ docker compose -f docker-compose.prod.yml logs -f
 
 ---
 
-## 八、更新部署
+## 九、更新部署
 
 ```bash
 cd /opt/streamlit_ocr_app
@@ -237,7 +255,7 @@ docker compose -f docker-compose.prod.yml up -d --build
 
 ---
 
-## 九、常見問題
+## 十、常見問題
 
 | 問題 | 解法 |
 |------|------|
