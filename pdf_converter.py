@@ -2,6 +2,7 @@
 """
 PDF 萬能轉換工具模組
 支援：PDF → Excel, PPT, 圖片 (JPG/PNG), Word
+      圖片 (JPG/PNG) → PDF
 含 AI OCR 模式：掃描檔 PDF 轉 Word（使用 Gemini Vision）
 """
 
@@ -12,10 +13,11 @@ import io
 import os
 import tempfile
 import zipfile
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple, Union
 
 # 可選依賴：按需導入
 _pdfplumber = None
+_pymupdf = None
 _pptx = None
 _pdf2image = None
 _pdf2docx = None
@@ -28,7 +30,7 @@ _requests = None
 
 def _safe_imports():
     """延遲導入，避免 import 時即失敗。"""
-    global _pdfplumber, _pptx, _pdf2image, _pdf2docx, _pandas, _openpyxl, _pil, _python_docx, _requests
+    global _pdfplumber, _pptx, _pdf2image, _pdf2docx, _pandas, _openpyxl, _pil, _python_docx, _requests, _pymupdf
     if _pdfplumber is None:
         try:
             import pdfplumber
@@ -86,6 +88,60 @@ def _safe_imports():
             _requests = requests
         except ImportError:
             _requests = False
+    if _pymupdf is None:
+        try:
+            import fitz
+            _pymupdf = fitz
+        except ImportError:
+            _pymupdf = False
+
+
+def images_to_pdf(
+    image_bytes_list: List[bytes],
+    progress_callback=None,
+) -> Tuple[Optional[bytes], Optional[str]]:
+    """
+    將多張圖片（JPG/PNG）合併為單一 PDF。
+    圖片依上傳順序排列，每張一頁。
+    Returns: (pdf_bytes, error_message)
+    """
+    _safe_imports()
+    if not _pymupdf:
+        return None, "未安裝 pymupdf，請執行：pip install pymupdf"
+    if not _pil:
+        return None, "未安裝 Pillow"
+
+    if not image_bytes_list:
+        return None, "請至少上傳一張圖片"
+
+    try:
+        fitz = _pymupdf
+        doc = fitz.open()
+        total = len(image_bytes_list)
+
+        for i, img_bytes in enumerate(image_bytes_list):
+            if progress_callback:
+                progress_callback((i + 1) / total)
+
+            # 用 PIL 偵測格式（pymupdf 需 png/jpeg）
+            img = _pil.open(io.BytesIO(img_bytes))
+            fmt = (img.format or "PNG").upper()
+            ext = "png" if fmt in ("PNG", "PPM", "GIF", "BMP") else "jpeg"
+
+            img_doc = fitz.open(stream=img_bytes, filetype=ext)
+            pdf_bytes = img_doc.convert_to_pdf()
+            img_doc.close()
+
+            img_pdf = fitz.open(stream=pdf_bytes, filetype="pdf")
+            doc.insert_pdf(img_pdf)
+            img_pdf.close()
+
+        result = doc.tobytes(garbage=4, deflate=True)
+        doc.close()
+        return result, None
+    except Exception as e:
+        err_msg = str(e)
+        return None, f"轉換失敗：{err_msg}"
 
 
 def pdf_to_excel(pdf_bytes: bytes, progress_callback=None) -> Tuple[Optional[bytes], Optional[str]]:

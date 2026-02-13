@@ -2631,13 +2631,66 @@ if st.session_state.current_tool != "invoice":
     # --- 📄 PDF 萬能轉換工具 ---
     if _tool == "pdf_converter":
         st.subheader("📄 PDF 萬能轉換工具")
-        st.caption("支援 PDF 轉 Excel、PPT、圖片 (JPG/PNG)、Word。上傳 PDF 後選擇轉換目標格式。")
+        st.caption("支援 PDF 與 Office、圖片格式互轉。")
         try:
-            from pdf_converter import pdf_to_excel, pdf_to_ppt, pdf_to_images, pdf_to_word, pdf_to_word_with_ai_ocr
+            from pdf_converter import (
+                pdf_to_excel,
+                pdf_to_ppt,
+                pdf_to_images,
+                pdf_to_word,
+                pdf_to_word_with_ai_ocr,
+                images_to_pdf,
+            )
         except ImportError:
             st.error("無法載入 pdf_converter 模組，請確認 pdf_converter.py 與依賴庫已正確安裝。")
             st.stop()
 
+        pdf_mode = st.radio(
+            "轉換方向",
+            ["從 PDF 轉換", "轉換為 PDF"],
+            horizontal=True,
+            key="pdf_conv_mode",
+        )
+
+        if pdf_mode == "轉換為 PDF":
+            # 圖片 → PDF
+            st.caption("將 JPG/PNG 圖片合併為單一 PDF，依上傳順序排列。")
+            img_uploads = st.file_uploader(
+                "上傳圖片（可多選）",
+                type=["jpg", "jpeg", "png"],
+                accept_multiple_files=True,
+                key="pdf_img_to_pdf_upload",
+            )
+            if not img_uploads:
+                st.info("👆 請上傳至少一張 JPG 或 PNG 圖片")
+                st.stop()
+            if st.button("開始轉換", type="primary", key="pdf_img2pdf_btn"):
+                progress = st.progress(0.0)
+                img_bytes_list = [f.read() for f in img_uploads]
+                with st.spinner("轉換中，請稍候…"):
+                    result, err = images_to_pdf(
+                        img_bytes_list,
+                        progress_callback=lambda p: progress.progress(p),
+                    )
+                progress.progress(1.0)
+                if err:
+                    st.error(err)
+                else:
+                    st.success("轉換完成")
+                    base_name = "images_to_pdf"
+                    if img_uploads and img_uploads[0].name:
+                        base_name = os.path.splitext(img_uploads[0].name)[0]
+                    st.download_button(
+                        "📥 下載 PDF",
+                        data=result,
+                        file_name=f"{base_name}.pdf",
+                        mime="application/pdf",
+                        key="pdf_dl_img2pdf",
+                    )
+            st.stop()
+
+        # 從 PDF 轉換（原有邏輯）
+        st.caption("上傳 PDF 後選擇轉換目標格式。")
         uploaded = st.file_uploader("上傳 PDF 檔案", type=["pdf"], key="pdf_conv_upload")
         if not uploaded:
             st.info("👆 請先上傳 PDF 檔案")
