@@ -56,10 +56,9 @@ div[data-testid="stAppViewContainer"] {
     background-color: var(--bg-base) !important;
 }
 
-/* 隱藏頂部黑色遮擋條 */
+/* 頂部黑色遮擋條：完全隱藏（側邊欄摺疊問題改由 app.py 自訂展開按鈕處理） */
 [data-testid="stHeader"],
-.stApp [data-testid="stHeader"],
-header {
+.stApp [data-testid="stHeader"] {
     display: none !important;
 }
 

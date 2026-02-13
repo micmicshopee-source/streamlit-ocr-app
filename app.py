@@ -141,68 +141,66 @@ def _inject_premium_dark_css():
             st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
 _inject_premium_dark_css()
 
-# 強制隱藏頂部黑色遮擋條（多種選擇器以兼容不同 Streamlit 版本）
-# 注意：不隱藏側邊欄展開按鈕，避免摺疊後無法再開啟
+# 頂部與側邊欄樣式（toolbarMode=none 已隱藏工具列）
+# 改為最小化 header 而非完全隱藏，避免側邊欄摺疊按鈕被一併隱藏
 st.markdown("""
 <style>
-/* 頂部工具列、Header、裝飾區 */
-[data-testid="stHeader"],
+/* 頂部工具列、裝飾區：隱藏 */
 [data-testid="stToolbar"],
-[data-testid="stDecoration"],
+[data-testid="stDecoration"] { display: none !important; }
+/* Header：最小化高度，保留側邊欄摺疊按鈕所在區域 */
+[data-testid="stHeader"],
 header[data-testid="stHeader"],
 div[data-testid="stHeader"],
-.stApp header { display: none !important; }
-/* 主內容區頂部留白改為 0 */
+.stApp header {
+    min-height: 0 !important;
+    height: 0 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: hidden !important;
+    border: none !important;
+}
+/* 主內容區頂部留白 */
 .main .block-container { padding-top: 0.5rem !important; }
 section[data-testid="stAppViewBlockContainer"] { padding-top: 0 !important; }
-/* 側邊欄展開按鈕：確保摺疊後仍可點擊（Streamlit 不同版本選擇器可能不同） */
-[data-testid="stSidebar"] [data-testid="collapsedControl"],
-[data-testid="stSidebar"] > div:first-child > button,
-[data-testid="stSidebar"] button[kind="header"],
-button[aria-label*="sidebar"],
-button[aria-label*="Sidebar"],
-button[aria-label*="展開"],
-button[aria-label*="摺疊"] {
-    display: flex !important;
-    visibility: visible !important;
-    pointer-events: auto !important;
-    z-index: 999999 !important;
+/* 自訂展開按鈕：固定左側，側邊欄摺疊時可點擊展開 */
+#expand-sidebar-fab {
+    position: fixed !important; left: 0 !important; top: 50% !important;
+    transform: translateY(-50%) !important; z-index: 999999 !important;
+    padding: 12px 8px !important; background: #1e1e1e !important;
+    color: #fff !important; border: 1px solid #444 !important;
+    border-radius: 0 8px 8px 0 !important; cursor: pointer !important;
+    font-size: 16px !important; font-weight: bold !important;
+    box-shadow: 2px 0 12px rgba(0,0,0,0.5) !important;
 }
-/* 固定展開按鈕：側邊欄摺疊時顯示在左側 */
-.expand-sidebar-btn {
-    position: fixed !important;
-    left: 0 !important;
-    top: 50% !important;
-    transform: translateY(-50%) !important;
-    z-index: 999998 !important;
-    padding: 8px 6px !important;
-    background: #1e1e1e !important;
-    color: #b0b0b0 !important;
-    border: 1px solid #333 !important;
-    border-radius: 0 4px 4px 0 !important;
-    cursor: pointer !important;
-    font-size: 14px !important;
-    box-shadow: 2px 0 8px rgba(0,0,0,0.3) !important;
-}
-.expand-sidebar-btn:hover { background: #2a2a2a !important; color: #fff !important; }
-/* 側邊欄已展開時隱藏自訂展開按鈕 */
-.stApp:has([data-testid=stSidebar][aria-expanded="true"]) .expand-sidebar-btn { display: none !important; }
+#expand-sidebar-fab:hover { background: #2d2d2d !important; }
 </style>
-<button class="expand-sidebar-btn" onclick="
-(function(){
-  var s=['[data-testid=collapsedControl]','[data-testid=stSidebar] button','button[aria-label*=sidebar]','button[aria-label*=Sidebar]'];
-  for(var i=0;i<s.length;i++){
-    var b=document.querySelector(s[i]);
-    if(b){b.click();return;}
-  }
-  var sb=document.querySelector('[data-testid=stSidebar]');
-  if(sb&&sb.getAttribute('aria-expanded')==='false'){
-    var btns=sb.querySelectorAll('button');
-    if(btns.length)btns[0].click();
-  }
-})();
-" title="展開功能欄">≡ 展開</button>
 """, unsafe_allow_html=True)
+
+# 側邊欄展開按鈕：摺疊後點擊可展開（components.html 允許 script 執行）
+try:
+    import streamlit.components.v1 as components
+    components.html("""
+    <div id="sidebar-expand-fab" style="position:fixed;left:0;top:50%;transform:translateY(-50%);z-index:999999;padding:12px 8px;background:#1e1e1e;color:#fff;border:1px solid #444;border-radius:0 8px 8px 0;cursor:pointer;font-size:16px;font-weight:bold;box-shadow:2px 0 12px rgba(0,0,0,0.5)">≡ 展開</div>
+    <script>
+    (function(){
+      var fab=document.getElementById('sidebar-expand-fab');
+      var doc=window.parent&&window.parent.document?window.parent.document:document;
+      fab.onclick=function(){
+        var sb=doc.querySelector('[data-testid=stSidebar]');
+        if(sb){var b=sb.querySelector('[data-testid=collapsedControl]')||sb.querySelector('button');if(b)b.click();}
+      };
+      var sb=doc.querySelector('[data-testid=stSidebar]');
+      if(sb){
+        var up=function(){fab.style.display=sb.getAttribute('aria-expanded')==='true'?'none':'block';};
+        up();
+        try{new MutationObserver(up).observe(sb,{attributes:true,attributeFilter:['aria-expanded']});}catch(e){}
+      }
+    })();
+    </script>
+    """, height=0)
+except Exception:
+    pass
 
 if "db_error" not in st.session_state: st.session_state.db_error = None
 if "db_path_mode" not in st.session_state: st.session_state.db_path_mode = "💾 本地磁碟"
