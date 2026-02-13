@@ -306,6 +306,18 @@ def pdf_to_images(
         return None, None, f"轉換失敗：{err_msg}"
 
 
+def _docx_text_length(docx_bytes: bytes) -> int:
+    """檢查 Word 檔內文字總長度，用於判斷是否為空檔（掃描檔轉換常無內容）。"""
+    try:
+        from docx import Document
+        doc = Document(io.BytesIO(docx_bytes))
+        return sum(len(p.text) for p in doc.paragraphs) + sum(
+            sum(len(c.text) for c in row.cells) for table in doc.tables for row in table.rows
+        )
+    except Exception:
+        return 0
+
+
 def pdf_to_word(pdf_bytes: bytes, progress_callback=None) -> Tuple[Optional[bytes], Optional[str]]:
     """
     使用 pdf2docx 將 PDF 轉為 Word。

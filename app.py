@@ -2638,7 +2638,6 @@ if st.session_state.current_tool != "invoice":
                 pdf_to_ppt,
                 pdf_to_images,
                 pdf_to_word,
-                pdf_to_word_with_ai_ocr,
                 images_to_pdf,
             )
         except ImportError:
@@ -2708,14 +2707,6 @@ if st.session_state.current_tool != "invoice":
         if "圖片" in conv_target:
             img_fmt = st.radio("圖片格式", ["PNG", "JPG"], horizontal=True, key="pdf_img_fmt")
             img_fmt = img_fmt.lower()
-        use_ai_ocr = False
-        if "Word" in conv_target:
-            use_ai_ocr = st.checkbox(
-                "使用 AI OCR（適用掃描檔，需 API 金鑰）",
-                value=False,
-                help="預設使用 pdf2docx（無額外成本）。若 PDF 為掃描檔、轉換結果為空時，可勾選由 Gemini 辨識。",
-                key="pdf_use_ai_ocr",
-            )
 
         if st.button("開始轉換", type="primary", key="pdf_conv_btn"):
             base_name = os.path.splitext(uploaded.name or "document")[0]
@@ -2772,46 +2763,21 @@ if st.session_state.current_tool != "invoice":
                             )
                     elif "Word" in conv_target:
                         progress.progress(0.3)
-                        if use_ai_ocr:
-                            if not api_key:
-                                st.error("AI OCR 需要 Gemini API 金鑰，請在進階設定中設定 GEMINI_API_KEY。")
-                            else:
-                                result, err = pdf_to_word_with_ai_ocr(
-                                    pdf_bytes,
-                                    api_key=api_key,
-                                    model_name=model,
-                                    progress_callback=lambda p: progress.progress(0.3 + 0.7 * p),
-                                )
-                                progress.progress(1.0)
-                                if err:
-                                    st.error(err)
-                                else:
-                                    st.success("AI OCR 轉換完成")
-                                    st.download_button(
-                                        "📥 下載 Word",
-                                        data=result,
-                                        file_name=f"{base_name}.docx",
-                                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                                        key="pdf_dl_docx",
-                                    )
+                        result, err = pdf_to_word(pdf_bytes, progress_callback=lambda p: progress.progress(0.3 + 0.7 * p))
+                        progress.progress(1.0)
+                        if err:
+                            st.error(err)
+                            if "未安裝 pdf2docx" in (err or ""):
+                                st.info("💡 伺服器需執行：`pip install pdf2docx`")
                         else:
-                            result, err = pdf_to_word(pdf_bytes, progress_callback=lambda p: progress.progress(0.3 + 0.7 * p))
-                            progress.progress(1.0)
-                            if err:
-                                st.error(err)
-                                if "未安裝 pdf2docx" in (err or ""):
-                                    st.info("💡 伺服器需執行：`pip install pdf2docx`")
-                                elif "掃描" not in (err or "") and "encrypted" not in (err or "").lower():
-                                    st.info("💡 若 PDF 為掃描檔，可勾選「使用 AI OCR」由 Gemini 辨識文字。")
-                            else:
-                                st.success("轉換完成")
-                                st.download_button(
-                                    "📥 下載 Word",
-                                    data=result,
-                                    file_name=f"{base_name}.docx",
-                                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                                    key="pdf_dl_docx",
-                                )
+                            st.success("轉換完成")
+                            st.download_button(
+                                "📥 下載 Word",
+                                data=result,
+                                file_name=f"{base_name}.docx",
+                                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                key="pdf_dl_docx",
+                            )
                 except Exception as e:
                     st.error(f"轉換過程發生錯誤：{e}")
         st.stop()
