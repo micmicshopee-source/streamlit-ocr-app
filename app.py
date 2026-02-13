@@ -141,66 +141,13 @@ def _inject_premium_dark_css():
             st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
 _inject_premium_dark_css()
 
-# 頂部與側邊欄樣式（toolbarMode=none 已隱藏工具列）
-# 改為最小化 header 而非完全隱藏，避免側邊欄摺疊按鈕被一併隱藏
+# 主內容區樣式（不隱藏 header/toolbar，避免側邊欄摺疊後無法再展開）
 st.markdown("""
 <style>
-/* 頂部工具列、裝飾區：隱藏 */
-[data-testid="stToolbar"],
-[data-testid="stDecoration"] { display: none !important; }
-/* Header：最小化高度，保留側邊欄摺疊按鈕所在區域 */
-[data-testid="stHeader"],
-header[data-testid="stHeader"],
-div[data-testid="stHeader"],
-.stApp header {
-    min-height: 0 !important;
-    height: 0 !important;
-    padding: 0 !important;
-    margin: 0 !important;
-    overflow: hidden !important;
-    border: none !important;
-}
-/* 主內容區頂部留白 */
 .main .block-container { padding-top: 0.5rem !important; }
 section[data-testid="stAppViewBlockContainer"] { padding-top: 0 !important; }
-/* 自訂展開按鈕：固定左側，側邊欄摺疊時可點擊展開 */
-#expand-sidebar-fab {
-    position: fixed !important; left: 0 !important; top: 50% !important;
-    transform: translateY(-50%) !important; z-index: 999999 !important;
-    padding: 12px 8px !important; background: #1e1e1e !important;
-    color: #fff !important; border: 1px solid #444 !important;
-    border-radius: 0 8px 8px 0 !important; cursor: pointer !important;
-    font-size: 16px !important; font-weight: bold !important;
-    box-shadow: 2px 0 12px rgba(0,0,0,0.5) !important;
-}
-#expand-sidebar-fab:hover { background: #2d2d2d !important; }
 </style>
 """, unsafe_allow_html=True)
-
-# 側邊欄展開按鈕：摺疊後點擊可展開（components.html 允許 script 執行）
-try:
-    import streamlit.components.v1 as components
-    components.html("""
-    <div id="sidebar-expand-fab" style="position:fixed;left:0;top:50%;transform:translateY(-50%);z-index:999999;padding:12px 8px;background:#1e1e1e;color:#fff;border:1px solid #444;border-radius:0 8px 8px 0;cursor:pointer;font-size:16px;font-weight:bold;box-shadow:2px 0 12px rgba(0,0,0,0.5)">≡ 展開</div>
-    <script>
-    (function(){
-      var fab=document.getElementById('sidebar-expand-fab');
-      var doc=window.parent&&window.parent.document?window.parent.document:document;
-      fab.onclick=function(){
-        var sb=doc.querySelector('[data-testid=stSidebar]');
-        if(sb){var b=sb.querySelector('[data-testid=collapsedControl]')||sb.querySelector('button');if(b)b.click();}
-      };
-      var sb=doc.querySelector('[data-testid=stSidebar]');
-      if(sb){
-        var up=function(){fab.style.display=sb.getAttribute('aria-expanded')==='true'?'none':'block';};
-        up();
-        try{new MutationObserver(up).observe(sb,{attributes:true,attributeFilter:['aria-expanded']});}catch(e){}
-      }
-    })();
-    </script>
-    """, height=0)
-except Exception:
-    pass
 
 if "db_error" not in st.session_state: st.session_state.db_error = None
 if "db_path_mode" not in st.session_state: st.session_state.db_path_mode = "💾 本地磁碟"

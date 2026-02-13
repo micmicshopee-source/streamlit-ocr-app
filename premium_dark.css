@@ -56,11 +56,7 @@ div[data-testid="stAppViewContainer"] {
     background-color: var(--bg-base) !important;
 }
 
-/* 頂部黑色遮擋條：完全隱藏（側邊欄摺疊問題改由 app.py 自訂展開按鈕處理） */
-[data-testid="stHeader"],
-.stApp [data-testid="stHeader"] {
-    display: none !important;
-}
+/* 頂部：不隱藏 header，避免側邊欄摺疊按鈕一併被隱藏導致無法再展開 */
 
 /* 主工作區：左右間距調小，寬度限制不鋪滿 */
 .main .block-container,
