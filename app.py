@@ -2614,6 +2614,10 @@ if st.session_state.current_tool != "invoice":
                             progress.progress(1.0)
                             if err:
                                 st.error(err)
+                                if "未安裝 pdf2docx" in (err or ""):
+                                    st.info("💡 伺服器需執行：`pip install pdf2docx`")
+                                elif "掃描" not in (err or "") and "encrypted" not in (err or "").lower():
+                                    st.info("💡 若 PDF 為掃描檔，可勾選「使用 AI OCR」由 Gemini 辨識文字。")
                             else:
                                 st.success("轉換完成")
                                 st.download_button(

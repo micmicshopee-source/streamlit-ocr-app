@@ -15,4 +15,5 @@ python-pptx>=0.6.21
 # 需 poppler（packages.txt）：pdf2image 用於 PDF→圖片、PPT
 pdf2image>=1.16.0
 
-# 暫移 pdf2docx（依賴複雜，易安裝失敗）：PDF→Word 會顯示「未安裝」
+# PDF→Word（伺服器需安裝；Streamlit Cloud 若安裝失敗可移除此行）
+pdf2docx>=0.5.0
