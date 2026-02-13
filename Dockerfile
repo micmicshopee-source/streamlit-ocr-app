@@ -2,8 +2,12 @@ FROM python:3.9-slim
 
 WORKDIR /app
 
-# 安裝系統依賴（curl 用於健康檢查）
-RUN apt-get update && apt-get install -y --no-install-recommends curl \
+# 安裝系統依賴
+# - curl: 健康檢查
+# - poppler-utils: pdf2image 所需（PDF 轉圖片、PPT）
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    poppler-utils \
     && rm -rf /var/lib/apt/lists/*
 
 # 複製依賴文件
@@ -14,6 +18,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # 複製應用文件
 COPY app.py .
+COPY pdf_converter.py .
 COPY NotoSansTC-Regular.ttf .
 COPY templates/ ./templates/
 COPY pages/ ./pages/

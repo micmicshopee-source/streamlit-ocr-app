@@ -2,10 +2,12 @@
 """
 PDF 萬能轉換工具模組
 支援：PDF → Excel, PPT, 圖片 (JPG/PNG), Word
+含 AI OCR 模式：掃描檔 PDF 轉 Word（使用 Gemini Vision）
 """
 
 from __future__ import annotations
 
+import base64
 import io
 import os
 import tempfile
@@ -20,11 +22,13 @@ _pdf2docx = None
 _pandas = None
 _openpyxl = None
 _pil = None
+_python_docx = None
+_requests = None
 
 
 def _safe_imports():
     """延遲導入，避免 import 時即失敗。"""
-    global _pdfplumber, _pptx, _pdf2image, _pdf2docx, _pandas, _openpyxl, _pil
+    global _pdfplumber, _pptx, _pdf2image, _pdf2docx, _pandas, _openpyxl, _pil, _python_docx, _requests
     if _pdfplumber is None:
         try:
             import pdfplumber
@@ -69,6 +73,19 @@ def _safe_imports():
             _pil = Image
         except ImportError:
             _pil = False
+    if _python_docx is None:
+        try:
+            from docx import Document
+            from docx.shared import Pt
+            _python_docx = (Document, Pt)
+        except ImportError:
+            _python_docx = False
+    if _requests is None:
+        try:
+            import requests
+            _requests = requests
+        except ImportError:
+            _requests = False
 
 
 def pdf_to_excel(pdf_bytes: bytes, progress_callback=None) -> Tuple[Optional[bytes], Optional[str]]:
@@ -271,3 +288,96 @@ def pdf_to_word(pdf_bytes: bytes, progress_callback=None) -> Tuple[Optional[byte
         if "encrypted" in err_msg.lower() or "password" in err_msg.lower():
             return None, "PDF 已加密或受密碼保護，無法讀取"
         return None, f"轉換失敗：{err_msg}"
+
+
+def pdf_to_word_with_ai_ocr(
+    pdf_bytes: bytes,
+    api_key: str,
+    model_name: str = "gemini-2.0-flash",
+    progress_callback=None,
+) -> Tuple[Optional[bytes], Optional[str]]:
+    """
+    使用 Gemini AI Vision 對 PDF 每頁進行 OCR，產出 Word 檔。
+    適用掃描檔、圖片型 PDF。
+    Returns: (docx_bytes, error_message)
+    """
+    _safe_imports()
+    if not _pdf2image:
+        return None, "未安裝 pdf2image（需 poppler）。請執行：pip install pdf2image"
+    if not _pil:
+        return None, "未安裝 Pillow"
+    if not _python_docx:
+        return None, "未安裝 python-docx，請執行：pip install python-docx"
+    if not _requests:
+        return None, "未安裝 requests"
+    if not api_key or not api_key.strip():
+        return None, "未提供 Gemini API 金鑰"
+
+    try:
+        import requests as req
+        images = _pdf2image(pdf_bytes, dpi=200)
+        total = len(images)
+        if total == 0:
+            return None, "PDF 中無頁面"
+
+        Document, Pt = _python_docx
+        doc = Document()
+        prompt = """請將此圖片中的所有文字完整辨識並輸出。
+要求：
+1. 逐行、逐段輸出，保持原有閱讀順序
+2. 保留段落換行（用空行分隔段落）
+3. 若為表格，請以空格或 Tab 對齊呈現
+4. 純文字輸出，不要加標題或說明
+5. 使用繁體中文（若為其他語言則原文輸出）"""
+
+        m_name = model_name if "models/" in model_name else f"models/{model_name}"
+        url = f"https://generativelanguage.googleapis.com/v1beta/{m_name}:generateContent?key={api_key.strip()}"
+
+        for i, img in enumerate(images):
+            if progress_callback:
+                progress_callback((i + 1) / total)
+
+            if img.mode != "RGB":
+                img = img.convert("RGB")
+            img.thumbnail((1920, 1920), _pil.Image.Resampling.LANCZOS)
+            buf = io.BytesIO()
+            img.save(buf, format="JPEG", quality=90)
+            img_b64 = base64.b64encode(buf.getvalue()).decode()
+
+            payload = {
+                "contents": [{
+                    "parts": [
+                        {"text": prompt},
+                        {"inlineData": {"mimeType": "image/jpeg", "data": img_b64}},
+                    ]
+                }],
+                "generationConfig": {"temperature": 0.1, "maxOutputTokens": 8192},
+            }
+
+            resp = req.post(url, json=payload, timeout=60)
+            if resp.status_code != 200:
+                return None, f"Gemini API 錯誤: {resp.status_code} {resp.text[:200]}"
+
+            data = resp.json()
+            if not data.get("candidates") or not data["candidates"][0].get("content", {}).get("parts"):
+                return None, f"第 {i+1} 頁 OCR 無回傳內容"
+
+            text = data["candidates"][0]["content"]["parts"][0].get("text", "").strip()
+            if text:
+                for para in text.split("\n\n"):
+                    para = para.strip()
+                    if para:
+                        p = doc.add_paragraph(para)
+                        p.paragraph_format.space_after = Pt(6)
+
+        buf = io.BytesIO()
+        doc.save(buf)
+        buf.seek(0)
+        return buf.read(), None
+    except Exception as e:
+        err_msg = str(e)
+        if "encrypted" in err_msg.lower() or "password" in err_msg.lower():
+            return None, "PDF 已加密或受密碼保護，無法讀取"
+        if "poppler" in err_msg.lower():
+            return None, "pdf2image 需要 poppler"
+        return None, f"AI OCR 轉換失敗：{err_msg}"

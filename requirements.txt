@@ -13,8 +13,8 @@ google-cloud-speech>=2.20.0
 python-docx>=0.8.11
 pymupdf>=1.23.0
 
-# PDF 萬能轉換工具
+# PDF 萬能轉換工具（pdf2docx 無額外系統依賴，Docker 部署相容）
 pdfplumber>=0.10.0
 python-pptx>=0.6.21
-pdf2image>=1.16.0  # 需安裝 poppler：Windows 用 conda install -c conda-forge poppler 或下載 poppler
-pdf2docx>=0.5.0
+pdf2image>=1.16.0   # 需 poppler（Dockerfile 已含 poppler-utils）
+pdf2docx>=0.5.0     # 主用：PDF→Word，純 pip、無額外系統依賴

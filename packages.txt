@@ -1,0 +1,3 @@
+# Streamlit Community Cloud 系統依賴
+# pdf2image 需 poppler-utils（PDF 轉圖片、PPT）
+poppler-utils
