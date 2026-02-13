@@ -79,9 +79,6 @@ nano .streamlit/secrets.toml
 ```toml
 GEMINI_API_KEY = "你的Gemini金鑰"
 
-# 選填：Cookie 持久化登入的加密密鑰（刷新後保持登入）。未設定則用預設值。
-# COOKIES_PASSWORD = "你的隨機長字串"
-
 [google_auth]
 client_id = "你的Client ID"
 client_secret = "你的Client Secret"

@@ -58,36 +58,79 @@ _ensure_secrets_file()
 # --- 1. 系統佈局與初始化 ---
 st.set_page_config(page_title="上班族小工具 | 發票報帳・辦公小幫手", page_icon="🧾", layout="wide")
 
-# --- Cookie 持久化登入（刷新後保持登入狀態）---
-_AUTH_COOKIE_KEY = "auth_session"
-_cookies = None
-try:
-    from streamlit_cookies_manager import EncryptedCookieManager
-    _cookie_secret = os.environ.get("COOKIES_PASSWORD", "streamlit_ocr_app_default_cookie_secret_change_in_production")
-    _cookies = EncryptedCookieManager(prefix="streamlit_ocr_app/", password=_cookie_secret)
-    if not _cookies.ready():
-        with st.spinner("載入中…"):
-            st.stop()
-    # 從 Cookie 還原登入狀態（若 session_state 尚未登入）
-    raw = _cookies.get(_AUTH_COOKIE_KEY)
-    if not st.session_state.get("authenticated") and raw:
-        try:
-            if raw and "|" in raw:
-                email, login_at_str = raw.split("|", 1)
-                email = email.strip()
-                if email:
-                    login_at = datetime.fromisoformat(login_at_str.strip())
-                    if (datetime.now() - login_at).total_seconds() < 24 * 3600:
-                        st.session_state.authenticated = True
-                        st.session_state.user_email = email
-                        st.session_state.login_at = login_at_str
-                    else:
-                        del _cookies[_AUTH_COOKIE_KEY]
-                        _cookies.save()
-        except Exception:
-            pass
-except ImportError:
-    _cookies = None
+# --- 持久化登入（刷新後保持登入）：URL auth 參數 + 檔案儲存 token ---
+_SESSION_EXPIRE_HOURS = 24
+_SESSIONS_FILE = None
+
+def _get_sessions_path():
+    global _SESSIONS_FILE
+    if _SESSIONS_FILE is None:
+        base = os.path.dirname(os.path.abspath(__file__))
+        _SESSIONS_FILE = os.path.join(base, ".streamlit", "auth_sessions.json")
+    return _SESSIONS_FILE
+
+def _load_auth_sessions():
+    """讀取 session token 對照表。回傳 {token: {email, login_at}}"""
+    try:
+        path = _get_sessions_path()
+        if os.path.isfile(path):
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return {}
+
+def _save_auth_session(token, email, login_at):
+    """新增一筆 session，回傳是否成功"""
+    try:
+        path = _get_sessions_path()
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        data = _load_auth_sessions()
+        data[token] = {"email": email, "login_at": login_at}
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False)
+        return True
+    except Exception:
+        return False
+
+def _remove_auth_session(token):
+    """移除指定 token"""
+    try:
+        path = _get_sessions_path()
+        if os.path.isfile(path):
+            data = _load_auth_sessions()
+            data.pop(token, None)
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False)
+    except Exception:
+        pass
+
+def _restore_session_from_url():
+    """若 URL 有 auth 參數且 token 有效，還原登入狀態。回傳是否已還原。"""
+    qp = st.query_params
+    token = qp.get("auth")
+    if not token or st.session_state.get("authenticated"):
+        return False
+    sessions = _load_auth_sessions()
+    entry = sessions.get(token)
+    if not entry:
+        return False
+    email = entry.get("email")
+    login_at_str = entry.get("login_at")
+    if not email or not login_at_str:
+        _remove_auth_session(token)
+        return False
+    try:
+        login_at = datetime.fromisoformat(login_at_str)
+        if (datetime.now() - login_at).total_seconds() >= _SESSION_EXPIRE_HOURS * 3600:
+            _remove_auth_session(token)
+            return False
+        st.session_state.authenticated = True
+        st.session_state.user_email = email
+        st.session_state.login_at = login_at_str
+        return True
+    except Exception:
+        return False
 
 # --- 主題：Premium Dark（Google Black #0F0F0F / 卡片 #1E1E1E / 4px·8px 網格 / 導航 Hover 過渡）---
 def _inject_premium_dark_css():
@@ -145,6 +188,9 @@ if "company_ubn" not in st.session_state: st.session_state.company_ubn = ""
 if "detail_invoice_index" not in st.session_state: st.session_state.detail_invoice_index = None
 if "invoice_master_page" not in st.session_state: st.session_state.invoice_master_page = 0
 if "detail_invoice_id" not in st.session_state: st.session_state.detail_invoice_id = None
+
+# 從 URL auth 參數還原登入狀態（刷新後保持登入）
+_restore_session_from_url()
 
 # --- 安全讀取 Streamlit Secrets（無 secrets.toml 時不報錯）---
 def _load_secrets_from_app_dir():
@@ -648,12 +694,9 @@ def login_page():
                                 _login_at = datetime.now().isoformat()
                                 st.session_state.login_at = _login_at
                                 st.session_state.pop("login_csrf_token", None)
-                                if _cookies:
-                                    try:
-                                        _cookies[_AUTH_COOKIE_KEY] = f"{email.strip()}|{_login_at}"
-                                        _cookies.save()
-                                    except Exception:
-                                        pass
+                                _tok = _secrets_module.token_urlsafe(32)
+                                if _save_auth_session(_tok, email.strip(), _login_at):
+                                    st.query_params["auth"] = _tok
                                 st.success(f"✅ {message}")
                                 time.sleep(0.5)
                                 st.rerun()
@@ -715,12 +758,9 @@ def login_page():
                         _login_at = datetime.now().isoformat()
                         st.session_state.login_at = _login_at
                         st.session_state.pop("login_csrf_token", None)
-                        if _cookies:
-                            try:
-                                _cookies[_AUTH_COOKIE_KEY] = f"{email.strip()}|{_login_at}"
-                                _cookies.save()
-                            except Exception:
-                                pass
+                        _tok = _secrets_module.token_urlsafe(32)
+                        if _save_auth_session(_tok, email.strip(), _login_at):
+                            st.query_params["auth"] = _tok
                         st.success(f"✅ {message}")
                         time.sleep(0.5)
                         st.rerun()
@@ -2366,14 +2406,12 @@ if qp.get("code") and qp.get("state"):
         st.session_state.login_at = _login_at
         st.session_state.pop("login_csrf_token", None)
         st.session_state.pop("oauth_state", None)
-        if _cookies:
-            try:
-                _cookies[_AUTH_COOKIE_KEY] = f"{msg}|{_login_at}"
-                _cookies.save()
-            except Exception:
-                pass
+        _tok = _secrets_module.token_urlsafe(32)
+        if _save_auth_session(_tok, msg, _login_at):
+            st.query_params["auth"] = _tok
         try:
-            st.query_params.clear()
+            st.query_params.pop("code", None)
+            st.query_params.pop("state", None)
         except Exception:
             pass
         st.rerun()
@@ -2388,15 +2426,16 @@ if st.session_state.authenticated and st.session_state.user_email and st.session
     try:
         login_at = datetime.fromisoformat(st.session_state.login_at)
         if (datetime.now() - login_at).total_seconds() > _SESSION_EXPIRE_HOURS * 3600:
+            _tok = st.query_params.get("auth")
+            if _tok:
+                _remove_auth_session(_tok)
+                try:
+                    st.query_params.pop("auth", None)
+                except Exception:
+                    pass
             st.session_state.authenticated = False
             st.session_state.user_email = None
             st.session_state.login_at = None
-            if _cookies:
-                try:
-                    del _cookies[_AUTH_COOKIE_KEY]
-                    _cookies.save()
-                except Exception:
-                    pass
     except Exception:
         st.session_state.login_at = None
 
@@ -2428,15 +2467,16 @@ with st.sidebar:
     user_email = st.session_state.get("user_email", "未登入")
     st.caption(f"👤 {user_email}")
     if st.button("🚪 登出", use_container_width=True, key="sidebar_logout"):
+        _tok = st.query_params.get("auth")
+        if _tok:
+            _remove_auth_session(_tok)
+            try:
+                st.query_params.pop("auth", None)
+            except Exception:
+                pass
         st.session_state.authenticated = False
         st.session_state.user_email = None
         st.session_state.login_at = None
-        if _cookies:
-            try:
-                del _cookies[_AUTH_COOKIE_KEY]
-                _cookies.save()
-            except Exception:
-                pass
         st.rerun()
     
     st.markdown("---")

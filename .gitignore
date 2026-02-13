@@ -29,6 +29,7 @@ MANIFEST
 # Streamlit
 .streamlit/
 .streamlit/secrets.toml
+.streamlit/auth_sessions.json
 
 # Database
 *.db
