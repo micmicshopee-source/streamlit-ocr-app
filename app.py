@@ -657,6 +657,24 @@ def login_page():
                         st.rerun()
                     else:
                         st.error(f"❌ {message}")
+            
+            # 隱私政策與服務條款（僅註冊頁面顯示）
+            st.markdown("---")
+            with st.expander("📜 隱私政策", expanded=False):
+                st.write("""
+**本工具（上班族小工具）重視您的隱私：**
+1. **數據蒐集**：我們僅在您上傳發票圖片時，利用 AI 提取文字數據。
+2. **數據存儲**：圖片在識別完成後不會保留，僅保留識別後的文字數據於您的本地 Session 中。
+3. **第三方分享**：我們不會將您的個人消費資訊分享給任何廣告商。
+4. **LINE 授權**：僅用於發送中獎通知給您本人。
+                """)
+            with st.expander("📋 服務條款", expanded=False):
+                st.write("""
+1. **服務內容**：本工具提供發票 AI 識別及自動對獎服務。
+2. **準確性免責**：AI 識別可能存在誤差，報帳前請務必人工核對數據。
+3. **責任限制**：本工具不對因識別錯誤造成的財務損失負責。
+4. **更新權利**：我們保留隨時更新功能與調整服務額度的權利。
+                """)
         
         st.markdown('</div>', unsafe_allow_html=True)
 
@@ -2289,30 +2307,6 @@ if st.session_state.authenticated and st.session_state.user_email and st.session
             st.session_state.login_at = None
     except Exception:
         st.session_state.login_at = None
-
-# 法律條款：側邊欄切換（主程式 / 隱私政策 / 服務條款），未登入也可查看
-with st.sidebar:
-    st.divider()
-    legal_page = st.radio("法律條款", ["主程式", "隱私政策", "服務條款"], key="legal_page_radio")
-if legal_page == "隱私政策":
-    st.title("隱私政策")
-    st.write("""
-    **本工具（上班族小工具）重視您的隱私：**
-    1. **數據蒐集**：我們僅在您上傳發票圖片時，利用 AI 提取文字數據。
-    2. **數據存儲**：圖片在識別完成後不會保留，僅保留識別後的文字數據於您的本地 Session 中。
-    3. **第三方分享**：我們不會將您的個人消費資訊分享給任何廣告商。
-    4. **LINE 授權**：僅用於發送中獎通知給您本人。
-    """)
-    st.stop()
-elif legal_page == "服務條款":
-    st.title("使用條款")
-    st.write("""
-    1. **服務內容**：本工具提供發票 AI 識別及自動對獎服務。
-    2. **準確性免責**：AI 識別可能存在誤差，報帳前請務必人工核對數據。
-    3. **責任限制**：本工具不對因識別錯誤造成的財務損失負責。
-    4. **更新權利**：我們保留隨時更新功能與調整服務額度的權利。
-    """)
-    st.stop()
 
 if not st.session_state.authenticated or not st.session_state.user_email:
     login_page()
