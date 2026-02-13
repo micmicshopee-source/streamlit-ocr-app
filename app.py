@@ -58,6 +58,37 @@ _ensure_secrets_file()
 # --- 1. 系統佈局與初始化 ---
 st.set_page_config(page_title="上班族小工具 | 發票報帳・辦公小幫手", page_icon="🧾", layout="wide")
 
+# --- Cookie 持久化登入（刷新後保持登入狀態）---
+_AUTH_COOKIE_KEY = "auth_session"
+_cookies = None
+try:
+    from streamlit_cookies_manager import EncryptedCookieManager
+    _cookie_secret = os.environ.get("COOKIES_PASSWORD", "streamlit_ocr_app_default_cookie_secret_change_in_production")
+    _cookies = EncryptedCookieManager(prefix="streamlit_ocr_app/", password=_cookie_secret)
+    if not _cookies.ready():
+        with st.spinner("載入中…"):
+            st.stop()
+    # 從 Cookie 還原登入狀態（若 session_state 尚未登入）
+    raw = _cookies.get(_AUTH_COOKIE_KEY)
+    if not st.session_state.get("authenticated") and raw:
+        try:
+            if raw and "|" in raw:
+                email, login_at_str = raw.split("|", 1)
+                email = email.strip()
+                if email:
+                    login_at = datetime.fromisoformat(login_at_str.strip())
+                    if (datetime.now() - login_at).total_seconds() < 24 * 3600:
+                        st.session_state.authenticated = True
+                        st.session_state.user_email = email
+                        st.session_state.login_at = login_at_str
+                    else:
+                        del _cookies[_AUTH_COOKIE_KEY]
+                        _cookies.save()
+        except Exception:
+            pass
+except ImportError:
+    _cookies = None
+
 # --- 主題：Premium Dark（Google Black #0F0F0F / 卡片 #1E1E1E / 4px·8px 網格 / 導航 Hover 過渡）---
 def _inject_premium_dark_css():
     base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -614,8 +645,15 @@ def login_page():
                             if success:
                                 st.session_state.authenticated = True
                                 st.session_state.user_email = email.strip()
-                                st.session_state.login_at = datetime.now().isoformat()
+                                _login_at = datetime.now().isoformat()
+                                st.session_state.login_at = _login_at
                                 st.session_state.pop("login_csrf_token", None)
+                                if _cookies:
+                                    try:
+                                        _cookies[_AUTH_COOKIE_KEY] = f"{email.strip()}|{_login_at}"
+                                        _cookies.save()
+                                    except Exception:
+                                        pass
                                 st.success(f"✅ {message}")
                                 time.sleep(0.5)
                                 st.rerun()
@@ -674,8 +712,15 @@ def login_page():
                     if success:
                         st.session_state.authenticated = True
                         st.session_state.user_email = email.strip()
-                        st.session_state.login_at = datetime.now().isoformat()
+                        _login_at = datetime.now().isoformat()
+                        st.session_state.login_at = _login_at
                         st.session_state.pop("login_csrf_token", None)
+                        if _cookies:
+                            try:
+                                _cookies[_AUTH_COOKIE_KEY] = f"{email.strip()}|{_login_at}"
+                                _cookies.save()
+                            except Exception:
+                                pass
                         st.success(f"✅ {message}")
                         time.sleep(0.5)
                         st.rerun()
@@ -1617,6 +1662,34 @@ def _parse_lottery_draw_from_html(text):
     return draw, None
 
 
+def _should_refresh_lottery(cached_draw):
+    """若快取期別的下一期已開獎（單月25日），則應自動更新。
+    例：快取為 11-12月（1/25 開獎），若今日 >= 3/25 則有新期 1-2月，應更新。
+    """
+    if not cached_draw or not cached_draw.get("period_label"):
+        return True
+    period_label = cached_draw["period_label"]
+    m = re.search(r"(\d{3})年\s*(\d{1,2})\s*[~～\-]\s*(\d{1,2})\s*月", period_label)
+    if not m:
+        return False
+    year_tw = int(m.group(1))
+    end_month = int(m.group(3))
+    year_ad = year_tw + 1911
+    # 期別對應開獎日：11-12→1/25, 1-2→3/25, 3-4→5/25, 5-6→7/25, 7-8→9/25, 9-10→11/25
+    draw_months = {12: 1, 2: 3, 4: 5, 6: 7, 8: 9, 10: 11}
+    draw_month = draw_months.get(end_month)
+    if not draw_month:
+        return False
+    draw_year = year_ad + 1 if end_month == 12 else year_ad
+    # 下一期開獎日：1→3/25, 3→5/25, 5→7/25, 7→9/25, 9→11/25, 11→次年1/25
+    next_map = {1: (3, 0), 3: (5, 0), 5: (7, 0), 7: (9, 0), 9: (11, 0), 11: (1, 1)}
+    nm, ny = next_map.get(draw_month, (0, 0))
+    if not nm:
+        return False
+    next_draw_date = datetime(draw_year + ny, nm, 25).date()
+    return datetime.now().date() >= next_draw_date
+
+
 def fetch_lottery_draw_from_etax(slot):
     """爬蟲：直接取得財政部開獎頁 HTML，並解析開獎號碼。
     slot: 0 = 最新一期（index.html），1 = 上一期（lastNumber.html）。
@@ -2289,9 +2362,16 @@ if qp.get("code") and qp.get("state"):
     if success:
         st.session_state.authenticated = True
         st.session_state.user_email = msg
-        st.session_state.login_at = datetime.now().isoformat()
+        _login_at = datetime.now().isoformat()
+        st.session_state.login_at = _login_at
         st.session_state.pop("login_csrf_token", None)
         st.session_state.pop("oauth_state", None)
+        if _cookies:
+            try:
+                _cookies[_AUTH_COOKIE_KEY] = f"{msg}|{_login_at}"
+                _cookies.save()
+            except Exception:
+                pass
         try:
             st.query_params.clear()
         except Exception:
@@ -2311,6 +2391,12 @@ if st.session_state.authenticated and st.session_state.user_email and st.session
             st.session_state.authenticated = False
             st.session_state.user_email = None
             st.session_state.login_at = None
+            if _cookies:
+                try:
+                    del _cookies[_AUTH_COOKIE_KEY]
+                    _cookies.save()
+                except Exception:
+                    pass
     except Exception:
         st.session_state.login_at = None
 
@@ -2345,6 +2431,12 @@ with st.sidebar:
         st.session_state.authenticated = False
         st.session_state.user_email = None
         st.session_state.login_at = None
+        if _cookies:
+            try:
+                del _cookies[_AUTH_COOKIE_KEY]
+                _cookies.save()
+            except Exception:
+                pass
         st.rerun()
     
     st.markdown("---")
@@ -2801,9 +2893,26 @@ with st.container():
         st.caption("目前沒有發票資料，請先上傳或導入後再進行對獎。")
     else:
         _auto_err = None
-        if not st.session_state.get("lottery_last_checked"):
+        last = st.session_state.get("lottery_last_checked")
+        cached_draw = (last or {}).get("draw") or st.session_state.get("lottery_draw")
+        # 無快取時自動對獎；有快取但期別已過期（有新開獎）時自動更新
+        need_refresh = _should_refresh_lottery(cached_draw) if cached_draw else True
+        # 若上次自動更新失敗，冷卻 10 分鐘再試，避免重複請求
+        _refresh_cooldown = st.session_state.get("lottery_refresh_cooldown")
+        if _refresh_cooldown and (datetime.now() - _refresh_cooldown).total_seconds() < 600:
+            need_refresh = False
+        if not last:
             with st.spinner("正在自動對獎最新一期…"):
                 _auto_err = _run_lottery_and_match(0)
+                if _auto_err:
+                    st.session_state["lottery_refresh_cooldown"] = datetime.now()
+        elif need_refresh:
+            with st.spinner("偵測到新開獎期，正在更新…"):
+                _auto_err = _run_lottery_and_match(0)
+                if _auto_err:
+                    st.session_state["lottery_refresh_cooldown"] = datetime.now()
+                else:
+                    st.session_state.pop("lottery_refresh_cooldown", None)
         last = st.session_state.get("lottery_last_checked")
         draw = st.session_state.get("lottery_draw")
         label = (last.get("draw") or draw or {}).get("period_label") if (last or draw) else "本期"
@@ -2820,6 +2929,8 @@ with st.container():
             st.markdown("**對獎結果**")
             if _auto_err and not last:
                 st.warning("無法取得開獎，請使用下方手動貼上或點「對獎」重試。")
+            elif _auto_err and last:
+                st.warning("偵測到新開獎期但無法自動更新，請手動點「對獎（本期）」重試。下方為上次對獎結果。")
             elif last:
                 checked_count = last.get("checked_count", 0)
                 total_prize = last.get("total_prize", 0)
