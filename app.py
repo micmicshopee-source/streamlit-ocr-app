@@ -56,7 +56,7 @@ def _ensure_secrets_file():
 _ensure_secrets_file()
 
 # --- 1. 系統佈局與初始化 ---
-st.set_page_config(page_title="上班族小工具 | 發票報帳・辦公小幫手", page_icon="🧾", layout="wide")
+st.set_page_config(page_title="上班族小工具 | 發票報帳・辦公小幫手", page_icon="🧾", layout="wide", initial_sidebar_state="expanded")
 
 # --- 持久化登入（刷新後保持登入）：URL auth 參數 + 檔案儲存 token ---
 _SESSION_EXPIRE_HOURS = 24
@@ -142,6 +142,7 @@ def _inject_premium_dark_css():
 _inject_premium_dark_css()
 
 # 強制隱藏頂部黑色遮擋條（多種選擇器以兼容不同 Streamlit 版本）
+# 注意：不隱藏側邊欄展開按鈕，避免摺疊後無法再開啟
 st.markdown("""
 <style>
 /* 頂部工具列、Header、裝飾區 */
@@ -154,7 +155,53 @@ div[data-testid="stHeader"],
 /* 主內容區頂部留白改為 0 */
 .main .block-container { padding-top: 0.5rem !important; }
 section[data-testid="stAppViewBlockContainer"] { padding-top: 0 !important; }
+/* 側邊欄展開按鈕：確保摺疊後仍可點擊（Streamlit 不同版本選擇器可能不同） */
+[data-testid="stSidebar"] [data-testid="collapsedControl"],
+[data-testid="stSidebar"] > div:first-child > button,
+[data-testid="stSidebar"] button[kind="header"],
+button[aria-label*="sidebar"],
+button[aria-label*="Sidebar"],
+button[aria-label*="展開"],
+button[aria-label*="摺疊"] {
+    display: flex !important;
+    visibility: visible !important;
+    pointer-events: auto !important;
+    z-index: 999999 !important;
+}
+/* 固定展開按鈕：側邊欄摺疊時顯示在左側 */
+.expand-sidebar-btn {
+    position: fixed !important;
+    left: 0 !important;
+    top: 50% !important;
+    transform: translateY(-50%) !important;
+    z-index: 999998 !important;
+    padding: 8px 6px !important;
+    background: #1e1e1e !important;
+    color: #b0b0b0 !important;
+    border: 1px solid #333 !important;
+    border-radius: 0 4px 4px 0 !important;
+    cursor: pointer !important;
+    font-size: 14px !important;
+    box-shadow: 2px 0 8px rgba(0,0,0,0.3) !important;
+}
+.expand-sidebar-btn:hover { background: #2a2a2a !important; color: #fff !important; }
+/* 側邊欄已展開時隱藏自訂展開按鈕 */
+.stApp:has([data-testid=stSidebar][aria-expanded="true"]) .expand-sidebar-btn { display: none !important; }
 </style>
+<button class="expand-sidebar-btn" onclick="
+(function(){
+  var s=['[data-testid=collapsedControl]','[data-testid=stSidebar] button','button[aria-label*=sidebar]','button[aria-label*=Sidebar]'];
+  for(var i=0;i<s.length;i++){
+    var b=document.querySelector(s[i]);
+    if(b){b.click();return;}
+  }
+  var sb=document.querySelector('[data-testid=stSidebar]');
+  if(sb&&sb.getAttribute('aria-expanded')==='false'){
+    var btns=sb.querySelectorAll('button');
+    if(btns.length)btns[0].click();
+  }
+})();
+" title="展開功能欄">≡ 展開</button>
 """, unsafe_allow_html=True)
 
 if "db_error" not in st.session_state: st.session_state.db_error = None
