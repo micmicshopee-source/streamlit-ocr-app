@@ -10,16 +10,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     poppler-utils \
     && rm -rf /var/lib/apt/lists/*
 
-# 複製依賴文件
-COPY requirements.txt .
-
-# 安裝 Python 依賴
-RUN pip install --no-cache-dir -r requirements.txt
+# 複製依賴文件（Docker 用完整版 requirements-server.txt）
+COPY requirements-server.txt requirements.txt ./
+RUN pip install --no-cache-dir -r requirements-server.txt
 
 # 複製應用文件
 COPY app.py .
 COPY pdf_converter.py .
 COPY NotoSansTC-Regular.ttf .
+COPY premium_dark.css .
 COPY templates/ ./templates/
 COPY pages/ ./pages/
 

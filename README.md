@@ -1,59 +1,76 @@
-# 圖片 OCR 辨識工具
+# 上班族小工具
 
-這是一個使用 Streamlit 和 Google Gemini API 開發的圖片 OCR（光學字元辨識）工具。
+發票報帳・辦公小幫手 — 使用 Streamlit 與 Google Gemini API 開發。
+
+---
 
 ## 功能特色
 
-- 📤 支援多種圖片格式上傳（PNG, JPG, JPEG, GIF, BMP, WEBP）
-- 🖼️ 即時預覽上傳的圖片
-- 🔍 使用 Google Gemini API 進行 OCR 文字辨識
-- 📝 清晰顯示辨識結果
-- 🎨 現代化的使用者介面
+### 📑 發票報帳小秘笈
+- 上傳發票圖片，AI OCR 辨識（Gemini）
+- CSV 批次導入
+- 發票對獎（財政部開獎號碼）
+- 導出 CSV、Excel、PDF 報表
 
-## 安裝步驟
+### 📄 PDF 萬能轉換工具
+- PDF → Excel（表格提取）
+- PDF → PPT（每頁轉圖片）
+- PDF → 圖片 ZIP（JPG/PNG）
+- PDF → Word（含 AI OCR 掃描檔）
 
-1. 確保已安裝 Python 3.8 或更高版本
+### 📅 AI 會議精華
+- 貼上逐字稿或上傳錄音
+- AI 產出結論與待辦事項
 
-2. 安裝所需的套件：
+### ⚖️ AI 合約比對
+- 上傳兩份合約（PDF/Word/文字）
+- AI 標示差異與重點
+
+### 🛡️ Google 登錄診斷工具
+- 檢查 OAuth 設定是否正確
+
+---
+
+## 安裝與部署
+
+### 本機開發
+
 ```bash
 pip install -r requirements.txt
-```
+# 伺服器完整版：pip install -r requirements-server.txt
 
-## 使用方法
-
-1. 啟動應用程式：
-```bash
 streamlit run app.py
 ```
 
-2. 在瀏覽器中開啟顯示的網址（通常是 http://localhost:8501）
+### 系統依賴（PDF 轉換）
 
-3. 在側邊欄輸入您的 Google Gemini API Key
+- **poppler-utils**：`sudo apt install poppler-utils`（Ubuntu/Debian）
 
-4. 上傳要辨識的圖片
+### 設定
 
-5. 點擊「開始 OCR 辨識」按鈕
+建立 `.streamlit/secrets.toml`：
 
-6. 查看辨識結果
+```toml
+GEMINI_API_KEY = "你的Gemini金鑰"
+```
 
-## 取得 Gemini API Key
+---
 
-1. 前往 [Google AI Studio](https://makersuite.google.com/app/apikey)
-2. 登入您的 Google 帳號
-3. 建立新的 API Key
-4. 複製 API Key 並在應用程式中使用
+## 部署指南
 
-## 注意事項
+- **VPS 部署**：見 `部署到VPS指南.md`
+- **上線檢查**：見 `上線前整體檢查清單.md`
+- **Docker**：`docker compose -f docker-compose.prod.yml up -d --build`
 
-- 請妥善保管您的 API Key，不要分享給他人
-- API 使用可能會產生費用，請參考 Google 的定價方案
-- 建議在穩定的網路環境下使用
+---
 
 ## 技術棧
 
-- **Streamlit**: Web 應用程式框架
-- **Google Generative AI**: Gemini API 客戶端
-- **Pillow (PIL)**: 圖片處理
+- Streamlit、Google Generative AI (Gemini)
+- Pandas、OpenPyXL、FPDF2、PyMuPDF
+- pdfplumber、python-pptx、pdf2image、pdf2docx
+
+---
 
 ## 授權
 
