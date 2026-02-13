@@ -1,4 +1,4 @@
-# 核心依賴（Streamlit Cloud 相容）
+# Streamlit Cloud 精簡版（先求能部署）
 streamlit>=1.28.0,<2
 google-generativeai>=0.3.0
 Pillow>=10.0.0
@@ -9,12 +9,10 @@ fpdf2>=2.7.0
 altair>=5.0.0
 python-docx>=0.8.11
 pymupdf>=1.23.0
-
-# PDF 萬能轉換工具
 pdfplumber>=0.10.0
 python-pptx>=0.6.21
-pdf2image>=1.16.0
-pdf2docx>=0.5.0
 
-# 可選：會議錄音 Cloud STT（體積大，Streamlit Cloud 易安裝失敗；已移除）
-# 未安裝時，AI 會議精華的錄音轉錄仍可用 Gemini 語音辨識
+# 需 poppler（packages.txt）：pdf2image 用於 PDF→圖片、PPT
+pdf2image>=1.16.0
+
+# 暫移 pdf2docx（依賴複雜，易安裝失敗）：PDF→Word 會顯示「未安裝」
