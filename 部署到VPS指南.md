@@ -187,6 +187,13 @@ server {
     listen 80;
     server_name getaiinvoice.com www.getaiinvoice.com;
 
+    # 隱私權政策（獨立 URL，供 Google OAuth 品牌驗證）
+    location = /privacy {
+        alias /opt/streamlit_ocr_app/static/privacy.html;
+        default_type text/html;
+        add_header Cache-Control "public, max-age=3600";
+    }
+
     location / {
         proxy_pass http://127.0.0.1:8501;
         proxy_http_version 1.1;
@@ -201,7 +208,39 @@ server {
 }
 ```
 
-3. **啟用並申請 SSL**
+3. **加入 /privacy 靜態頁面（若尚未加入）**
+
+若你已有舊版 Nginx 設定，只需在 `location /` **之前**插入以下區塊：
+
+```nginx
+    # 隱私權政策（獨立 URL，供 Google OAuth 品牌驗證）
+    location = /privacy {
+        alias /opt/streamlit_ocr_app/static/privacy.html;
+        default_type text/html;
+        add_header Cache-Control "public, max-age=3600";
+    }
+
+```
+
+完整結構應為：
+
+```
+server {
+    listen 80;
+    server_name getaiinvoice.com www.getaiinvoice.com;
+
+    location = /privacy { ... }   ← 加在這裡，在 location / 之前
+
+    location / {
+        proxy_pass http://127.0.0.1:8501;
+        ...
+    }
+}
+```
+
+修改後執行 `sudo nginx -t` 檢查語法，再 `sudo systemctl reload nginx` 重新載入。
+
+4. **啟用並申請 SSL**
 
 ```bash
 sudo ln -s /etc/nginx/sites-available/streamlit-ocr /etc/nginx/sites-enabled/
@@ -211,8 +250,10 @@ sudo certbot --nginx -d getaiinvoice.com -d www.getaiinvoice.com
 ```
 
 > **若使用 Google / LINE 登入**：請在 Google Cloud Console、LINE Developers 後台，將「授權重導 URI」設為 `https://getaiinvoice.com/`（與 secrets.toml 一致）。
+>
+> **Google OAuth 品牌驗證**：首頁填 `https://getaiinvoice.com/`，隱私權政策填 `https://getaiinvoice.com/privacy`（需先在 Google Search Console 驗證網域擁有權）。
 
-4. **防火牆**
+5. **防火牆**
 
 ```bash
 sudo ufw allow 22
