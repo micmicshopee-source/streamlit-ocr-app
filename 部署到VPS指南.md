@@ -300,6 +300,70 @@ docker compose -f docker-compose.prod.yml up -d --build
 
 ## 十、常見問題
 
+### Nginx 錯誤：`location directive is not allowed here`
+
+**原因**：Certbot 修改後會產生兩個 `server` 區塊（80 與 443），`location` 必須放在 `server { }` 內部，且路徑要正確。
+
+**解法**：在 VPS 上執行 `sudo nano /etc/nginx/sites-available/streamlit-ocr`，確認結構如下（**路徑請依實際專案位置修改**，例如 `/root/streamlit-ocr-app`）：
+
+```nginx
+# HTTP：導向 HTTPS
+server {
+    listen 80;
+    server_name getaiinvoice.com www.getaiinvoice.com;
+    return 301 https://$host$request_uri;
+}
+
+# HTTPS：主要服務
+server {
+    listen 443 ssl;
+    server_name getaiinvoice.com www.getaiinvoice.com;
+
+    # SSL（由 certbot 自動加入，勿刪）
+    ssl_certificate /etc/letsencrypt/live/getaiinvoice.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/getaiinvoice.com/privkey.pem;
+    include /etc/letsencrypt/options-ssl-nginx.conf;
+    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+
+    # 隱私權政策（獨立 URL）
+    location = /privacy {
+        root /root/streamlit-ocr-app/static;
+        try_files /privacy.html =404;
+        default_type text/html;
+        add_header Cache-Control "public, max-age=3600";
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:8501;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 86400;
+    }
+}
+```
+
+**注意**：若 certbot 已跑過，SSL 那幾行可能已存在，只需在 `listen 443 ssl` 的 `server` 區塊內、`location /` 之前加入 `location = /privacy` 即可。專案路徑若不同（如 `/opt/streamlit_ocr_app`），請改 `alias` 路徑。
+
+修改後執行：
+```bash
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+### 僅 port 80 有監聽、443 沒有
+
+表示 SSL 尚未設定，請執行：
+```bash
+sudo certbot --nginx -d getaiinvoice.com -d www.getaiinvoice.com
+```
+
+---
+
 | 問題 | 解法 |
 |------|------|
 | 502 Bad Gateway | 確認 Streamlit 已啟動：`curl http://localhost:8501/_stcore/health` |
