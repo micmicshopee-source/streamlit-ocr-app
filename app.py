@@ -2879,12 +2879,12 @@ if st.session_state.current_tool != "invoice":
                 "轉換模式",
                 _modes,
                 index=_idx,
-                format_func=lambda x: {"ocr": "OCR 模式（Tesseract，掃描檔適用，免費，嵌入圖片）", "normal": "一般模式（pdf2docx，文字型 PDF，保留樣式/圖片/排版）", "ai": "AI OCR 模式（Gemini，複雜版面，需 API 金鑰）"}[x],
+                format_func=lambda x: {"ocr": "OCR 模式（Tesseract，掃描檔，僅可編輯文字）", "normal": "一般模式（pdf2docx，樣式/字體/圖片皆可編輯，文字型 PDF）", "ai": "AI OCR 模式（Gemini，掃描檔，需 API 金鑰）"}[x],
                 key="pdf_word_mode_radio",
                 horizontal=True,
             )
             st.session_state.pdf_word_mode = pdf_word_mode
-            st.caption("💡 若 PDF 內文字可選取（如 Datasheet），請用「一般模式」可保留樣式、圖片、排版；掃描檔請用 OCR 模式。")
+            st.caption("💡 要得到「樣式、字體、圖片都可編輯」的 Word，請用 **一般模式**（限文字型 PDF）；掃描檔僅能產出可編輯文字。")
 
         st.markdown("---")
         if st.button("開始轉換", type="primary", key="pdf_conv_btn", use_container_width=True):

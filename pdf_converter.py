@@ -396,13 +396,11 @@ def pdf_to_word_with_tesseract(
     pdf_bytes: bytes,
     lang: str = "chi_tra+eng",
     dpi: int = 200,
-    embed_page_images: bool = True,
     progress_callback=None,
 ) -> Tuple[Optional[bytes], Optional[str]]:
     """
     使用 Tesseract OCR 將掃描檔 PDF 轉為可編輯 Word。
-    免費、無需 API 金鑰，需系統安裝 Tesseract。
-    embed_page_images: 是否在 Word 中嵌入每頁圖片（保留版面視覺，圖片下方為 OCR 文字）
+    僅產出純文字（無樣式、無獨立圖片）。若要「樣式／字體／圖片皆可編輯」，請用一般模式（pdf2docx）處理文字型 PDF。
     Returns: (docx_bytes, error_message)
     """
     _safe_imports()
@@ -419,8 +417,6 @@ def pdf_to_word_with_tesseract(
         return None, "未安裝 pytesseract。若使用 venv，請先 source venv/bin/activate 再 pip install pytesseract；或執行 venv/bin/pip install pytesseract"
 
     try:
-        from docx.shared import Inches
-
         images = _pdf2image(pdf_bytes, dpi=dpi)
         total = len(images)
         if total == 0:
@@ -435,25 +431,11 @@ def pdf_to_word_with_tesseract(
             if img.mode != "RGB":
                 img = img.convert("RGB")
             text = pytesseract.image_to_string(img, lang=lang)
-
-            # 嵌入頁面圖片（保留版面視覺，類似 iLovePDF 效果）
-            if embed_page_images:
-                img_buf = io.BytesIO()
-                img.save(img_buf, format="PNG")
-                img_buf.seek(0)
-                try:
-                    doc.add_picture(img_buf, width=Inches(6.0))
-                except Exception:
-                    pass
-                doc.add_paragraph()
-
-            # OCR 文字（可編輯）
             for para in (text or "").split("\n\n"):
                 para = para.strip()
                 if para:
                     p = doc.add_paragraph(para)
                     p.paragraph_format.space_after = Pt(6)
-
             if i < total - 1:
                 doc.add_page_break()
 
