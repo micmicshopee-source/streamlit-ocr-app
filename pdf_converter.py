@@ -2,7 +2,7 @@
 """
 PDF 萬能轉換工具模組
 支援：PDF → Excel, PPT, 圖片 (JPG/PNG), Word
-      圖片 (JPG/PNG) → PDF
+      圖片 / Word / Excel / PPT → PDF
 含 AI OCR 模式：掃描檔 PDF 轉 Word（使用 Gemini Vision）
 """
 
@@ -11,6 +11,7 @@ from __future__ import annotations
 import base64
 import io
 import os
+import subprocess
 import tempfile
 import zipfile
 from typing import List, Optional, Tuple, Union
@@ -94,6 +95,79 @@ def _safe_imports():
             _pymupdf = fitz
         except ImportError:
             _pymupdf = False
+
+
+def _office_to_pdf_via_libreoffice(
+    file_bytes: bytes,
+    ext: str,
+    progress_callback=None,
+) -> Tuple[Optional[bytes], Optional[str]]:
+    """
+    使用 LibreOffice 將 Office 檔轉為 PDF。
+    需系統安裝 LibreOffice：sudo apt install libreoffice
+    Returns: (pdf_bytes, error_message)
+    """
+    _cmd = None
+    for cmd in ("libreoffice", "soffice"):
+        try:
+            subprocess.run([cmd, "--version"], capture_output=True, timeout=5)
+            _cmd = cmd
+            break
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            continue
+    if not _cmd:
+        return None, "未安裝 LibreOffice，請執行：sudo apt install libreoffice"
+
+    try:
+        with tempfile.NamedTemporaryFile(suffix=f".{ext}", delete=False) as f:
+            f.write(file_bytes)
+            input_path = f.name
+        out_dir = tempfile.mkdtemp()
+        try:
+            proc = subprocess.run(
+                [_cmd, "--headless", "--convert-to", "pdf", "--outdir", out_dir, input_path],
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            if proc.returncode != 0:
+                return None, f"LibreOffice 轉換失敗：{proc.stderr or proc.stdout or '未知錯誤'}"
+            base_name = os.path.splitext(os.path.basename(input_path))[0]
+            pdf_path = os.path.join(out_dir, f"{base_name}.pdf")
+            if not os.path.isfile(pdf_path):
+                return None, "轉換後未產生 PDF 檔案"
+            with open(pdf_path, "rb") as f:
+                return f.read(), None
+        finally:
+            try:
+                for f in os.listdir(out_dir):
+                    os.remove(os.path.join(out_dir, f))
+                os.rmdir(out_dir)
+            except Exception:
+                pass
+            try:
+                os.remove(input_path)
+            except Exception:
+                pass
+    except subprocess.TimeoutExpired:
+        return None, "轉換逾時（超過 120 秒）"
+    except Exception as e:
+        return None, f"轉換失敗：{str(e)}"
+
+
+def word_to_pdf(docx_bytes: bytes, progress_callback=None) -> Tuple[Optional[bytes], Optional[str]]:
+    """Word (.docx) 轉 PDF。需 LibreOffice。"""
+    return _office_to_pdf_via_libreoffice(docx_bytes, "docx", progress_callback)
+
+
+def excel_to_pdf(xlsx_bytes: bytes, progress_callback=None) -> Tuple[Optional[bytes], Optional[str]]:
+    """Excel (.xlsx) 轉 PDF。需 LibreOffice。"""
+    return _office_to_pdf_via_libreoffice(xlsx_bytes, "xlsx", progress_callback)
+
+
+def ppt_to_pdf(pptx_bytes: bytes, progress_callback=None) -> Tuple[Optional[bytes], Optional[str]]:
+    """PPT (.pptx) 轉 PDF。需 LibreOffice。"""
+    return _office_to_pdf_via_libreoffice(pptx_bytes, "pptx", progress_callback)
 
 
 def images_to_pdf(
@@ -322,11 +396,13 @@ def pdf_to_word_with_tesseract(
     pdf_bytes: bytes,
     lang: str = "chi_tra+eng",
     dpi: int = 200,
+    embed_page_images: bool = True,
     progress_callback=None,
 ) -> Tuple[Optional[bytes], Optional[str]]:
     """
     使用 Tesseract OCR 將掃描檔 PDF 轉為可編輯 Word。
     免費、無需 API 金鑰，需系統安裝 Tesseract。
+    embed_page_images: 是否在 Word 中嵌入每頁圖片（保留版面視覺，圖片下方為 OCR 文字）
     Returns: (docx_bytes, error_message)
     """
     _safe_imports()
@@ -340,9 +416,11 @@ def pdf_to_word_with_tesseract(
     try:
         import pytesseract
     except ImportError:
-        return None, "未安裝 pytesseract，請執行：pip install pytesseract"
+        return None, "未安裝 pytesseract。若使用 venv，請先 source venv/bin/activate 再 pip install pytesseract；或執行 venv/bin/pip install pytesseract"
 
     try:
+        from docx.shared import Inches
+
         images = _pdf2image(pdf_bytes, dpi=dpi)
         total = len(images)
         if total == 0:
@@ -357,11 +435,27 @@ def pdf_to_word_with_tesseract(
             if img.mode != "RGB":
                 img = img.convert("RGB")
             text = pytesseract.image_to_string(img, lang=lang)
+
+            # 嵌入頁面圖片（保留版面視覺，類似 iLovePDF 效果）
+            if embed_page_images:
+                img_buf = io.BytesIO()
+                img.save(img_buf, format="PNG")
+                img_buf.seek(0)
+                try:
+                    doc.add_picture(img_buf, width=Inches(6.0))
+                except Exception:
+                    pass
+                doc.add_paragraph()
+
+            # OCR 文字（可編輯）
             for para in (text or "").split("\n\n"):
                 para = para.strip()
                 if para:
                     p = doc.add_paragraph(para)
                     p.paragraph_format.space_after = Pt(6)
+
+            if i < total - 1:
+                doc.add_page_break()
 
         buf = io.BytesIO()
         doc.save(buf)

@@ -2718,6 +2718,9 @@ if st.session_state.current_tool != "invoice":
                 pdf_to_word_with_tesseract,
                 pdf_to_word_with_ai_ocr,
                 images_to_pdf,
+                word_to_pdf,
+                excel_to_pdf,
+                ppt_to_pdf,
             )
         except ImportError:
             st.error("無法載入 pdf_converter 模組，請確認 pdf_converter.py 與依賴庫已正確安裝。")
@@ -2731,41 +2734,101 @@ if st.session_state.current_tool != "invoice":
         )
 
         if pdf_mode == "轉換為 PDF":
-            # 圖片 → PDF
-            st.caption("拖放圖片或點擊上傳 JPG/PNG")
-            img_uploads = st.file_uploader(
-                "上傳圖片（可多選）",
-                type=["jpg", "jpeg", "png"],
-                accept_multiple_files=True,
-                key="pdf_img_to_pdf_upload",
-                label_visibility="collapsed",
-            )
-            if not img_uploads:
-                st.info("👆 請上傳至少一張 JPG 或 PNG 圖片")
-                st.stop()
-            if st.button("開始轉換", type="primary", key="pdf_img2pdf_btn"):
-                progress = st.progress(0.0)
-                img_bytes_list = [f.read() for f in img_uploads]
-                with st.spinner("轉換中，請稍候…"):
-                    result, err = images_to_pdf(
-                        img_bytes_list,
-                        progress_callback=lambda p: progress.progress(p),
+            # 選擇來源格式
+            if "pdf_to_pdf_source" not in st.session_state:
+                st.session_state.pdf_to_pdf_source = "image"
+            _src_targets = [
+                ("image", "圖片 → PDF", "🖼️"),
+                ("word", "Word → PDF", "📝"),
+                ("excel", "Excel → PDF", "📊"),
+                ("ppt", "PPT → PDF", "📽️"),
+            ]
+            _src_cols = st.columns(4)
+            for i, (key, label, icon) in enumerate(_src_targets):
+                with _src_cols[i]:
+                    _sel = "selected" if st.session_state.pdf_to_pdf_source == key else ""
+                    st.markdown(
+                        f'<div class="pdf-conv-card {key} {_sel}"><span class="pdf-conv-icon">{icon}</span><span class="pdf-conv-label">{label}</span></div>',
+                        unsafe_allow_html=True,
                     )
-                progress.progress(1.0)
-                if err:
-                    st.error(err)
-                else:
-                    st.success("轉換完成")
-                    base_name = "images_to_pdf"
-                    if img_uploads and img_uploads[0].name:
-                        base_name = os.path.splitext(img_uploads[0].name)[0]
-                    st.download_button(
-                        "📥 下載 PDF",
-                        data=result,
-                        file_name=f"{base_name}.pdf",
-                        mime="application/pdf",
-                        key="pdf_dl_img2pdf",
-                    )
+                    if st.button("選" if st.session_state.pdf_to_pdf_source != key else "✓", key=f"pdf_src_{key}", use_container_width=True, type="primary" if st.session_state.pdf_to_pdf_source == key else "secondary"):
+                        st.session_state.pdf_to_pdf_source = key
+                        st.rerun()
+
+            _src = st.session_state.pdf_to_pdf_source
+
+            if _src == "image":
+                st.caption("拖放圖片或點擊上傳 JPG/PNG")
+                img_uploads = st.file_uploader(
+                    "上傳圖片（可多選）",
+                    type=["jpg", "jpeg", "png"],
+                    accept_multiple_files=True,
+                    key="pdf_img_to_pdf_upload",
+                    label_visibility="collapsed",
+                )
+                if not img_uploads:
+                    st.info("👆 請上傳至少一張 JPG 或 PNG 圖片")
+                    st.stop()
+                if st.button("開始轉換", type="primary", key="pdf_img2pdf_btn"):
+                    progress = st.progress(0.0)
+                    img_bytes_list = [f.read() for f in img_uploads]
+                    with st.spinner("轉換中，請稍候…"):
+                        result, err = images_to_pdf(
+                            img_bytes_list,
+                            progress_callback=lambda p: progress.progress(p),
+                        )
+                    progress.progress(1.0)
+                    if err:
+                        st.error(err)
+                    else:
+                        st.success("轉換完成")
+                        base_name = "images_to_pdf"
+                        if img_uploads and img_uploads[0].name:
+                            base_name = os.path.splitext(img_uploads[0].name)[0]
+                        st.download_button(
+                            "📥 下載 PDF",
+                            data=result,
+                            file_name=f"{base_name}.pdf",
+                            mime="application/pdf",
+                            key="pdf_dl_img2pdf",
+                        )
+            else:
+                _type = {"word": ["docx"], "excel": ["xlsx"], "ppt": ["pptx"]}[_src]
+                st.caption(f"上傳 {_src.upper()} 檔案（.{_type[0]}）")
+                office_upload = st.file_uploader(
+                    f"上傳 {_src.upper()}",
+                    type=_type,
+                    key=f"pdf_office_to_pdf_{_src}",
+                    label_visibility="collapsed",
+                )
+                if not office_upload:
+                    st.info(f"👆 請上傳 .{_type[0]} 檔案")
+                    st.stop()
+                if st.button("開始轉換", type="primary", key=f"pdf_office2pdf_btn_{_src}"):
+                    progress = st.progress(0.0)
+                    office_bytes = office_upload.read()
+                    with st.spinner("轉換中，請稍候…"):
+                        if _src == "word":
+                            result, err = word_to_pdf(office_bytes, progress_callback=lambda p: progress.progress(p))
+                        elif _src == "excel":
+                            result, err = excel_to_pdf(office_bytes, progress_callback=lambda p: progress.progress(p))
+                        else:
+                            result, err = ppt_to_pdf(office_bytes, progress_callback=lambda p: progress.progress(p))
+                    progress.progress(1.0)
+                    if err:
+                        st.error(err)
+                        if "LibreOffice" in (err or ""):
+                            st.info("💡 Ubuntu 執行：sudo apt install libreoffice")
+                    else:
+                        st.success("轉換完成")
+                        base_name = os.path.splitext(office_upload.name or "document")[0]
+                        st.download_button(
+                            "📥 下載 PDF",
+                            data=result,
+                            file_name=f"{base_name}.pdf",
+                            mime="application/pdf",
+                            key=f"pdf_dl_office2pdf_{_src}",
+                        )
             st.stop()
 
         # 從 PDF 轉換：卡片式選項 + 拖放上傳
@@ -2816,11 +2879,12 @@ if st.session_state.current_tool != "invoice":
                 "轉換模式",
                 _modes,
                 index=_idx,
-                format_func=lambda x: {"ocr": "OCR 模式（Tesseract，掃描檔適用，免費）", "normal": "一般模式（pdf2docx，文字型 PDF）", "ai": "AI OCR 模式（Gemini，複雜版面，需 API 金鑰）"}[x],
+                format_func=lambda x: {"ocr": "OCR 模式（Tesseract，掃描檔適用，免費，嵌入圖片）", "normal": "一般模式（pdf2docx，文字型 PDF，保留樣式/圖片/排版）", "ai": "AI OCR 模式（Gemini，複雜版面，需 API 金鑰）"}[x],
                 key="pdf_word_mode_radio",
                 horizontal=True,
             )
             st.session_state.pdf_word_mode = pdf_word_mode
+            st.caption("💡 若 PDF 內文字可選取（如 Datasheet），請用「一般模式」可保留樣式、圖片、排版；掃描檔請用 OCR 模式。")
 
         st.markdown("---")
         if st.button("開始轉換", type="primary", key="pdf_conv_btn", use_container_width=True):

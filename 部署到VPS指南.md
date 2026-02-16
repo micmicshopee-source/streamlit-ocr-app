@@ -13,12 +13,12 @@ python3 --version   # 建議 3.9+
 pip3 --version
 ```
 
-**系統依賴**（PDF 轉換需 poppler；OCR 模式需 Tesseract）：
+**系統依賴**（PDF 轉換需 poppler、Tesseract；Office→PDF 需 LibreOffice）：
 
 ```bash
 # Ubuntu/Debian
 sudo apt update
-sudo apt install -y poppler-utils tesseract-ocr tesseract-ocr-chi-tra curl
+sudo apt install -y poppler-utils tesseract-ocr tesseract-ocr-chi-tra libreoffice curl
 
 # 若用 Docker 部署，則需 Docker
 docker --version
@@ -54,9 +54,12 @@ python3 -m venv venv
 source venv/bin/activate   # Linux
 # Windows: venv\Scripts\activate
 
-# 安裝完整依賴（伺服器版，含 pdf2docx）
+# 安裝完整依賴（伺服器版，含 pdf2docx、pytesseract）
 pip install -r requirements-server.txt
+# 或：pip install -r requirements.txt
 ```
+
+> **若 Streamlit 用 venv 執行**：pytesseract 必須裝在 venv 內。請用 `source venv/bin/activate` 後再 `pip install pytesseract`，或直接執行 `venv/bin/pip install pytesseract`。
 
 若沒有 `requirements-server.txt`，使用：
 
