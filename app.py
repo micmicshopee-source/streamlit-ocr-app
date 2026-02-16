@@ -255,6 +255,40 @@ def _get_contact_email():
     """取得聯絡信箱，可於 secrets.toml 設定 CONTACT_EMAIL 覆蓋。"""
     return _safe_secrets_get("CONTACT_EMAIL") or "contact@getaiinvoice.com"
 
+@st.dialog("💬 反饋意見", width="medium", dismissible=False)
+def _feedback_dialog():
+    """彈出框輸入主旨與內容，送出後顯示 mailto 連結。"""
+    if st.session_state.get("feedback_mailto_ready"):
+        mailto_url = st.session_state.get("feedback_mailto_url", "")
+        st.success("請點擊下方按鈕開啟郵件軟體，您的反饋已預填完成。")
+        st.link_button("📧 開啟郵件軟體送出", url=mailto_url, use_container_width=True)
+        if st.button("關閉", key="fb_done"):
+            st.session_state.feedback_mailto_ready = False
+            st.session_state.feedback_mailto_url = None
+            st.session_state.show_feedback_dialog = False
+            st.rerun()
+        return
+
+    subject = st.text_input("主旨", value="反饋意見 - 上班族小工具", key="fb_subject")
+    content = st.text_area("內容", placeholder="請描述您的建議或問題…", height=150, key="fb_content")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("送出", type="primary", use_container_width=True, key="fb_submit"):
+            if not (content or "").strip():
+                st.error("請填寫內容")
+            else:
+                email = _get_contact_email()
+                subj_enc = quote((subject or "反饋意見").strip(), safe="")
+                body_enc = quote((content or "").strip(), safe="")
+                st.session_state.feedback_mailto_url = f"mailto:{email}?subject={subj_enc}&body={body_enc}"
+                st.session_state.feedback_mailto_ready = True
+                st.rerun()
+    with col2:
+        if st.button("取消", use_container_width=True, key="fb_cancel"):
+            st.session_state.show_feedback_dialog = False
+            st.rerun()
+
 # --- 1.4. 密碼雜湊與強度（AUTH-01, AUTH-02）---
 # bcrypt 雜湊前綴，用於辨識新格式；舊為純 64 字元 hex（SHA256）
 _LEGACY_HASH_PREFIX = "sha256:"
@@ -952,7 +986,7 @@ def init_db():
 
 
 # --- 下一階段：Google / LINE OAuth 登入 ---
-from urllib.parse import urlencode
+from urllib.parse import urlencode, quote
 
 def _get_oauth_redirect_uri():
     """取得 OAuth 回調網址（須與各平台後台設定一致）。"""
@@ -2508,8 +2542,11 @@ with st.sidebar:
         st.session_state.login_at = None
         st.rerun()
     
-    _contact = _get_contact_email()
-    st.link_button("💬 反饋意見", url=f"mailto:{_contact}?subject=反饋意見 - 上班族小工具", use_container_width=True)
+    if st.button("💬 反饋意見", use_container_width=True, key="sidebar_feedback"):
+        st.session_state.show_feedback_dialog = True
+        st.session_state.feedback_mailto_ready = False
+    if st.session_state.get("show_feedback_dialog"):
+        _feedback_dialog()
     
     st.markdown("---")
     with st.expander("⚙️ 進階設定", expanded=False):
