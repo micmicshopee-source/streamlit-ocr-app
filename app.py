@@ -26,14 +26,14 @@ import secrets as _secrets_module
 import re
 from openpyxl.styles import Alignment, Font
 
-# 隱私政策與服務條款內容（可點擊展開查看）
+# 隱私政策與服務條款內容（可點擊展開查看）；{{CONTACT_EMAIL}} 會於顯示時替換
 PRIVACY_POLICY = """
 **隱私政策**
 
 1. **資料蒐集**：我們僅蒐集您登入與使用服務所需的最小資料（如電子郵件、發票紀錄）。
 2. **資料使用**：您的資料僅供您本人使用，我們不會分享給第三方。
 3. **資料安全**：資料儲存於本系統，我們採取合理措施保護您的個人資訊。
-4. **聯絡我們**：如有隱私相關問題，請透過系統管理員聯繫。
+4. **聯絡我們**：如有隱私相關問題，請來信：[{{CONTACT_EMAIL}}](mailto:{{CONTACT_EMAIL}})。
 """
 
 TERMS_OF_SERVICE = """
@@ -43,6 +43,7 @@ TERMS_OF_SERVICE = """
 2. **使用規範**：請合法使用本服務，不得用於任何違法用途。
 3. **免責聲明**：本服務依「現狀」提供，我們不保證服務不中斷或無錯誤。
 4. **條款變更**：我們保留修改本條款的權利，繼續使用即視為同意變更。
+5. **聯絡我們**：如有疑問，請來信：[{{CONTACT_EMAIL}}](mailto:{{CONTACT_EMAIL}})。
 """
 
 # 密碼雜湊：優先使用 bcrypt（AUTH-01），無則退回 SHA256
@@ -249,6 +250,10 @@ def _safe_secrets_get(key, default=None):
     # 備援：從 app 目錄的 .streamlit/secrets.toml 直接讀取（避免因工作目錄不同而讀不到）
     fallback = _load_secrets_from_app_dir()
     return fallback.get(key, default)
+
+def _get_contact_email():
+    """取得聯絡信箱，可於 secrets.toml 設定 CONTACT_EMAIL 覆蓋。"""
+    return _safe_secrets_get("CONTACT_EMAIL") or "contact@getaiinvoice.com"
 
 # --- 1.4. 密碼雜湊與強度（AUTH-01, AUTH-02）---
 # bcrypt 雜湊前綴，用於辨識新格式；舊為純 64 字元 hex（SHA256）
@@ -695,10 +700,10 @@ def login_page():
                     agree_legal = st.checkbox("我同意隱私政策與服務條款", key="login_agree_legal")
                 with ex1:
                     with st.expander("隱私政策", expanded=False):
-                        st.markdown(PRIVACY_POLICY)
+                        st.markdown(PRIVACY_POLICY.replace("{{CONTACT_EMAIL}}", _get_contact_email()))
                 with ex2:
                     with st.expander("服務條款", expanded=False):
-                        st.markdown(TERMS_OF_SERVICE)
+                        st.markdown(TERMS_OF_SERVICE.replace("{{CONTACT_EMAIL}}", _get_contact_email()))
                 
                 col_btn1, col_btn2 = st.columns([1, 1])
                 with col_btn1:
@@ -761,10 +766,10 @@ def login_page():
                 agree_legal_reg = st.checkbox("我同意隱私政策與服務條款", key="reg_agree_legal")
             with ex3:
                 with st.expander("隱私政策", expanded=False):
-                    st.markdown(PRIVACY_POLICY)
+                    st.markdown(PRIVACY_POLICY.replace("{{CONTACT_EMAIL}}", _get_contact_email()))
             with ex4:
                 with st.expander("服務條款", expanded=False):
-                    st.markdown(TERMS_OF_SERVICE)
+                    st.markdown(TERMS_OF_SERVICE.replace("{{CONTACT_EMAIL}}", _get_contact_email()))
             
             if st.button("✅ 建立帳號", type="primary", use_container_width=True):
                 if not email:
@@ -2502,6 +2507,9 @@ with st.sidebar:
         st.session_state.user_email = None
         st.session_state.login_at = None
         st.rerun()
+    
+    _contact = _get_contact_email()
+    st.link_button("💬 反饋意見", url=f"mailto:{_contact}?subject=反饋意見 - 上班族小工具", use_container_width=True)
     
     st.markdown("---")
     with st.expander("⚙️ 進階設定", expanded=False):

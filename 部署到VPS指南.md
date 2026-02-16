@@ -79,6 +79,9 @@ nano .streamlit/secrets.toml
 ```toml
 GEMINI_API_KEY = "你的Gemini金鑰"
 
+# 聯絡信箱（反饋、隱私政策等；未設定則用 contact@getaiinvoice.com）
+CONTACT_EMAIL = "support@getaiinvoice.com"
+
 [google_auth]
 client_id = "你的Client ID"
 client_secret = "你的Client Secret"
@@ -300,35 +303,86 @@ docker compose -f docker-compose.prod.yml up -d --build
 
 ## 十、常見問題
 
-### Nginx 錯誤：`location directive is not allowed here`
+| 問題 | 解法 |
+|------|------|
+| 502 Bad Gateway | 確認 Streamlit 已啟動：`curl http://localhost:8501/_stcore/health` |
+| PDF 轉圖片失敗 | 安裝 poppler：`sudo apt install poppler-utils` |
+| 資料重啟後消失 | 確認 `data/`、`invoice_images/` 在專案目錄，非臨時路徑 |
+| 無法外網訪問 | 檢查防火牆、Nginx、域名 DNS |
+| /privacy 無法打開 | 見下方「/privacy 除錯」 |
 
-**原因**：Certbot 修改後會產生兩個 `server` 區塊（80 與 443），`location` 必須放在 `server { }` 內部，且路徑要正確。
+### /privacy 除錯
 
-**解法**：在 VPS 上執行 `sudo nano /etc/nginx/sites-available/streamlit-ocr`，確認結構如下（**路徑請依實際專案位置修改**，例如 `/root/streamlit-ocr-app`）：
+若 `https://getaiinvoice.com/privacy` 無法開啟，在 VPS 上依序檢查：
+
+**1. 檔案是否存在**
+```bash
+ls -la /opt/streamlit_ocr_app/static/privacy.html
+```
+若不存在，執行 `git pull` 或手動上傳 `static/` 目錄。
+
+**2. Certbot 是否產生獨立的 443 server block**
+
+執行 `certbot --nginx` 後，Nginx 可能會有兩個 `server` 區塊（80 與 443）。`location = /privacy` 必須出現在 **listen 443** 的那個區塊內。
+
+```bash
+sudo cat /etc/nginx/sites-available/streamlit-ocr
+```
+
+確認 `listen 443 ssl` 的 server 區塊內也有：
+```nginx
+    location = /privacy {
+        alias /opt/streamlit_ocr_app/static/privacy.html;
+        default_type text/html;
+        add_header Cache-Control "public, max-age=3600";
+    }
+```
+
+若 443 區塊沒有，請補上後執行 `sudo nginx -t` 與 `sudo systemctl reload nginx`。
+
+**3. 本機測試**
+```bash
+curl -I http://127.0.0.1/privacy
+curl -I https://127.0.0.1/privacy -k
+```
+
+---
+
+### HTTPS 與 Google 品牌驗證
+
+若出現「首頁沒有回應」「網站未註冊給您」，需完成兩件事：
+
+#### 一、啟用 HTTPS（apt certbot 失敗時改用 Snap）
+
+```bash
+# 1. 安裝 Snap 版 Certbot
+sudo apt update && sudo apt install -y snapd
+sudo snap install core
+sudo snap install --classic certbot
+sudo ln -sf /snap/bin/certbot /usr/bin/certbot
+
+# 2. 申請憑證（需暫時停止 Nginx）
+sudo systemctl stop nginx
+sudo certbot certonly --standalone -d getaiinvoice.com -d www.getaiinvoice.com
+sudo systemctl start nginx
+```
+
+#### 二、在 Nginx 加入 443 區塊（不依賴 options-ssl-nginx.conf）
+
+編輯 `sudo nano /etc/nginx/sites-available/streamlit-ocr`，在現有 server 區塊**之後**加入：
 
 ```nginx
-# HTTP：導向 HTTPS
-server {
-    listen 80;
-    server_name getaiinvoice.com www.getaiinvoice.com;
-    return 301 https://$host$request_uri;
-}
-
-# HTTPS：主要服務
 server {
     listen 443 ssl;
     server_name getaiinvoice.com www.getaiinvoice.com;
 
-    # SSL（由 certbot 自動加入，勿刪）
     ssl_certificate /etc/letsencrypt/live/getaiinvoice.com/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/getaiinvoice.com/privkey.pem;
-    include /etc/letsencrypt/options-ssl-nginx.conf;
-    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
 
-    # 隱私權政策（獨立 URL）
     location = /privacy {
-        root /root/streamlit-ocr-app/static;
-        try_files /privacy.html =404;
+        alias /root/streamlit-ocr-app/static/privacy.html;
         default_type text/html;
         add_header Cache-Control "public, max-age=3600";
     }
@@ -347,26 +401,19 @@ server {
 }
 ```
 
-**注意**：若 certbot 已跑過，SSL 那幾行可能已存在，只需在 `listen 443 ssl` 的 `server` 區塊內、`location /` 之前加入 `location = /privacy` 即可。專案路徑若不同（如 `/opt/streamlit_ocr_app`），請改 `alias` 路徑。
+> 若專案在 `/opt/streamlit_ocr_app`，請將 `alias` 改為 `/opt/streamlit_ocr_app/static/privacy.html`。
 
-修改後執行：
 ```bash
-sudo nginx -t
-sudo systemctl reload nginx
+sudo nginx -t && sudo systemctl reload nginx
+curl -I https://getaiinvoice.com/
 ```
 
-### 僅 port 80 有監聽、443 沒有
+#### 三、驗證網域擁有權（Google Search Console）
 
-表示 SSL 尚未設定，請執行：
-```bash
-sudo certbot --nginx -d getaiinvoice.com -d www.getaiinvoice.com
-```
-
----
-
-| 問題 | 解法 |
-|------|------|
-| 502 Bad Gateway | 確認 Streamlit 已啟動：`curl http://localhost:8501/_stcore/health` |
-| PDF 轉圖片失敗 | 安裝 poppler：`sudo apt install poppler-utils` |
-| 資料重啟後消失 | 確認 `data/`、`invoice_images/` 在專案目錄，非臨時路徑 |
-| 無法外網訪問 | 檢查防火牆、Nginx、域名 DNS |
+1. 前往 [Google Search Console](https://search.google.com/search-console)
+2. 新增資源 → 選擇「網域」→ 輸入 `getaiinvoice.com`
+3. 依指示驗證（擇一）：
+   - **DNS TXT**：在網域 DNS 新增指定 TXT 紀錄
+   - **HTML 檔案**：下載驗證檔，放到 `static/` 並在 Nginx 開放存取
+   - **HTML meta**：在 `static/privacy.html` 或首頁加入指定 meta 標籤
+4. 驗證完成後，Google 會確認您擁有該網域。
