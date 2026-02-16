@@ -31,6 +31,28 @@ _python_docx = None
 _requests = None
 
 
+def _pil_lanczos():
+    """
+    取得與 Pillow 版本相容的縮圖 resample 方式。
+    新版 Pillow 有 Image.Resampling.LANCZOS，舊版只有 Image.LANCZOS / ANTIALIAS。
+    """
+    global _pil
+    if not _pil:
+        return None
+    # Pillow >= 9.1
+    if hasattr(_pil, "Resampling"):
+        try:
+            return _pil.Resampling.LANCZOS  # type: ignore[attr-defined]
+        except Exception:
+            pass
+    # 舊版 Pillow
+    if hasattr(_pil, "LANCZOS"):
+        return _pil.LANCZOS  # type: ignore[attr-defined]
+    if hasattr(_pil, "ANTIALIAS"):
+        return _pil.ANTIALIAS  # type: ignore[attr-defined]
+    return None
+
+
 def _safe_imports():
     """延遲導入，避免 import 時即失敗。"""
     global _pdfplumber, _pptx, _pdf2image, _pdf2docx, _pandas, _openpyxl, _pil, _python_docx, _requests, _pymupdf
@@ -539,13 +561,17 @@ def pdf_to_word_with_ai_ocr(
         m_name = model_name if "models/" in model_name else f"models/{model_name}"
         url = f"https://generativelanguage.googleapis.com/v1beta/{m_name}:generateContent?key={api_key.strip()}"
 
+        resample = _pil_lanczos()
         for i, img in enumerate(images):
             if progress_callback:
                 progress_callback((i + 1) / total)
 
             if img.mode != "RGB":
                 img = img.convert("RGB")
-            img.thumbnail((1920, 1920), _pil.Image.Resampling.LANCZOS)
+            if resample is not None:
+                img.thumbnail((1920, 1920), resample)
+            else:
+                img.thumbnail((1920, 1920))
             buf = io.BytesIO()
             img.save(buf, format="JPEG", quality=90)
             img_b64 = base64.b64encode(buf.getvalue()).decode()
@@ -768,12 +794,16 @@ def pdf_to_word_with_ai_layout(
         m_name = model_name if "models/" in model_name else ("models/%s" % model_name)
         url = "https://generativelanguage.googleapis.com/v1beta/%s:generateContent?key=%s" % (m_name, api_key.strip())
         pages_data = []
+        resample = _pil_lanczos()
         for i, img in enumerate(images):
             if progress_callback:
                 progress_callback((i + 1) / total)
             if img.mode != "RGB":
                 img = img.convert("RGB")
-            img.thumbnail((1600, 1600), _pil.Image.Resampling.LANCZOS)
+            if resample is not None:
+                img.thumbnail((1600, 1600), resample)
+            else:
+                img.thumbnail((1600, 1600))
             buf = io.BytesIO()
             img.save(buf, format="JPEG", quality=88)
             img_b64 = base64.b64encode(buf.getvalue()).decode()
