@@ -39,7 +39,7 @@ PRIVACY_POLICY = """
 TERMS_OF_SERVICE = """
 **服務條款**
 
-1. **服務範圍**：本服務提供發票報帳、PDF 轉換等辦公小工具。
+1. **服務範圍**：本服務提供發票報帳、對獎與報表導出功能。
 2. **使用規範**：請合法使用本服務，不得用於任何違法用途。
 3. **免責聲明**：本服務依「現狀」提供，我們不保證服務不中斷或無錯誤。
 4. **條款變更**：我們保留修改本條款的權利，繼續使用即視為同意變更。
@@ -76,7 +76,7 @@ def _ensure_secrets_file():
 _ensure_secrets_file()
 
 # --- 1. 系統佈局與初始化 ---
-st.set_page_config(page_title="上班族小工具 | 發票報帳・辦公小幫手", page_icon="🧾", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="發票報帳小幫手", page_icon="🧾", layout="wide", initial_sidebar_state="expanded")
 
 # --- 持久化登入（刷新後保持登入）：URL auth 參數 + 檔案儲存 token ---
 _SESSION_EXPIRE_HOURS = 24
@@ -271,7 +271,7 @@ def _feedback_dialog():
 
     user_email_default = st.session_state.get("user_email", "") or ""
     user_email_input = st.text_input("您的郵箱", value=user_email_default, placeholder="請留下您的聯絡信箱，方便我們回覆", key="fb_user_email")
-    subject = st.text_input("主旨", value="反饋意見 - 上班族小工具", key="fb_subject")
+    subject = st.text_input("主旨", value="反饋意見 - 發票報帳小幫手", key="fb_subject")
     content = st.text_area("內容", placeholder="請描述您的建議或問題…", height=150, key="fb_content")
 
     col1, col2 = st.columns(2)
@@ -625,8 +625,8 @@ def login_page():
     col1, col2, col3 = st.columns([1, 2.5, 1])
     with col2:
         st.markdown('<div class="login-container">', unsafe_allow_html=True)
-        st.title("🔐 上班族小工具")
-        st.markdown('<p>登入以使用發票報帳與更多辦公小幫手</p>', unsafe_allow_html=True)
+        st.title("🔐 發票報帳小幫手")
+        st.markdown('<p>登入以使用發票報帳、對獎與報表導出</p>', unsafe_allow_html=True)
         st.caption("您的資料僅供您本人使用，我們不會分享給第三方。")
         # 方案 A（Streamlit Cloud 等）休眠與資料遺失說明
         if _is_ephemeral_env():
@@ -2511,26 +2511,12 @@ if not st.session_state.authenticated or not st.session_state.user_email:
     login_page()
     st.stop()  # 未登入時停止執行後續代碼
 
-# 已登入，顯示側邊欄（還原先前樣式：標題 + 選單 + 用戶 + 登出 + 進階設定）
+# 已登入，顯示側邊欄（僅發票報帳）
 with st.sidebar:
-    st.title("🛠️ 小工具")
-    tool_options = [
-        ("invoice", "📑 發票報帳小秘笈"),
-        ("contract", "⚖️ AI 合約比對"),
-        ("meeting", "📅 AI 會議精華"),
-        ("pdf_converter", "📄 PDF 萬能轉換工具"),
-    ]
-    current = st.session_state.current_tool
-    idx = next((i for i, (k, _) in enumerate(tool_options) if k == current), 0)
-    choice = st.radio(
-        "選擇工具",
-        options=[label for _, label in tool_options],
-        index=idx,
-        key="sidebar_tool_radio",
-        label_visibility="collapsed",
-    )
-    st.session_state.current_tool = next(k for k, label in tool_options if label == choice)
-    
+    st.title("🧾 發票報帳小幫手")
+    st.caption("上傳辨識・對獎・報表")
+    st.session_state.current_tool = "invoice"
+
     st.markdown("---")
     user_email = st.session_state.get("user_email", "未登入")
     st.caption(f"👤 {user_email}")
@@ -3014,17 +3000,16 @@ if st.session_state.current_tool != "invoice":
 api_key = st.session_state.get("gemini_api_key") or _safe_secrets_get("GEMINI_API_KEY")
 model = st.session_state.get("gemini_model") or "gemini-2.0-flash"
 
-# --- Hero：單一標題 + 副標 + 主操作入口 ---
+# --- Hero：標題 + 主操作入口 ---
 with st.container():
-    title_col1, title_col2 = st.columns([2.5, 1.5])
+    title_col1, title_col2 = st.columns([2, 1])
     with title_col1:
-        st.title("發票報帳")
-        st.caption("上傳辨識、導入、報表導出")
+        st.title("我的發票")
+        st.caption("上傳辨識・CSV 導入・對獎・報表導出")
     with title_col2:
-        st.write("")
         btn_row1, btn_row2, btn_row3 = st.columns(3)
         with btn_row1:
-            if st.button("📷 上傳發票圖", type="primary", use_container_width=True):
+            if st.button("📷 上傳發票", type="primary", use_container_width=True):
                 st.session_state.show_upload_dialog = True
                 st.session_state.upload_mode = "ocr"
         with btn_row2:
@@ -3032,7 +3017,7 @@ with st.container():
                 st.session_state.show_upload_dialog = True
                 st.session_state.upload_mode = "import"
         with btn_row3:
-            if st.button("🤖 AI 報帳小助理", type="secondary", use_container_width=True):
+            if st.button("🤖 AI 小助理", type="secondary", use_container_width=True):
                 st.session_state.show_assistant_dialog = True
 # 查詢當前用戶的數據（多用戶版本：使用 user_email）
 user_email = st.session_state.get('user_email', 'default_user')
@@ -3088,12 +3073,12 @@ with st.container():
             
             # 本月無發票時改顯示「全部」統計（在計算 df_month 後已設定 _kpi_use_all）
             kpi_pill = "全部" if _kpi_use_all else "本月份"
-            # 報表標題區（參考 Planetaria：左 標題+說明，右 pill）
+            # 報表標題區
             st.markdown(
                 '<div class="report-header">'
                 '<div class="report-header-left">'
-                '<p class="report-header-title"><span class="report-header-dot"></span> 發票報帳</p>'
-                '<p class="report-header-desc">來自上傳與導入的發票明細</p>'
+                '<p class="report-header-title"><span class="report-header-dot"></span> 本月概況</p>'
+                '<p class="report-header-desc">發票總計・稅額・筆數</p>'
                 '</div>'
                 f'<div class="report-header-right"><span class="report-pill">{kpi_pill}</span></div>'
                 '</div>',
@@ -3118,8 +3103,8 @@ with st.container():
         st.markdown(
             '<div class="report-header">'
             '<div class="report-header-left">'
-            '<p class="report-header-title"><span class="report-header-dot"></span> 發票報帳</p>'
-            '<p class="report-header-desc">來自上傳與導入的發票明細</p>'
+            '<p class="report-header-title"><span class="report-header-dot"></span> 本月概況</p>'
+            '<p class="report-header-desc">發票總計・稅額・筆數</p>'
             '</div>'
             '<div class="report-header-right"><span class="report-pill">本月份</span></div>'
             '</div>',
@@ -4086,15 +4071,16 @@ with st.container():
             key="status_filter_pills"
         )
 
-    adv1, adv2, adv3, adv4 = st.columns(4)
-    with adv1:
-        filter_subjects = st.multiselect("會計科目", options=subjects, default=st.session_state.get("filter_subjects", []), key="filter_subjects")
-    with adv2:
-        filter_categories = st.multiselect("類型", options=categories, default=st.session_state.get("filter_categories", []), key="filter_categories")
-    with adv3:
-        filter_amount_min = st.number_input("最小金額", min_value=0, value=int(st.session_state.get("filter_amount_min", 0)), step=100, key="filter_amount_min")
-    with adv4:
-        filter_amount_max = st.number_input("最大金額", min_value=0, value=int(st.session_state.get("filter_amount_max", 0)), step=100, key="filter_amount_max")
+    with st.expander("🔍 進階篩選", expanded=False):
+        adv1, adv2, adv3, adv4 = st.columns(4)
+        with adv1:
+            filter_subjects = st.multiselect("會計科目", options=subjects, default=st.session_state.get("filter_subjects", []), key="filter_subjects")
+        with adv2:
+            filter_categories = st.multiselect("類型", options=categories, default=st.session_state.get("filter_categories", []), key="filter_categories")
+        with adv3:
+            filter_amount_min = st.number_input("最小金額", min_value=0, value=int(st.session_state.get("filter_amount_min", 0)), step=100, key="filter_amount_min")
+        with adv4:
+            filter_amount_max = st.number_input("最大金額", min_value=0, value=int(st.session_state.get("filter_amount_max", 0)), step=100, key="filter_amount_max")
 
     # 視圖切換：按單張（可選擇、編輯）為預設；按組可導出全部
     view_mode = st.radio("視圖", ["📋 按單張", "📦 按組"], horizontal=True, key="invoice_view_mode", label_visibility="collapsed", index=0)
@@ -4948,7 +4934,7 @@ with st.container():
                             export_df['總計'] = total_series
                         else:
                             export_df['總計'] = total_series
-                        desired_order = ["日期", "發票號碼", "賣方名稱", "賣方統編", "銷售額(未稅)", "稅額", "總計", "會計科目", "類型", "備註"]
+                        desired_order = ["日期", "發票號碼", "賣方名稱", "賣方統編", "銷售額(未稅)", "稅額", "總計", "會計科目", "類型", "狀態", "備註", "檔案名稱"]
                         columns = []
                         seen = set()
                         for c in desired_order:
@@ -4965,11 +4951,14 @@ with st.container():
                             export_df.to_excel(writer, index=False, sheet_name="發票報表")
                             ws = writer.sheets["發票報表"]
                             header_font = Font(bold=True)
+                            col_width_hint = {"賣方名稱": 20, "備註": 18, "發票號碼": 14, "檔案名稱": 24}
                             for col_cells in ws.iter_cols(min_row=1, max_row=1):
                                 for cell in col_cells:
                                     cell.font = header_font
                                     col_letter = cell.column_letter
-                                    ws.column_dimensions[col_letter].width = max(12, len(str(cell.value)) + 4)
+                                    hint = col_width_hint.get(str(cell.value), 0)
+                                    ws.column_dimensions[col_letter].width = max(12, hint, len(str(cell.value or "")) + 2)
+                            ws.freeze_panes = "A2"
                             amount_headers = {"銷售額(未稅)", "稅額", "總計"}
                             header_map = {cell.value: cell.column for cell in ws[1] if cell.value}
                             for header in amount_headers:
@@ -4993,7 +4982,7 @@ with st.container():
                 if not df.empty:
                     if PDF_AVAILABLE:
                         def _gen_pdf():
-                            pdf = FPDF()
+                            pdf = FPDF(orientation="L")
                             pdf.set_auto_page_break(auto=True, margin=15)
                             pdf.add_page()
                             font_path = "NotoSansTC-Regular.ttf"
@@ -5070,13 +5059,20 @@ with st.container():
                             safe_cell(pdf, 90, 6, f"{len(export_df_for_stats)} 筆", 1, ln=1)
                             pdf.ln(5)
                             export_df = df.copy()
-                            col_widths = [25, 30, 30, 30, 25, 25, 25]
+                            try:
+                                if "檔案名稱" not in export_df.columns and not df_stats.empty and "檔案名稱" in df_stats.columns:
+                                    export_df["檔案名稱"] = df_stats.reindex(export_df.index)["檔案名稱"].fillna("").astype(str)
+                            except (NameError, AttributeError):
+                                pass
+                            if "檔案名稱" not in export_df.columns:
+                                export_df["檔案名稱"] = ""
+                            col_widths = [14, 18, 26, 14, 18, 14, 16, 10, 20, 28]
                             if font_loaded:
-                                pdf.set_font(font_name, 'B', 10)
-                                headers = ["日期", "發票號碼", "賣方統編", "銷售額(未稅)", "稅額", "總計", "備註"]
+                                pdf.set_font(font_name, 'B', 9)
+                                headers = ["日期", "發票號碼", "賣方名稱", "賣方統編", "銷售額(未稅)", "稅額", "總計", "狀態", "備註", "檔案名稱"]
                             else:
-                                pdf.set_font('Arial', 'B', 10)
-                                headers = ["Date", "Invoice No", "Seller UBN", "Net Amount (Excl. Tax)", "Tax", "Total", "Note"]
+                                pdf.set_font('Arial', 'B', 9)
+                                headers = ["Date", "Invoice No", "Seller", "UBN", "Net", "Tax", "Total", "Status", "Note", "File"]
                             for i, header in enumerate(headers):
                                 safe_cell(pdf, col_widths[i], 7, header, 1, align='C')
                             pdf.ln()
@@ -5084,10 +5080,12 @@ with st.container():
                                 pdf.set_font(font_name, '', 8)
                             else:
                                 pdf.set_font('Arial', '', 8)
-                            def pdf_safe_value(val, default='No'):
+                            def pdf_safe_value(val, default='-'):
                                 if pd.isna(val) or val == '' or val == 'N/A' or str(val).strip() == '':
                                     return default
                                 return str(val)
+                            page_height = 210
+                            y_break = page_height - 35
                             for _, row in export_df.iterrows():
                                 total_val = pd.to_numeric(row.get('總計', row.get('total', 0)), errors='coerce')
                                 subtotal_val = pd.to_numeric(row.get('銷售額', row.get('subtotal', 0)), errors='coerce')
@@ -5106,26 +5104,32 @@ with st.container():
                                     else:
                                         subtotal_val = 0
                                         tax_val = 0
-                                date_str = pdf_safe_value(row.get('日期', ''), 'No')[:10]
-                                invoice_no = pdf_safe_value(row.get('發票號碼', ''), 'No')[:15]
-                                seller_ubn = pdf_safe_value(row.get('賣方統編', ''), 'No')[:15]
-                                note = pdf_safe_value(row.get('備註', '') or row.get('會計科目', '') or row.get('類型', ''), '')[:15]
+                                date_str = pdf_safe_value(row.get('日期', ''), '-')[:10]
+                                invoice_no = pdf_safe_value(row.get('發票號碼', ''), '-')[:12]
+                                seller_name = pdf_safe_value(row.get('賣方名稱', ''), '-')[:18]
+                                seller_ubn = pdf_safe_value(row.get('賣方統編', ''), '-')[:10]
+                                status_str = pdf_safe_value(row.get('狀態', ''), '-')[:8]
+                                note = pdf_safe_value(row.get('備註', '') or row.get('會計科目', '') or row.get('類型', ''), '-')[:18]
+                                file_name = pdf_safe_value(row.get('檔案名稱', ''), '-')[:22]
                                 net_amount_str = f"${subtotal_val:,.0f}"
                                 tax_str = f"${tax_val:,.0f}"
                                 total_str = f"${total_val:,.0f}"
                                 safe_cell(pdf, col_widths[0], 6, date_str, 1)
                                 safe_cell(pdf, col_widths[1], 6, invoice_no, 1)
-                                safe_cell(pdf, col_widths[2], 6, seller_ubn, 1)
-                                safe_cell(pdf, col_widths[3], 6, net_amount_str, 1, align='R')
-                                safe_cell(pdf, col_widths[4], 6, tax_str, 1, align='R')
-                                safe_cell(pdf, col_widths[5], 6, total_str, 1, align='R')
-                                safe_cell(pdf, col_widths[6], 6, note, 1, ln=1)
-                                if pdf.get_y() > 270:
+                                safe_cell(pdf, col_widths[2], 6, seller_name, 1)
+                                safe_cell(pdf, col_widths[3], 6, seller_ubn, 1)
+                                safe_cell(pdf, col_widths[4], 6, net_amount_str, 1, align='R')
+                                safe_cell(pdf, col_widths[5], 6, tax_str, 1, align='R')
+                                safe_cell(pdf, col_widths[6], 6, total_str, 1, align='R')
+                                safe_cell(pdf, col_widths[7], 6, status_str, 1)
+                                safe_cell(pdf, col_widths[8], 6, note, 1)
+                                safe_cell(pdf, col_widths[9], 6, file_name, 1, ln=1)
+                                if pdf.get_y() > y_break:
                                     pdf.add_page()
                                     if font_loaded:
-                                        pdf.set_font(font_name, 'B', 10)
+                                        pdf.set_font(font_name, 'B', 9)
                                     else:
-                                        pdf.set_font('Arial', 'B', 10)
+                                        pdf.set_font('Arial', 'B', 9)
                                     for i, header in enumerate(headers):
                                         safe_cell(pdf, col_widths[i], 7, header, 1, align='C')
                                     pdf.ln()
