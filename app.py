@@ -3017,9 +3017,9 @@ with st.container():
                 st.session_state.show_upload_dialog = True
                 st.session_state.upload_mode = "import"
         with btn_row3:
-            if st.button("📷 電腦掃描發票", type="secondary", use_container_width=True):
+            if st.button("📷 拍照上傳", type="secondary", use_container_width=True):
                 st.session_state.show_upload_dialog = True
-                st.session_state.upload_mode = "ocr"
+                st.session_state.upload_mode = "camera"
 # 查詢當前用戶的數據（多用戶版本：使用 user_email）
 user_email = st.session_state.get('user_email', 'default_user')
 df_raw = run_query("SELECT * FROM invoices WHERE user_email = ? ORDER BY id DESC", (user_email,))
@@ -3350,11 +3350,12 @@ def _run_ocr_batch(file_data_list, user_email, api_key_val, model_name):
 def upload_dialog():
     upload_mode = st.session_state.get("upload_mode", "ocr")
     
-    if upload_mode == "ocr":
-        st.markdown("### 📷 上傳發票圖")
+    if upload_mode in ("ocr", "camera"):
+        is_camera = upload_mode == "camera"
+        st.markdown("### 📷 上傳發票圖" if not is_camera else "### 📷 拍照發票")
         if not api_key:
             st.warning("⚠️ 圖片辨識需要 API 金鑰。請在 **Manage app → Settings → Secrets** 中設定 `GEMINI_API_KEY`，設定後重新載入頁面。")
-        st.caption("支援 JPG、PNG；建議單張清晰、光線充足，以利辨識。")
+        st.caption("支援 JPG、PNG；建議單張清晰、光線充足，以利辨識。" if not is_camera else "使用裝置相機拍攝發票，拍完後點「開始辨識」。")
         
         # 若已在辨識中（剛點開始辨識後 rerun）
         if st.session_state.get("start_ocr") and st.session_state.get("upload_file_data"):
@@ -3465,19 +3466,32 @@ def upload_dialog():
                 st.session_state.ocr_status = None
                 st.session_state.show_upload_dialog = False
                 st.rerun()
-        # 初始狀態：選擇檔案與開始辨識
+        # 初始狀態：選擇檔案／拍照與開始辨識
         else:
-            files = st.file_uploader("批次選擇照片", type=["jpg","png","jpeg"], accept_multiple_files=True)
-            if files:
-                st.caption(f"已選擇 {len(files)} 個文件")
-            if files and st.button("開始辨識 🚀", type="primary", use_container_width=True):
-                try:
-                    st.session_state.upload_file_data = [(f.name, f.getvalue()) for f in files]
-                    st.session_state.start_ocr = True
-                    st.session_state.show_upload_dialog = True
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"讀取檔案失敗，請重試: {e}")
+            if is_camera:
+                camera_img = st.camera_input("拍攝發票", key="invoice_camera")
+                if camera_img:
+                    st.caption("已拍攝一張照片，點下方「開始辨識」進行辨識。")
+                    if st.button("開始辨識 🚀", type="primary", use_container_width=True, key="camera_ocr_btn"):
+                        try:
+                            st.session_state.upload_file_data = [("拍照發票.jpg", camera_img.getvalue())]
+                            st.session_state.start_ocr = True
+                            st.session_state.show_upload_dialog = True
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"讀取照片失敗，請重試: {e}")
+            else:
+                files = st.file_uploader("批次選擇照片", type=["jpg","png","jpeg"], accept_multiple_files=True)
+                if files:
+                    st.caption(f"已選擇 {len(files)} 個文件")
+                if files and st.button("開始辨識 🚀", type="primary", use_container_width=True):
+                    try:
+                        st.session_state.upload_file_data = [(f.name, f.getvalue()) for f in files]
+                        st.session_state.start_ocr = True
+                        st.session_state.show_upload_dialog = True
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"讀取檔案失敗，請重試: {e}")
             if st.button("關閉", key="ocr_close_initial"):
                 st.session_state.show_upload_dialog = False
                 st.rerun()
