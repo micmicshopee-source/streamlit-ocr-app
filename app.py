@@ -253,7 +253,7 @@ def _safe_secrets_get(key, default=None):
 
 def _get_contact_email():
     """取得聯絡信箱，可於 secrets.toml 設定 CONTACT_EMAIL 覆蓋。"""
-    return _safe_secrets_get("CONTACT_EMAIL") or "contact@getaiinvoice.com"
+    return _safe_secrets_get("CONTACT_EMAIL") or "micmicshopee@gmail.com"
 
 @st.dialog("💬 反饋意見", width="medium", dismissible=False)
 def _feedback_dialog():
@@ -269,19 +269,24 @@ def _feedback_dialog():
             st.rerun()
         return
 
+    user_email_default = st.session_state.get("user_email", "") or ""
+    user_email_input = st.text_input("您的郵箱", value=user_email_default, placeholder="請留下您的聯絡信箱，方便我們回覆", key="fb_user_email")
     subject = st.text_input("主旨", value="反饋意見 - 上班族小工具", key="fb_subject")
     content = st.text_area("內容", placeholder="請描述您的建議或問題…", height=150, key="fb_content")
 
     col1, col2 = st.columns(2)
     with col1:
         if st.button("送出", type="primary", use_container_width=True, key="fb_submit"):
-            if not (content or "").strip():
+            if not (user_email_input or "").strip():
+                st.error("請填寫您的郵箱")
+            elif not (content or "").strip():
                 st.error("請填寫內容")
             else:
-                email = _get_contact_email()
+                to_email = _get_contact_email()
                 subj_enc = quote((subject or "反饋意見").strip(), safe="")
-                body_enc = quote((content or "").strip(), safe="")
-                st.session_state.feedback_mailto_url = f"mailto:{email}?subject={subj_enc}&body={body_enc}"
+                body_parts = [f"回覆郵箱：{(user_email_input or '').strip()}", "", "反饋內容：", (content or "").strip()]
+                body_enc = quote("\n".join(body_parts), safe="")
+                st.session_state.feedback_mailto_url = f"mailto:{to_email}?subject={subj_enc}&body={body_enc}"
                 st.session_state.feedback_mailto_ready = True
                 st.rerun()
     with col2:

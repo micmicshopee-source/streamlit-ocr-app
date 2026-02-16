@@ -79,8 +79,8 @@ nano .streamlit/secrets.toml
 ```toml
 GEMINI_API_KEY = "你的Gemini金鑰"
 
-# 聯絡信箱（反饋、隱私政策等；未設定則用 contact@getaiinvoice.com）
-CONTACT_EMAIL = "support@getaiinvoice.com"
+# 聯絡信箱（反饋、隱私政策等；未設定則用 micmicshopee@gmail.com）
+CONTACT_EMAIL = "micmicshopee@gmail.com"
 
 [google_auth]
 client_id = "你的Client ID"
