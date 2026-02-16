@@ -54,6 +54,17 @@ streamlit run app.py
 GEMINI_API_KEY = "你的Gemini金鑰"
 ```
 
+### AI PDF→Word 高品質版面還原（指令列 Prototype）
+
+使用 Gemini Vision 解析 PDF 版面並重建可編輯 Word（標題、段落、表格、圖片皆可編輯）：
+
+```bash
+# 需先設定 GEMINI_API_KEY（環境變數或 .streamlit/secrets.toml）
+python ai_pdf_to_word_prototype.py "路徑/檔案.pdf" [輸出.docx路徑]
+```
+
+未指定輸出路徑時，會在同目錄產生 `檔名_ai_layout.docx`。依賴：`pdf2image`、`python-docx`、`Pillow`、`pymupdf`、`requests`；系統需安裝 poppler。
+
 ---
 
 ## 部署指南

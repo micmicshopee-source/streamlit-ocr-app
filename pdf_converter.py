@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import base64
 import io
+import json
 import os
+import re
 import subprocess
 import tempfile
 import zipfile
@@ -585,3 +587,224 @@ def pdf_to_word_with_ai_ocr(
         if "poppler" in err_msg.lower():
             return None, "pdf2image 需要 poppler"
         return None, f"AI OCR 轉換失敗：{err_msg}"
+
+
+# --- AI 高品質版面還原（Gemini Vision 結構化 JSON → Word）---
+_AI_LAYOUT_PROMPT = """请将这张 PDF 页面的内容解析成结构化 JSON。只输出一个 JSON 对象，不要其他说明或 markdown 标记。
+
+格式要求：
+{
+  "page": 1,
+  "blocks": [
+    {"type": "title", "text": "主标题文字"},
+    {"type": "subtitle", "text": "副标题"},
+    {"type": "heading", "level": 1, "text": "标题文字"},
+    {"type": "paragraph", "text": "段落内容"},
+    {"type": "bullet_list", "items": ["项目1", "项目2"]},
+    {"type": "table", "header": ["列1", "列2"], "rows": [["a","b"], ["c","d"]]},
+    {"type": "image", "id": "img1"}
+  ]
+}
+
+规则：
+1. 按阅读顺序列出所有区块。
+2. type 只能是：title, subtitle, heading, paragraph, bullet_list, table, image 之一。
+3. 表格用 header（可选）和 rows 二维数组。
+4. 图片区块用 type:"image" 和 id:"img1", "img2"... 按出现顺序编号。
+5. 只输出上述 JSON，不要 ``` 包裹。"""
+
+
+def _extract_images_from_pdf_path(pdf_path: str) -> List[List[bytes]]:
+    """每頁抽取的圖片 bytes。images_per_page[i] = 第 i 頁的 [img1_bytes, ...]。"""
+    _safe_imports()
+    if not _pymupdf:
+        return []
+    out = []
+    try:
+        doc = _pymupdf.open(pdf_path)
+        for page in doc:
+            img_list = []
+            for img in page.get_images():
+                xref = img[0]
+                base = doc.extract_image(xref)
+                img_list.append(base["image"])
+            out.append(img_list)
+        doc.close()
+    except Exception:
+        pass
+    return out
+
+
+def _parse_ai_layout_json(raw: str) -> dict:
+    """從模型輸出解析 JSON（允許 ```json ... ``` 包裝）。"""
+    raw = raw.strip()
+    m = re.search(r"```(?:json)?\s*([\s\S]*?)```", raw)
+    if m:
+        raw = m.group(1).strip()
+    return json.loads(raw)
+
+
+def _build_docx_from_ai_layout_pages(
+    pages_data: List[dict],
+    images_per_page: List[List[bytes]],
+    page_pil_images: list,
+) -> bytes:
+    """依每頁 JSON 與圖片建出 .docx bytes。"""
+    Document, Pt = _python_docx
+    from docx.shared import Inches
+    doc = Document()
+    for page_idx, page in enumerate(pages_data):
+        blocks = page.get("blocks") or []
+        page_images = images_per_page[page_idx] if page_idx < len(images_per_page) else []
+        pil_page = page_pil_images[page_idx] if page_idx < len(page_pil_images) else None
+        img_index = 0
+        for block in blocks:
+            t = (block.get("type") or "").strip().lower()
+            text = (block.get("text") or "").strip()
+            if t == "title":
+                p = doc.add_paragraph(text)
+                p.style = "Title"
+            elif t == "subtitle":
+                p = doc.add_paragraph(text)
+                p.style = "Subtitle"
+            elif t == "heading":
+                level = block.get("level", 1)
+                p = doc.add_paragraph(text)
+                p.style = "Heading %d" % min(level, 3)
+            elif t == "paragraph":
+                p = doc.add_paragraph(text)
+                p.paragraph_format.space_after = Pt(6)
+            elif t == "bullet_list":
+                for item in block.get("items") or []:
+                    p = doc.add_paragraph(str(item).strip(), style="List Bullet")
+                    p.paragraph_format.space_after = Pt(3)
+            elif t == "table":
+                header = block.get("header") or []
+                rows = block.get("rows") or []
+                if header or rows:
+                    col_count = max(len(header), max([len(r) for r in rows], default=0)) or 1
+                    row_count = (1 if header else 0) + len(rows)
+                    table = doc.add_table(rows=row_count, cols=col_count)
+                    table.style = "Table Grid"
+                    r = 0
+                    if header:
+                        for c, cell_text in enumerate(header):
+                            if c < col_count:
+                                table.rows[r].cells[c].text = str(cell_text)
+                        r += 1
+                    for row in rows:
+                        for c, cell_text in enumerate(row):
+                            if c < col_count:
+                                table.rows[r].cells[c].text = str(cell_text)
+                        r += 1
+            elif t == "image":
+                if img_index < len(page_images):
+                    try:
+                        doc.add_picture(io.BytesIO(page_images[img_index]), width=Inches(3.0))
+                    except Exception:
+                        if pil_page:
+                            buf = io.BytesIO()
+                            pil_page.save(buf, format="PNG")
+                            buf.seek(0)
+                            doc.add_picture(buf, width=Inches(4.0))
+                    img_index += 1
+                elif pil_page:
+                    buf = io.BytesIO()
+                    pil_page.save(buf, format="PNG")
+                    buf.seek(0)
+                    doc.add_picture(buf, width=Inches(4.0))
+                    img_index += 1
+        if page_idx < len(pages_data) - 1:
+            doc.add_page_break()
+    buf = io.BytesIO()
+    doc.save(buf)
+    buf.seek(0)
+    return buf.read()
+
+
+def pdf_to_word_with_ai_layout(
+    pdf_bytes: bytes,
+    api_key: str,
+    model_name: str = "gemini-2.0-flash",
+    progress_callback=None,
+) -> Tuple[Optional[bytes], Optional[str]]:
+    """
+    使用 Gemini Vision 解析 PDF 每頁結構（標題、段落、清單、表格、圖片），
+    以 python-docx 重建可編輯 Word（樣式、字體、圖片皆可編輯）。適用掃描檔或文字型 PDF。
+    Returns: (docx_bytes, error_message)
+    """
+    _safe_imports()
+    if not _pdf2image:
+        return None, "未安裝 pdf2image（需 poppler）。請執行：pip install pdf2image"
+    if not _pil:
+        return None, "未安裝 Pillow"
+    if not _python_docx:
+        return None, "未安裝 python-docx，請執行：pip install python-docx"
+    if not _requests:
+        return None, "未安裝 requests"
+    if not api_key or not api_key.strip():
+        return None, "未提供 Gemini API 金鑰"
+
+    try:
+        req = _requests
+        images = _pdf2image(pdf_bytes, dpi=200)
+        total = len(images)
+        if total == 0:
+            return None, "PDF 中無頁面"
+
+        pdf_path = None
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tf:
+                tf.write(pdf_bytes)
+                pdf_path = tf.name
+            images_per_page = _extract_images_from_pdf_path(pdf_path)
+        finally:
+            if pdf_path and os.path.isfile(pdf_path):
+                try:
+                    os.remove(pdf_path)
+                except Exception:
+                    pass
+
+        m_name = model_name if "models/" in model_name else ("models/%s" % model_name)
+        url = "https://generativelanguage.googleapis.com/v1beta/%s:generateContent?key=%s" % (m_name, api_key.strip())
+        pages_data = []
+        for i, img in enumerate(images):
+            if progress_callback:
+                progress_callback((i + 1) / total)
+            if img.mode != "RGB":
+                img = img.convert("RGB")
+            img.thumbnail((1600, 1600), _pil.Image.Resampling.LANCZOS)
+            buf = io.BytesIO()
+            img.save(buf, format="JPEG", quality=88)
+            img_b64 = base64.b64encode(buf.getvalue()).decode()
+            payload = {
+                "contents": [{
+                    "parts": [
+                        {"text": _AI_LAYOUT_PROMPT},
+                        {"inlineData": {"mimeType": "image/jpeg", "data": img_b64}},
+                    ]
+                }],
+                "generationConfig": {"temperature": 0.1, "maxOutputTokens": 8192, "responseMimeType": "application/json"},
+            }
+            resp = req.post(url, json=payload, timeout=120)
+            if resp.status_code != 200:
+                return None, "Gemini API 錯誤: %s %s" % (resp.status_code, resp.text[:200])
+            data = resp.json()
+            if not data.get("candidates") or not data["candidates"][0].get("content", {}).get("parts"):
+                return None, "第 %d 頁 AI 未回傳內容" % (i + 1)
+            raw = data["candidates"][0]["content"]["parts"][0].get("text", "").strip()
+            try:
+                page_json = _parse_ai_layout_json(raw)
+            except json.JSONDecodeError:
+                page_json = {"page": i + 1, "blocks": [{"type": "paragraph", "text": raw[:5000]}]}
+            pages_data.append(page_json)
+
+        docx_bytes = _build_docx_from_ai_layout_pages(pages_data, images_per_page, images)
+        return docx_bytes, None
+    except Exception as e:
+        err_msg = str(e)
+        if "encrypted" in err_msg.lower() or "password" in err_msg.lower():
+            return None, "PDF 已加密或受密碼保護，無法讀取"
+        if "poppler" in err_msg.lower():
+            return None, "pdf2image 需要 poppler"
+        return None, "AI 高品質排版轉換失敗：%s" % err_msg

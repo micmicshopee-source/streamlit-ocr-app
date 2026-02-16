@@ -2717,6 +2717,7 @@ if st.session_state.current_tool != "invoice":
                 pdf_to_word,
                 pdf_to_word_with_tesseract,
                 pdf_to_word_with_ai_ocr,
+                pdf_to_word_with_ai_layout,
                 images_to_pdf,
                 word_to_pdf,
                 excel_to_pdf,
@@ -2873,18 +2874,23 @@ if st.session_state.current_tool != "invoice":
         if "pdf_word_mode" not in st.session_state:
             st.session_state.pdf_word_mode = "ocr"
         if _current == "word":
-            _modes = ["ocr", "normal", "ai"]
+            _modes = ["ocr", "normal", "ai", "ai_layout"]
             _idx = _modes.index(st.session_state.get("pdf_word_mode", "ocr")) if st.session_state.get("pdf_word_mode") in _modes else 0
             pdf_word_mode = st.radio(
                 "轉換模式",
                 _modes,
                 index=_idx,
-                format_func=lambda x: {"ocr": "OCR 模式（Tesseract，掃描檔，僅可編輯文字）", "normal": "一般模式（pdf2docx，樣式/字體/圖片皆可編輯，文字型 PDF）", "ai": "AI OCR 模式（Gemini，掃描檔，需 API 金鑰）"}[x],
+                format_func=lambda x: {
+                    "ocr": "OCR 模式（Tesseract，掃描檔，僅可編輯文字）",
+                    "normal": "一般模式（pdf2docx，樣式/字體/圖片皆可編輯，文字型 PDF）",
+                    "ai": "AI OCR 模式（Gemini，掃描檔，需 API 金鑰）",
+                    "ai_layout": "AI 高品質排版（Gemini Vision，樣式/字體/圖片皆可編輯，需 API 金鑰）",
+                }[x],
                 key="pdf_word_mode_radio",
                 horizontal=True,
             )
             st.session_state.pdf_word_mode = pdf_word_mode
-            st.caption("💡 要得到「樣式、字體、圖片都可編輯」的 Word，請用 **一般模式**（限文字型 PDF）；掃描檔僅能產出可編輯文字。")
+            st.caption("💡 要得到「樣式、字體、圖片都可編輯」的 Word：**一般模式**（文字型 PDF）或 **AI 高品質排版**（掃描/文字型皆可，需 API 金鑰）。")
 
         st.markdown("---")
         if st.button("開始轉換", type="primary", key="pdf_conv_btn", use_container_width=True):
@@ -2959,6 +2965,19 @@ if st.session_state.current_tool != "invoice":
                                 result = None
                             else:
                                 result, err = pdf_to_word_with_ai_ocr(
+                                    pdf_bytes,
+                                    api_key=_api_key,
+                                    model_name=_model,
+                                    progress_callback=lambda p: progress.progress(0.3 + 0.7 * p),
+                                )
+                        elif word_mode == "ai_layout":
+                            _api_key = st.session_state.get("gemini_api_key") or _safe_secrets_get("GEMINI_API_KEY")
+                            _model = st.session_state.get("gemini_model") or "gemini-2.0-flash"
+                            if not _api_key:
+                                err = "AI 高品質排版需設定 Gemini API 金鑰，請在進階設定中設定。"
+                                result = None
+                            else:
+                                result, err = pdf_to_word_with_ai_layout(
                                     pdf_bytes,
                                     api_key=_api_key,
                                     model_name=_model,
