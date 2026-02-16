@@ -616,7 +616,12 @@ def pdf_to_word_with_ai_ocr(
 
 
 # --- AI 高品質版面還原（Gemini Vision 結構化 JSON → Word）---
-_AI_LAYOUT_PROMPT = """请将这张 PDF 页面的内容解析成结构化 JSON。只输出一个 JSON 对象，不要其他说明或 markdown 标记。
+_AI_LAYOUT_PROMPT = """请将这张 PDF 页面的内容解析成结构化 JSON，用于重建 Word 文档。只输出一个 JSON 对象，不要任何说明或 markdown 标记。
+
+⚠️ 非常重要（请严格遵守）：
+1. 页面上看到的每一张图片，都必须输出一个独立的 image 区块，或明确标示出来，绝对不要忽略任何图片。
+2. 能识别出表格时，一律用 table 结构（header + rows），不要把表格当成純文字段落。
+3. 对于标题、子标题、小节标题，请使用 title / subtitle / heading，不要全部当 paragraph。
 
 格式要求：
 {
@@ -632,7 +637,7 @@ _AI_LAYOUT_PROMPT = """请将这张 PDF 页面的内容解析成结构化 JSON�
   ]
 }
 
-规则：
+规则补充：
 1. 按阅读顺序列出所有区块。
 2. type 只能是：title, subtitle, heading, paragraph, bullet_list, table, image 之一。
 3. 表格用 header（可选）和 rows 二维数组。
@@ -684,6 +689,25 @@ def _build_docx_from_ai_layout_pages(
         page_images = images_per_page[page_idx] if page_idx < len(images_per_page) else []
         pil_page = page_pil_images[page_idx] if page_idx < len(page_pil_images) else None
         img_index = 0
+
+        # 若模型完全沒有輸出 image 區塊，但該頁有圖片或整頁快照，先放一張「整頁圖」在最前面，確保圖片不會消失
+        has_image_block = any((b.get("type") or "").strip().lower() == "image" for b in blocks)
+        if not has_image_block and (page_images or pil_page):
+            if page_images:
+                try:
+                    doc.add_picture(io.BytesIO(page_images[0]), width=Inches(5.5))
+                    img_index = 1
+                except Exception:
+                    if pil_page:
+                        buf0 = io.BytesIO()
+                        pil_page.save(buf0, format="PNG")
+                        buf0.seek(0)
+                        doc.add_picture(buf0, width=Inches(5.5))
+            elif pil_page:
+                buf0 = io.BytesIO()
+                pil_page.save(buf0, format="PNG")
+                buf0.seek(0)
+                doc.add_picture(buf0, width=Inches(5.5))
         for block in blocks:
             t = (block.get("type") or "").strip().lower()
             text = (block.get("text") or "").strip()
@@ -740,6 +764,14 @@ def _build_docx_from_ai_layout_pages(
                     buf.seek(0)
                     doc.add_picture(buf, width=Inches(4.0))
                     img_index += 1
+
+        # 若頁面仍有尚未使用的圖片，補在頁尾，避免遺漏
+        while img_index < len(page_images):
+            try:
+                doc.add_picture(io.BytesIO(page_images[img_index]), width=Inches(3.0))
+            except Exception:
+                break
+            img_index += 1
         if page_idx < len(pages_data) - 1:
             doc.add_page_break()
     buf = io.BytesIO()
