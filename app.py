@@ -2514,7 +2514,7 @@ if not st.session_state.authenticated or not st.session_state.user_email:
 # 已登入，顯示側邊欄（僅發票報帳）
 with st.sidebar:
     st.title("🧾 發票報帳小幫手")
-    st.caption("掃描辨識・對獎・報表")
+    st.caption("上傳辨識・對獎・報表")
     st.session_state.current_tool = "invoice"
 
     st.markdown("---")
@@ -3005,17 +3005,21 @@ with st.container():
     title_col1, title_col2 = st.columns([2, 1])
     with title_col1:
         st.title("我的發票")
-        st.caption("掃描辨識・CSV 導入・對獎・報表導出")
+        st.caption("上傳辨識・CSV 導入・對獎・報表導出")
     with title_col2:
-        btn_row1, btn_row2 = st.columns(2)
+        btn_row1, btn_row2, btn_row3 = st.columns(3)
         with btn_row1:
-            if st.button("📷 掃描發票", type="primary", use_container_width=True):
+            if st.button("📷 上傳發票", type="primary", use_container_width=True):
                 st.session_state.show_upload_dialog = True
                 st.session_state.upload_mode = "ocr"
         with btn_row2:
             if st.button("📥 CSV 導入", type="primary", use_container_width=True):
                 st.session_state.show_upload_dialog = True
                 st.session_state.upload_mode = "import"
+        with btn_row3:
+            if st.button("📷 電腦掃描發票", type="secondary", use_container_width=True):
+                st.session_state.show_upload_dialog = True
+                st.session_state.upload_mode = "ocr"
 # 查詢當前用戶的數據（多用戶版本：使用 user_email）
 user_email = st.session_state.get('user_email', 'default_user')
 df_raw = run_query("SELECT * FROM invoices WHERE user_email = ? ORDER BY id DESC", (user_email,))
@@ -3347,7 +3351,7 @@ def upload_dialog():
     upload_mode = st.session_state.get("upload_mode", "ocr")
     
     if upload_mode == "ocr":
-        st.markdown("### 📷 掃描發票")
+        st.markdown("### 📷 上傳發票圖")
         if not api_key:
             st.warning("⚠️ 圖片辨識需要 API 金鑰。請在 **Manage app → Settings → Secrets** 中設定 `GEMINI_API_KEY`，設定後重新載入頁面。")
         st.caption("支援 JPG、PNG；建議單張清晰、光線充足，以利辨識。")
@@ -3526,7 +3530,7 @@ if df_raw.empty and not _has_pending_ocr and not _has_pending_import:
     st.info("尚無發票資料，請先上傳或導入。完成後即可在此查看總覽、編輯與導出報表。")
     ec1, ec2 = st.columns(2)
     with ec1:
-        if st.button("📷 掃描發票", type="primary", use_container_width=True, key="empty_upload_ocr"):
+        if st.button("📷 上傳發票圖", type="primary", use_container_width=True, key="empty_upload_ocr"):
             st.session_state.show_upload_dialog = True
             st.session_state.upload_mode = "ocr"
             st.rerun()
