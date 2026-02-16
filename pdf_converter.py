@@ -318,6 +318,66 @@ def _docx_text_length(docx_bytes: bytes) -> int:
         return 0
 
 
+def pdf_to_word_with_tesseract(
+    pdf_bytes: bytes,
+    lang: str = "chi_tra+eng",
+    dpi: int = 200,
+    progress_callback=None,
+) -> Tuple[Optional[bytes], Optional[str]]:
+    """
+    使用 Tesseract OCR 將掃描檔 PDF 轉為可編輯 Word。
+    免費、無需 API 金鑰，需系統安裝 Tesseract。
+    Returns: (docx_bytes, error_message)
+    """
+    _safe_imports()
+    if not _pdf2image:
+        return None, "未安裝 pdf2image（需 poppler）。請執行：pip install pdf2image"
+    if not _pil:
+        return None, "未安裝 Pillow"
+    if not _python_docx:
+        return None, "未安裝 python-docx，請執行：pip install python-docx"
+
+    try:
+        import pytesseract
+    except ImportError:
+        return None, "未安裝 pytesseract，請執行：pip install pytesseract"
+
+    try:
+        images = _pdf2image(pdf_bytes, dpi=dpi)
+        total = len(images)
+        if total == 0:
+            return None, "PDF 中無頁面"
+
+        Document, Pt = _python_docx
+        doc = Document()
+
+        for i, img in enumerate(images):
+            if progress_callback:
+                progress_callback((i + 1) / total)
+            if img.mode != "RGB":
+                img = img.convert("RGB")
+            text = pytesseract.image_to_string(img, lang=lang)
+            for para in (text or "").split("\n\n"):
+                para = para.strip()
+                if para:
+                    p = doc.add_paragraph(para)
+                    p.paragraph_format.space_after = Pt(6)
+
+        buf = io.BytesIO()
+        doc.save(buf)
+        buf.seek(0)
+        return buf.read(), None
+    except Exception as e:
+        err_msg = str(e)
+        if "tesseract" in err_msg.lower() or "is not installed" in err_msg.lower():
+            return None, "請安裝 Tesseract OCR：Windows 從 https://github.com/UB-Mannheim/tesseract/wiki 下載；Ubuntu 執行 sudo apt install tesseract-ocr tesseract-ocr-chi-tra"
+        if "encrypted" in err_msg.lower() or "password" in err_msg.lower():
+            return None, "PDF 已加密或受密碼保護，無法讀取"
+        if "poppler" in err_msg.lower():
+            return None, "pdf2image 需要 poppler。Ubuntu 執行：sudo apt install poppler-utils"
+        return None, f"OCR 轉換失敗：{err_msg}"
+
+
 def pdf_to_word(pdf_bytes: bytes, progress_callback=None) -> Tuple[Optional[bytes], Optional[str]]:
     """
     使用 pdf2docx 將 PDF 轉為 Word。

@@ -2715,6 +2715,8 @@ if st.session_state.current_tool != "invoice":
                 pdf_to_ppt,
                 pdf_to_images,
                 pdf_to_word,
+                pdf_to_word_with_tesseract,
+                pdf_to_word_with_ai_ocr,
                 images_to_pdf,
             )
         except ImportError:
@@ -2804,6 +2806,22 @@ if st.session_state.current_tool != "invoice":
             img_fmt = st.radio("圖片格式", ["PNG", "JPG"], horizontal=True, key="pdf_img_fmt")
             img_fmt = img_fmt.lower()
 
+        # Word 轉換模式（僅當選 Word 時顯示）
+        if "pdf_word_mode" not in st.session_state:
+            st.session_state.pdf_word_mode = "ocr"
+        if _current == "word":
+            _modes = ["ocr", "normal", "ai"]
+            _idx = _modes.index(st.session_state.get("pdf_word_mode", "ocr")) if st.session_state.get("pdf_word_mode") in _modes else 0
+            pdf_word_mode = st.radio(
+                "轉換模式",
+                _modes,
+                index=_idx,
+                format_func=lambda x: {"ocr": "OCR 模式（Tesseract，掃描檔適用，免費）", "normal": "一般模式（pdf2docx，文字型 PDF）", "ai": "AI OCR 模式（Gemini，複雜版面，需 API 金鑰）"}[x],
+                key="pdf_word_mode_radio",
+                horizontal=True,
+            )
+            st.session_state.pdf_word_mode = pdf_word_mode
+
         st.markdown("---")
         if st.button("開始轉換", type="primary", key="pdf_conv_btn", use_container_width=True):
             base_name = os.path.splitext(uploaded.name or "document")[0]
@@ -2861,12 +2879,36 @@ if st.session_state.current_tool != "invoice":
                             )
                     elif conv_target == "word":
                         progress.progress(0.3)
-                        result, err = pdf_to_word(pdf_bytes, progress_callback=lambda p: progress.progress(0.3 + 0.7 * p))
+                        word_mode = st.session_state.get("pdf_word_mode", "ocr")
+                        if word_mode == "ocr":
+                            result, err = pdf_to_word_with_tesseract(
+                                pdf_bytes,
+                                lang="chi_tra+eng",
+                                dpi=200,
+                                progress_callback=lambda p: progress.progress(0.3 + 0.7 * p),
+                            )
+                        elif word_mode == "ai":
+                            _api_key = st.session_state.get("gemini_api_key") or _safe_secrets_get("GEMINI_API_KEY")
+                            _model = st.session_state.get("gemini_model") or "gemini-2.0-flash"
+                            if not _api_key:
+                                err = "AI OCR 需設定 Gemini API 金鑰，請在進階設定中設定。"
+                                result = None
+                            else:
+                                result, err = pdf_to_word_with_ai_ocr(
+                                    pdf_bytes,
+                                    api_key=_api_key,
+                                    model_name=_model,
+                                    progress_callback=lambda p: progress.progress(0.3 + 0.7 * p),
+                                )
+                        else:
+                            result, err = pdf_to_word(pdf_bytes, progress_callback=lambda p: progress.progress(0.3 + 0.7 * p))
                         progress.progress(1.0)
                         if err:
                             st.error(err)
                             if "未安裝 pdf2docx" in (err or ""):
                                 st.info("💡 伺服器需執行：`pip install pdf2docx`")
+                            elif "Tesseract" in (err or ""):
+                                st.info("💡 需安裝 Tesseract：Ubuntu 執行 `sudo apt install tesseract-ocr tesseract-ocr-chi-tra`；Windows 從 https://github.com/UB-Mannheim/tesseract/wiki 下載")
                         else:
                             st.success("轉換完成")
                             st.download_button(
