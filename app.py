@@ -2704,7 +2704,10 @@ if st.session_state.current_tool != "invoice":
 
     # --- 📄 PDF 萬能轉換工具 ---
     if _tool == "pdf_converter":
-        st.subheader("📄 PDF 萬能轉換工具")
+        if "pdf_conv_target" not in st.session_state:
+            st.session_state.pdf_conv_target = "excel"
+
+        st.subheader("📄 PDF 萬能轉換")
         st.caption("支援 PDF 與 Office、圖片格式互轉。")
         try:
             from pdf_converter import (
@@ -2727,12 +2730,13 @@ if st.session_state.current_tool != "invoice":
 
         if pdf_mode == "轉換為 PDF":
             # 圖片 → PDF
-            st.caption("將 JPG/PNG 圖片合併為單一 PDF，依上傳順序排列。")
+            st.caption("拖放圖片或點擊上傳 JPG/PNG")
             img_uploads = st.file_uploader(
                 "上傳圖片（可多選）",
                 type=["jpg", "jpeg", "png"],
                 accept_multiple_files=True,
                 key="pdf_img_to_pdf_upload",
+                label_visibility="collapsed",
             )
             if not img_uploads:
                 st.info("👆 請上傳至少一張 JPG 或 PNG 圖片")
@@ -2762,9 +2766,10 @@ if st.session_state.current_tool != "invoice":
                     )
             st.stop()
 
-        # 從 PDF 轉換（原有邏輯）
-        st.caption("上傳 PDF 後選擇轉換目標格式。")
-        uploaded = st.file_uploader("上傳 PDF 檔案", type=["pdf"], key="pdf_conv_upload")
+        # 從 PDF 轉換：卡片式選項 + 拖放上傳
+        st.caption("拖放文件或點擊上傳 PDF")
+        uploaded = st.file_uploader("上傳 PDF 檔案", type=["pdf"], key="pdf_conv_upload", label_visibility="collapsed")
+
         if not uploaded:
             st.info("👆 請先上傳 PDF 檔案")
             st.stop()
@@ -2772,22 +2777,41 @@ if st.session_state.current_tool != "invoice":
         pdf_bytes = uploaded.read()
         if len(pdf_bytes) > 50 * 1024 * 1024:
             st.warning("⚠️ 檔案超過 50MB，為避免記憶體負擔，建議縮小檔案後再試。")
-        conv_target = st.selectbox(
-            "轉換目標",
-            ["Excel (.xlsx)", "PPT (.pptx)", "圖片 (JPG/PNG) → ZIP", "Word (.docx)"],
-            key="pdf_conv_target",
-        )
+
+        # 卡片式轉換選項
+        _targets = [
+            ("excel", "PDF 轉 Excel", "📊", "#4CAF50"),
+            ("word", "PDF 轉 Word", "📝", "#2196F3"),
+            ("ppt", "PDF 轉 PPT", "📽️", "#FF9800"),
+            ("image", "PDF 轉圖片", "🖼️", "#9C27B0"),
+        ]
+        _current = st.session_state.pdf_conv_target
+        _cols = st.columns(4)
+        for i, (key, label, icon, _color) in enumerate(_targets):
+            with _cols[i]:
+                _sel = "selected" if _current == key else ""
+                st.markdown(
+                    f'<div class="pdf-conv-card {key} {_sel}"><span class="pdf-conv-icon">{icon}</span><span class="pdf-conv-label">{label}</span></div>',
+                    unsafe_allow_html=True,
+                )
+                if st.button("選擇" if _current != key else "✓ 已選", key=f"pdf_opt_{key}", use_container_width=True, type="primary" if _current == key else "secondary"):
+                    st.session_state.pdf_conv_target = key
+                    st.rerun()
+
+        # 圖片格式（僅當選圖片時顯示）
         img_fmt = "png"
-        if "圖片" in conv_target:
+        if _current == "image":
             img_fmt = st.radio("圖片格式", ["PNG", "JPG"], horizontal=True, key="pdf_img_fmt")
             img_fmt = img_fmt.lower()
 
-        if st.button("開始轉換", type="primary", key="pdf_conv_btn"):
+        st.markdown("---")
+        if st.button("開始轉換", type="primary", key="pdf_conv_btn", use_container_width=True):
             base_name = os.path.splitext(uploaded.name or "document")[0]
             progress = st.progress(0.0)
+            conv_target = _current
             with st.spinner("轉換中，請稍候…"):
                 try:
-                    if "Excel" in conv_target:
+                    if conv_target == "excel":
                         progress.progress(0.3)
                         result, err = pdf_to_excel(pdf_bytes, progress_callback=lambda p: progress.progress(0.3 + 0.7 * p))
                         progress.progress(1.0)
@@ -2802,7 +2826,7 @@ if st.session_state.current_tool != "invoice":
                                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                                 key="pdf_dl_excel",
                             )
-                    elif "PPT" in conv_target:
+                    elif conv_target == "ppt":
                         progress.progress(0.3)
                         result, err = pdf_to_ppt(pdf_bytes, progress_callback=lambda p: progress.progress(0.3 + 0.7 * p))
                         progress.progress(1.0)
@@ -2817,7 +2841,7 @@ if st.session_state.current_tool != "invoice":
                                 mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
                                 key="pdf_dl_ppt",
                             )
-                    elif "圖片" in conv_target:
+                    elif conv_target == "image":
                         progress.progress(0.3)
                         zip_data, first_img, err = pdf_to_images(pdf_bytes, fmt=img_fmt, dpi=200, progress_callback=lambda p: progress.progress(0.3 + 0.7 * p))
                         progress.progress(1.0)
@@ -2835,7 +2859,7 @@ if st.session_state.current_tool != "invoice":
                                 mime="application/zip",
                                 key="pdf_dl_zip",
                             )
-                    elif "Word" in conv_target:
+                    elif conv_target == "word":
                         progress.progress(0.3)
                         result, err = pdf_to_word(pdf_bytes, progress_callback=lambda p: progress.progress(0.3 + 0.7 * p))
                         progress.progress(1.0)

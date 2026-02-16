@@ -914,3 +914,75 @@ p, span, div, label {
         font-size: 0.8125rem !important;
     }
 }
+
+/* --- PDF 萬能轉換：卡片式選項、拖放上傳區 --- */
+.pdf-upload-zone {
+    border: 2px dashed var(--border-default);
+    border-radius: var(--radius-lg);
+    padding: var(--space-6) var(--space-4);
+    text-align: center;
+    background: rgba(255, 255, 255, 0.02);
+    transition: border-color var(--transition), background var(--transition);
+}
+.pdf-upload-zone:hover {
+    border-color: var(--accent);
+    background: rgba(66, 133, 244, 0.05);
+}
+.pdf-upload-zone.has-file {
+    border-color: var(--accent);
+    background: rgba(76, 175, 80, 0.08);
+}
+.pdf-upload-icon {
+    font-size: 2.5rem;
+    margin-bottom: var(--space-2);
+    opacity: 0.8;
+}
+.pdf-conv-card {
+    border: 2px solid var(--border-default);
+    border-radius: var(--radius-lg);
+    padding: var(--space-4);
+    text-align: center;
+    cursor: pointer;
+    transition: all var(--transition);
+    background: var(--bg-card);
+}
+.pdf-conv-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+.pdf-conv-card.selected {
+    box-shadow: 0 0 0 2px var(--pdf-card-color, var(--accent));
+}
+.pdf-conv-card.excel { --pdf-card-color: #4CAF50; border-color: #4CAF50; }
+.pdf-conv-card.word { --pdf-card-color: #2196F3; border-color: #2196F3; }
+.pdf-conv-card.ppt { --pdf-card-color: #FF9800; border-color: #FF9800; }
+.pdf-conv-card.image { --pdf-card-color: #9C27B0; border-color: #9C27B0; }
+.pdf-conv-card.excel.selected { border-color: #4CAF50; box-shadow: 0 0 0 2px #4CAF50; }
+.pdf-conv-card.word.selected { border-color: #2196F3; box-shadow: 0 0 0 2px #2196F3; }
+.pdf-conv-card.ppt.selected { border-color: #FF9800; box-shadow: 0 0 0 2px #FF9800; }
+.pdf-conv-card.image.selected { border-color: #9C27B0; box-shadow: 0 0 0 2px #9C27B0; }
+.pdf-conv-icon {
+    font-size: 1.75rem;
+    margin-bottom: var(--space-2);
+    display: block;
+}
+.pdf-conv-label {
+    font-weight: 600;
+    font-size: 0.9rem;
+}
+
+/* 拖放上傳區：強化 Streamlit file_uploader 視覺 */
+div[data-testid="stFileUploader"] {
+    border: 2px dashed var(--border-default) !important;
+    border-radius: var(--radius-lg) !important;
+    padding: var(--space-5) var(--space-4) !important;
+    background: rgba(255, 255, 255, 0.02) !important;
+    transition: border-color var(--transition), background var(--transition) !important;
+}
+div[data-testid="stFileUploader"]:hover {
+    border-color: var(--accent) !important;
+    background: rgba(66, 133, 244, 0.05) !important;
+}
+div[data-testid="stFileUploader"] section {
+    border: none !important;
+}
