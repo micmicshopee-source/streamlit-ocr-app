@@ -3034,8 +3034,10 @@ model = st.session_state.get("gemini_model") or "gemini-2.0-flash"
 with st.container():
     title_col1, title_col2 = st.columns([2, 1])
     with title_col1:
-        st.title("我的發票")
-        st.caption("上傳辨識・CSV 導入・對獎・報表導出")
+        # 首頁名稱需與 OAuth 同意畫面一致：發票報帳小幫手
+        st.title("發票報帳小幫手")
+        st.caption("上班族發票管理與報帳工具：支援發票掃描／拍照上傳、CSV 導入、自動對獎與報表匯出。")
+        st.markdown("🔒 [隱私權政策](https://getaiinvoice.com/privacy)")
     with title_col2:
         btn_row1, btn_row2, btn_row3 = st.columns(3)
         with btn_row1:
