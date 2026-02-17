@@ -653,9 +653,20 @@ def login_page():
     col1, col2, col3 = st.columns([1, 2.5, 1])
     with col2:
         st.markdown('<div class="login-container">', unsafe_allow_html=True)
-        st.title("🔐 發票報帳小幫手")
-        st.markdown('<p>登入以使用發票報帳、對獎與報表導出</p>', unsafe_allow_html=True)
+        # 首頁名稱需與 OAuth 同意畫面一致：發票報帳小幫手，並清楚說明用途與隱私政策連結
+        st.title("發票報帳小幫手")
+        st.markdown(
+            """
+            <p>
+            發票報帳小幫手是一個專為上班族與小型企業設計的線上工具，
+            提供統一發票掃描／拍照上傳、CSV 批次導入、自動對獎以及匯出報表，
+            協助你快速完成報帳與記帳工作。
+            </p>
+            """,
+            unsafe_allow_html=True,
+        )
         st.caption("您的資料僅供您本人使用，我們不會分享給第三方。")
+        st.markdown('🔒 <a href="https://getaiinvoice.com/privacy" target="_blank">隱私權政策</a>', unsafe_allow_html=True)
         # 方案 A（Streamlit Cloud 等）休眠與資料遺失說明
         if _is_ephemeral_env():
             st.warning(
@@ -3326,6 +3337,34 @@ def _run_ocr_batch(file_data_list, user_email, api_key_val, model_name):
             if not val or val == 'N/A' or val == '' or (isinstance(val, (int, float)) and val == 0 and f == 'total'):
                 return False
         return True
+
+    def decode_barcode_info(image_obj):
+        """
+        嘗試從發票條碼 / QR Code 中解出發票號碼等資訊。
+        依賴 pyzbar（可選）；若未安裝或解析失敗則返回空 dict。
+        目前僅做簡單規則：尋找 2 碼英文 + 8 碼數字的統一發票號碼。
+        """
+        try:
+            from pyzbar.pyzbar import decode as _barcode_decode
+        except Exception:
+            return {}
+        try:
+            barcodes = _barcode_decode(image_obj)
+        except Exception:
+            return {}
+        info = {}
+        for bc in barcodes:
+            try:
+                txt = (bc.data or b"").decode(errors="ignore").strip().upper()
+            except Exception:
+                continue
+            if not txt:
+                continue
+            # 統一發票號碼格式：2 碼英文字母 + 8 碼數字（例如 AB12345678）
+            m = re.search(r"[A-Z]{2}[0-9]{8}", txt)
+            if m and "invoice_no" not in info:
+                info["invoice_no"] = m.group(0)
+        return info
     
     for fname, fbytes in file_data_list:
         try:
@@ -3334,8 +3373,13 @@ def _run_ocr_batch(file_data_list, user_email, api_key_val, model_name):
             ocr_report.append(f"{fname}: 無法讀取圖片 {img_err}")
             fail_count += 1
             continue
+        # 先嘗試從條碼解出發票號碼等結構化資訊
+        barcode_info = decode_barcode_info(image_obj)
         data, err = process_ocr(image_obj, fname, model_name, api_key_val)
         if data:
+            # 條碼資訊優先填入（若 OCR 未填或為預設值）
+            if barcode_info.get("invoice_no") and not data.get("invoice_no"):
+                data["invoice_no"] = barcode_info["invoice_no"]
             invoice_no = safe_value(data.get("invoice_no"), "No")
             invoice_date = safe_value(data.get("date"), datetime.now().strftime("%Y/%m/%d"))
             is_duplicate = False

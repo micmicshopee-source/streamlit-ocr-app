@@ -13,12 +13,12 @@ python3 --version   # 建議 3.9+
 pip3 --version
 ```
 
-**系統依賴**（PDF 轉換需 poppler、Tesseract；Office→PDF 需 LibreOffice）：
+**系統依賴**（PDF 轉換需 poppler、Tesseract；Office→PDF 需 LibreOffice；條碼掃描需 zbar）：
 
 ```bash
 # Ubuntu/Debian
 sudo apt update
-sudo apt install -y poppler-utils tesseract-ocr tesseract-ocr-chi-tra libreoffice curl
+sudo apt install -y poppler-utils tesseract-ocr tesseract-ocr-chi-tra libreoffice curl libzbar0
 
 # 若用 Docker 部署，則需 Docker
 docker --version
