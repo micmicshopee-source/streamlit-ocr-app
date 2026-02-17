@@ -167,6 +167,8 @@ def _inject_premium_dark_css():
         with open(css_path, "r", encoding="utf-8") as f:
             st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
 
+_inject_premium_dark_css()
+
 
 # 主內容區樣式：預留空間給頂部黑色 header，避免內容被壓在底下
 st.markdown("""
@@ -2561,6 +2563,15 @@ if not st.session_state.authenticated or not st.session_state.user_email:
 with st.sidebar:
     st.title("🧾 發票報帳小幫手")
     st.caption("上傳辨識・對獎・報表")
+    theme = st.radio(
+        "主題",
+        ["dark", "light"],
+        index=0 if st.session_state.get("ui_theme", "dark") == "dark" else 1,
+        format_func=lambda x: "深色" if x == "dark" else "淺色",
+        horizontal=True,
+        key="ui_theme_radio",
+    )
+    st.session_state.ui_theme = theme
     st.session_state.current_tool = "invoice"
 
     st.markdown("---")
