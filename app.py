@@ -155,14 +155,18 @@ def _restore_session_from_url():
     except Exception:
         return False
 
-# --- 主題：Premium Dark（Google Black #0F0F0F / 卡片 #1E1E1E / 4px·8px 網格 / 導航 Hover 過渡）---
+# --- 主題：深色 / 淺色切換（預設深色 Premium Dark）---
 def _inject_premium_dark_css():
+    """根據 ui_theme 注入深色主題 CSS；淺色則使用 Streamlit 預設。"""
+    theme = st.session_state.get("ui_theme", "dark")
+    if theme != "dark":
+        return
     base_dir = os.path.dirname(os.path.abspath(__file__))
     css_path = os.path.join(base_dir, "premium_dark.css")
     if os.path.isfile(css_path):
         with open(css_path, "r", encoding="utf-8") as f:
             st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
-_inject_premium_dark_css()
+
 
 # 主內容區樣式：預留空間給頂部黑色 header，避免內容被壓在底下
 st.markdown("""
@@ -175,6 +179,7 @@ section[data-testid="stAppViewBlockContainer"] { padding-top: 0 !important; }
 if "db_error" not in st.session_state: st.session_state.db_error = None
 if "db_path_mode" not in st.session_state: st.session_state.db_path_mode = "💾 本地磁碟"
 if "use_memory_mode" not in st.session_state: st.session_state.use_memory_mode = False
+if "ui_theme" not in st.session_state: st.session_state.ui_theme = "dark"
 if "local_invoices" not in st.session_state: st.session_state.local_invoices = []
 if "local_batches" not in st.session_state: st.session_state.local_batches = []
 if "image_storage_dir" not in st.session_state: 
