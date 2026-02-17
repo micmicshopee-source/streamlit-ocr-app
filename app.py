@@ -155,7 +155,18 @@ def _restore_session_from_url():
     except Exception:
         return False
 
-# --- 主題：採用 Streamlit 預設淺色主題，僅微調內距 ---
+# --- 主題：Premium Dark（恢復原本深色風格）---
+def _inject_premium_dark_css():
+    """注入 premium_dark.css，套用深色主題。"""
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    css_path = os.path.join(base_dir, "premium_dark.css")
+    if os.path.isfile(css_path):
+        with open(css_path, "r", encoding="utf-8") as f:
+            st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
+
+_inject_premium_dark_css()
+
+# 主內容區樣式：預留空間給頂部黑色 header，避免內容被壓在底下
 st.markdown("""
 <style>
 .main .block-container { padding-top: 3.5rem !important; }
