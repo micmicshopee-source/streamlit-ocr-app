@@ -164,10 +164,10 @@ def _inject_premium_dark_css():
             st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
 _inject_premium_dark_css()
 
-# 主內容區樣式（不隱藏 header/toolbar，避免側邊欄摺疊後無法再展開）
+# 主內容區樣式：預留空間給頂部黑色 header，避免內容被壓在底下
 st.markdown("""
 <style>
-.main .block-container { padding-top: 0.5rem !important; }
+.main .block-container { padding-top: 3.5rem !important; }
 section[data-testid="stAppViewBlockContainer"] { padding-top: 0 !important; }
 </style>
 """, unsafe_allow_html=True)
