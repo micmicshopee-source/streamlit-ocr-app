@@ -24,6 +24,9 @@ import hashlib
 import shutil
 import secrets as _secrets_module
 import re
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 from openpyxl.styles import Alignment, Font
 
 # 隱私政策與服務條款內容（可點擊展開查看）；{{CONTACT_EMAIL}} 會於顯示時替換
@@ -252,12 +255,40 @@ def _safe_secrets_get(key, default=None):
     return fallback.get(key, default)
 
 def _get_contact_email():
-    """取得聯絡信箱，可於 secrets.toml 設定 CONTACT_EMAIL 覆蓋。"""
-    return _safe_secrets_get("CONTACT_EMAIL") or "micmicshopee@gmail.com"
+    """取得聯絡信箱，請於 .streamlit/secrets.toml 設定 CONTACT_EMAIL。"""
+    return (_safe_secrets_get("CONTACT_EMAIL") or "").strip()
+
+def _smtp_send(to_email: str, subject: str, body: str, reply_to: str = "") -> tuple[bool, str]:
+    """
+    透過 SMTP 寄信（Gmail：smtp.gmail.com:587）。
+    需在 secrets 設定：CONTACT_EMAIL（寄件人）、SMTP_APP_PASSWORD 或 SMTP_PASSWORD。
+    可選：SMTP_USER（預設同 CONTACT_EMAIL）、SMTP_HOST、SMTP_PORT。
+    """
+    smtp_pass = _safe_secrets_get("SMTP_APP_PASSWORD") or _safe_secrets_get("SMTP_PASSWORD") or ""
+    smtp_user = _safe_secrets_get("SMTP_USER") or _get_contact_email()
+    if not smtp_user or not smtp_pass or not to_email:
+        return False, "未設定 SMTP（請在 Secrets 設定 CONTACT_EMAIL 與 SMTP_APP_PASSWORD）"
+    host = _safe_secrets_get("SMTP_HOST") or "smtp.gmail.com"
+    port = int(_safe_secrets_get("SMTP_PORT") or "587")
+    try:
+        msg = MIMEMultipart()
+        msg["Subject"] = subject
+        msg["From"] = smtp_user
+        msg["To"] = to_email
+        if reply_to:
+            msg["Reply-To"] = reply_to
+        msg.attach(MIMEText(body, "plain", "utf-8"))
+        with smtplib.SMTP(host, port, timeout=15) as server:
+            server.starttls()
+            server.login(smtp_user, smtp_pass.strip())
+            server.sendmail(smtp_user, [to_email], msg.as_string())
+        return True, "已寄出"
+    except Exception as e:
+        return False, str(e)
 
 @st.dialog("💬 反饋意見", width="medium", dismissible=False)
 def _feedback_dialog():
-    """彈出框輸入主旨與內容，送出後顯示 mailto 連結。"""
+    """彈出框輸入主旨與內容；若已設定 SMTP 則直接寄信至聯絡信箱，否則顯示 mailto 連結。"""
     if st.session_state.get("feedback_mailto_ready"):
         mailto_url = st.session_state.get("feedback_mailto_url", "")
         st.success("請點擊下方按鈕開啟郵件軟體，您的反饋已預填完成。")
@@ -283,12 +314,27 @@ def _feedback_dialog():
                 st.error("請填寫內容")
             else:
                 to_email = _get_contact_email()
-                subj_enc = quote((subject or "反饋意見").strip(), safe="")
+                subj = (subject or "反饋意見").strip()
                 body_parts = [f"回覆郵箱：{(user_email_input or '').strip()}", "", "反饋內容：", (content or "").strip()]
-                body_enc = quote("\n".join(body_parts), safe="")
-                st.session_state.feedback_mailto_url = f"mailto:{to_email}?subject={subj_enc}&body={body_enc}"
-                st.session_state.feedback_mailto_ready = True
-                st.rerun()
+                body = "\n".join(body_parts)
+                if _safe_secrets_get("SMTP_APP_PASSWORD") or _safe_secrets_get("SMTP_PASSWORD"):
+                    ok, msg = _smtp_send(to_email, subj, body, reply_to=(user_email_input or "").strip())
+                    if ok:
+                        st.success("✅ 反饋已寄出，感謝您的回覆。")
+                        if st.button("關閉", key="fb_done_smtp"):
+                            st.session_state.show_feedback_dialog = False
+                            st.rerun()
+                    else:
+                        st.error(f"寄送失敗：{msg}")
+                else:
+                    if not to_email:
+                        st.error("未設定聯絡信箱（Secrets 的 CONTACT_EMAIL），請改用手動寄信。")
+                    else:
+                        subj_enc = quote(subj, safe="")
+                        body_enc = quote(body, safe="")
+                        st.session_state.feedback_mailto_url = f"mailto:{to_email}?subject={subj_enc}&body={body_enc}"
+                        st.session_state.feedback_mailto_ready = True
+                        st.rerun()
     with col2:
         if st.button("取消", use_container_width=True, key="fb_cancel"):
             st.session_state.show_feedback_dialog = False
@@ -375,39 +421,31 @@ def _check_invitation_code(code: str) -> tuple[bool, str]:
 
 # --- 1.5. 註冊函數 ---
 def register_user(email: str, password: str, invitation_code: str = ""):
-    """註冊新用戶（寫入 SQLite users 表）；密碼須通過強度檢核；若啟用邀請碼則須正確。"""
-    email = email.strip()
-    if not email or not password:
-        return False, "電子郵件與密碼不可為空"
-    
+    """註冊新用戶（寫入 SQLite users 表）；密碼須通過強度檢核；若啟用邀請碼則須正確。信箱一律存小寫。"""
+    if not email or not isinstance(email, str):
+        return False, "請輸入電子郵件"
+    if not password or not isinstance(password, str):
+        return False, "請輸入密碼"
+    email = email.strip().lower()
     email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
     if not re.match(email_pattern, email):
         return False, "電子郵件格式不正確"
-    
     ok, msg = validate_password_strength(password)
     if not ok:
         return False, msg
-
     ok_inv, msg_inv = _check_invitation_code(invitation_code)
     if not ok_inv:
         return False, msg_inv
-    
-    # 初始化資料庫（確保 users 表存在）
     init_db()
     path = get_db_path()
     is_uri = path.startswith("file:") and "mode=memory" in path
-    
     try:
         conn = sqlite3.connect(path, timeout=30, uri=is_uri, check_same_thread=False)
         cursor = conn.cursor()
-        
-        # 檢查是否已存在
         cursor.execute("SELECT id FROM users WHERE email = ?", (email,))
         if cursor.fetchone():
             conn.close()
             return False, "此電子郵件已註冊，請直接登入"
-        
-        # 寫入新用戶
         cursor.execute(
             "INSERT INTO users (email, password_hash) VALUES (?, ?)",
             (email, hash_password(password)),
@@ -422,94 +460,82 @@ def register_user(email: str, password: str, invitation_code: str = ""):
 def verify_user(email, password):
     """
     驗證用戶登錄
-    優先順序：
-    1. 查詢 SQLite users 表（註冊用戶）
-    2. Streamlit Secrets
-    3. 環境變數
+    優先順序：1. SQLite users 表  2. Streamlit Secrets  3. 環境變數
+    安全：空密碼拒絕、信箱小寫正規化、所有失敗皆記錄以觸發鎖定。
     """
     import re
-    
-    # 驗證電子郵件格式
+    if not email or not isinstance(email, str):
+        return False, "請輸入電子郵件"
+    if not password or not isinstance(password, str) or not password.strip():
+        return False, "請輸入密碼"
     email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
-    if not re.match(email_pattern, email):
+    if not re.match(email_pattern, email.strip()):
         return False, "電子郵件格式不正確"
-    
-    email = email.strip()
-    
-    # AUTH-03：登入失敗鎖定檢查
+    email = email.strip().lower()
     if is_login_locked(email):
         return False, "帳號暫時鎖定，請 15 分鐘後再試"
-    
-    # ① 優先查詢 SQLite users 表（註冊用戶）
     try:
         init_db()
         path = get_db_path()
         is_uri = path.startswith("file:") and "mode=memory" in path
         conn = sqlite3.connect(path, timeout=30, uri=is_uri, check_same_thread=False)
         cursor = conn.cursor()
-        
-        cursor.execute(
-            "SELECT id, password_hash FROM users WHERE email = ?", (email,)
-        )
+        cursor.execute("SELECT id, password_hash FROM users WHERE email = ?", (email,))
         row = cursor.fetchone()
         if row:
             user_id, stored_hash = row
             if not stored_hash:
                 conn.close()
+                _record_login_attempt(email, False)
                 return False, "此帳號僅支援第三方登入，請使用 Google / LINE 登入"
-            
             if verify_password(password, stored_hash):
                 _clear_login_attempts(email)
-                cursor.execute(
-                    "UPDATE users SET last_login = ? WHERE id = ?",
-                    (datetime.now().isoformat(), user_id),
-                )
+                cursor.execute("UPDATE users SET last_login = ? WHERE id = ?", (datetime.now().isoformat(), user_id))
                 conn.commit()
                 conn.close()
                 return True, "登入成功"
-            else:
-                _record_login_attempt(email, False)
-                conn.close()
-                return False, "電子郵件或密碼錯誤"
+            _record_login_attempt(email, False)
+            conn.close()
+            return False, "電子郵件或密碼錯誤"
         conn.close()
-    except Exception as e:
-        # 資料庫查詢失敗，繼續使用其他方式
+    except Exception:
         pass
-    
-    # ② 使用 Streamlit Secrets（若無 secrets.toml 或無 USERS 則跳過，不報錯）
     users = _safe_secrets_get("USERS")
     if users is not None:
         if isinstance(users, dict):
-            # 格式：{"user@example.com": "password", ...}
-            if email in users:
-                if users[email] == password or users[email] == "":
-                    return True, "登入成功"
+            for k, v in users.items():
+                if (k or "").strip().lower() == email:
+                    stored = (v or "").strip()
+                    if stored and stored == password:
+                        return True, "登入成功"
+                    _record_login_attempt(email, False)
+                    return False, "電子郵件或密碼錯誤"
         elif isinstance(users, str):
-            # 格式：字串，每行一個 "email:password"
-            for line in users.strip().split('\n'):
-                if ':' in line:
-                    user_email, user_password = line.split(':', 1)
-                    if user_email.strip() == email:
-                        if user_password.strip() == password or user_password.strip() == "":
+            for line in users.strip().split("\n"):
+                if ":" in line:
+                    u, p = line.split(":", 1)
+                    if u.strip().lower() == email:
+                        if (p.strip() or "") and p.strip() == password:
                             return True, "登入成功"
-    
-    # 其次使用環境變數
+                        _record_login_attempt(email, False)
+                        return False, "電子郵件或密碼錯誤"
     env_users = os.getenv("USERS")
     if env_users:
-        for line in env_users.strip().split('\n'):
-            if ':' in line:
-                user_email, user_password = line.split(':', 1)
-                if user_email.strip() == email:
-                    if user_password.strip() == password or user_password.strip() == "":
+        for line in env_users.strip().split("\n"):
+            if ":" in line:
+                u, p = line.split(":", 1)
+                if u.strip().lower() == email:
+                    if (p.strip() or "") and p.strip() == password:
                         return True, "登入成功"
-    
-    # 生產環境：不提供默認測試帳號，必須通過註冊或 Secrets 配置
+                    _record_login_attempt(email, False)
+                    return False, "電子郵件或密碼錯誤"
+    _record_login_attempt(email, False)
     return False, "電子郵件或密碼錯誤"
 
 
 def user_exists_in_db(email):
     """檢查該郵箱是否已在本系統（SQLite users 表）註冊。僅限資料庫註冊用戶可重設密碼。"""
-    if not email or not email.strip():
+    if not email or not isinstance(email, str) or not email.strip():
         return False
     try:
         init_db()
@@ -517,7 +543,7 @@ def user_exists_in_db(email):
         is_uri = path.startswith("file:") and "mode=memory" in path
         conn = sqlite3.connect(path, timeout=30, uri=is_uri, check_same_thread=False)
         cursor = conn.cursor()
-        cursor.execute("SELECT id FROM users WHERE email = ?", (email.strip(),))
+        cursor.execute("SELECT id FROM users WHERE email = ?", (email.strip().lower(),))
         exists = cursor.fetchone() is not None
         conn.close()
         return exists
@@ -527,9 +553,11 @@ def user_exists_in_db(email):
 
 def update_user_password(email, new_password):
     """重設本系統註冊用戶的密碼（僅限 SQLite users 表）；密碼須通過強度檢核。回傳 (success, message)。"""
-    email = email.strip()
-    if not email or not new_password:
-        return False, "電子郵件與新密碼不可為空"
+    if not email or not isinstance(email, str) or not email.strip():
+        return False, "請輸入電子郵件"
+    if not new_password or not isinstance(new_password, str) or not new_password.strip():
+        return False, "請輸入新密碼"
+    email = email.strip().lower()
     ok, msg = validate_password_strength(new_password)
     if not ok:
         return False, msg
@@ -757,12 +785,13 @@ def login_page():
                             success, message = verify_user(email.strip(), password)
                             if success:
                                 st.session_state.authenticated = True
-                                st.session_state.user_email = email.strip()
+                                _email_norm = email.strip().lower()
+                                st.session_state.user_email = _email_norm
                                 _login_at = datetime.now().isoformat()
                                 st.session_state.login_at = _login_at
                                 st.session_state.pop("login_csrf_token", None)
                                 _tok = _secrets_module.token_urlsafe(32)
-                                if _save_auth_session(_tok, email.strip(), _login_at):
+                                if _save_auth_session(_tok, _email_norm, _login_at):
                                     st.query_params["auth"] = _tok
                                 st.success(f"✅ {message}")
                                 time.sleep(0.5)
@@ -825,12 +854,13 @@ def login_page():
                     success, message = register_user(email, password, invitation_code or "")
                     if success:
                         st.session_state.authenticated = True
-                        st.session_state.user_email = email.strip()
+                        _email_norm = email.strip().lower()
+                        st.session_state.user_email = _email_norm
                         _login_at = datetime.now().isoformat()
                         st.session_state.login_at = _login_at
                         st.session_state.pop("login_csrf_token", None)
                         _tok = _secrets_module.token_urlsafe(32)
-                        if _save_auth_session(_tok, email.strip(), _login_at):
+                        if _save_auth_session(_tok, _email_norm, _login_at):
                             st.query_params["auth"] = _tok
                         st.success(f"✅ {message}")
                         time.sleep(0.5)

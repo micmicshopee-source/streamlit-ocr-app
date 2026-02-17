@@ -25,13 +25,15 @@ streamlit run app.py
 
 ### 設定
 
-建立 `.streamlit/secrets.toml`：
+複製 `.streamlit/secrets.toml.example` 為 `.streamlit/secrets.toml` 並填入實際值。必填／常用項：
 
-```toml
-GEMINI_API_KEY = "你的Gemini金鑰"
-```
+| 項目 | 說明 |
+|------|------|
+| `GEMINI_API_KEY` | 發票 OCR、AI 小助理（對獎／CSV／報表可不設） |
+| `CONTACT_EMAIL` | 聯絡信箱（隱私政策、反饋收件） |
+| `SMTP_APP_PASSWORD` | Gmail 應用程式密碼；設定後「反饋意見」可從站內直接寄信至 `CONTACT_EMAIL` |
 
-發票 OCR 與 AI 小助理需此金鑰；對獎、CSV 導入與報表導出可不設定。
+Gmail 應用程式密碼：Google 帳戶 → 安全性 → 兩步驟驗證 → 應用程式密碼。
 
 ---
 
